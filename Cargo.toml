@@ -1,0 +1,11 @@
+[package]
+name = "petrivet"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ahash = "0.8.12"
+num-traits = "0.2.19"
+petgraph = "0.8.2"
+kd-tree = "0.6.1"
+nalgebra = "0.34.1"
