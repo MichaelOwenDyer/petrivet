@@ -29,6 +29,7 @@
 //!
 //! Timed & Stochastic Nets: Associate a time delay (deterministic or probabilistic) with transitions or places, used for performance analysis.
 #![feature(step_trait)]
+#![allow(unused)]
 
 pub mod structure;
 pub mod behavior;

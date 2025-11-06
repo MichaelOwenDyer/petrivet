@@ -1,73 +1,81 @@
-use nalgebra::DMatrix;
-use num_traits::{Signed, Unsigned, Zero};
+use nalgebra::{DMatrix, Dyn, MatrixView, U1};
+use num_traits::Zero;
 use petgraph::Graph;
+use std::fmt;
 use std::hash::Hash;
-use std::iter::Step;
-use std::ops::{AddAssign, Index};
+use petgraph::graph::NodeIndex;
+
+pub type Index = u8;
 
 /// A place is a location in the net where tokens can be stored.
 /// It is identified by a unique identifier, which is typically a numeric ID.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Place<Index> {
+pub struct Place {
     pub index: Index,
 }
 
+impl fmt::Display for Place {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "p{}", self.index)
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Transition<Index> {
+pub struct Transition {
     pub index: Index,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Node<Index> {
-    Place(Place<Index>),
-    Transition(Transition<Index>),
+impl fmt::Display for Transition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "t{}", self.index)
+    }
 }
 
-impl<Index: NetIndex> From<Place<Index>> for Node<Index> {
-    fn from(place: Place<Index>) -> Node<Index> {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Node {
+    Place(Place),
+    Transition(Transition),
+}
+
+impl From<Place> for Node {
+    fn from(place: Place) -> Node {
         Node::Place(place)
     }
 }
 
-impl<Index: NetIndex> From<Transition<Index>> for Node<Index> {
-    fn from(transition: Transition<Index>) -> Node<Index> {
+impl From<Transition> for Node {
+    fn from(transition: Transition) -> Node {
         Node::Transition(transition)
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Arc<Index> {
-    PlaceTransition(Place<Index>, Transition<Index>),
-    TransitionPlace(Transition<Index>, Place<Index>),
+pub enum Arc {
+    PlaceTransition(Place, Transition),
+    TransitionPlace(Transition, Place),
 }
 
-impl<Index> From<(Place<Index>, Transition<Index>)> for Arc<Index> {
-    fn from((place, transition): (Place<Index>, Transition<Index>)) -> Self {
+impl From<(Place, Transition)> for Arc {
+    fn from((place, transition): (Place, Transition)) -> Self {
         Arc::PlaceTransition(place, transition)
     }
 }
 
-impl<Index> From<(Transition<Index>, Place<Index>)> for Arc<Index> {
-    fn from((transition, place): (Transition<Index>, Place<Index>)) -> Self {
+impl From<(Transition, Place)> for Arc {
+    fn from((transition, place): (Transition, Place)) -> Self {
         Arc::TransitionPlace(transition, place)
     }
 }
 
-pub trait NetTrait<Index: NetIndex> {
-    fn places(&self) -> impl Iterator<Item = Place<Index>>;
-    fn transitions(&self) -> impl Iterator<Item = Transition<Index>>;
-    fn arcs(&self) -> impl Iterator<Item = Arc<Index>>;
-    fn preset_t(&self, transition: Transition<Index>) -> Vec<Place<Index>>;
-    fn postset_t(&self, transition: Transition<Index>) -> Vec<Place<Index>>;
-    fn preset_p(&self, place: Place<Index>) -> Vec<Transition<Index>>;
-    fn postset_p(&self, place: Place<Index>) -> Vec<Transition<Index>>;
-}
-
-/// A trait for types that can be used as indices for places and transitions in a Petri net.
-/// The majority of Petri net have far fewer than 256 places or transitions, so u8 is a good default.
-pub trait NetIndex: Unsigned + AddAssign + Copy + Step + Ord + Hash + Into<usize> {}
-
-impl<T> NetIndex for T where T: Unsigned + AddAssign + Copy + Step + Ord + Hash + Into<usize> {}
+// pub trait NetTrait {
+//     fn places(&self) -> impl Iterator<Item = Place>;
+//     fn transitions(&self) -> impl Iterator<Item = Transition>;
+//     fn arcs(&self) -> impl Iterator<Item = Arc>;
+//     fn preset_t(&self, transition: Transition) -> Vec<Place>;
+//     fn postset_t(&self, transition: Transition) -> Vec<Place>;
+//     fn preset_p(&self, place: Place) -> Vec<Transition>;
+//     fn postset_p(&self, place: Place) -> Vec<Transition>;
+// }
 
 /// The incidence matrix of a net describes the net effect of firing each transition on the marking of each place.
 /// It is a |S| x |T| matrix N where:
@@ -82,41 +90,19 @@ pub struct SInvariant(Box<[usize]>);
 pub struct TInvariant(Box<[usize]>);
 
 impl IncidenceMatrix {
-    fn new<Index: NetIndex>(
-        num_places: Index,
-        num_transitions: Index,
-        arcs: &[Arc<Index>],
-    ) -> IncidenceMatrix {
-        let mut matrix: DMatrix<i8> = DMatrix::zeros(num_places.into(), num_transitions.into());
-        for arc in arcs {
-            match arc {
-                Arc::PlaceTransition(place, transition) => {
-                    matrix[(place.index.into(), transition.index.into())] -= 1;
-                }
-                Arc::TransitionPlace(transition, place) => {
-                    matrix[(place.index.into(), transition.index.into())] += 1;
-                }
-            }
-        }
-        IncidenceMatrix(matrix)
-    }
-
-    fn s_invariants(&self) {
+    // fn s_invariants(&self) {
         // self.0.cast::<f64>().svd_unordered(true, true).solve()
-    }
+    // }
 }
 
-impl<Ix: NetIndex> Index<Transition<Ix>> for IncidenceMatrix {
-    type Output = [i8];
-    fn index(&self, transition: Transition<Ix>) -> &Self::Output {
-        &self.0.column(transition.index.into()).as_slice()
+impl IncidenceMatrix {
+    #[must_use]
+    pub fn column(&self, transition: Transition) -> MatrixView<'_, i8, Dyn, U1, U1, Dyn> {
+        self.0.column(transition.index.into())
     }
-}
-
-impl<Ix: NetIndex> Index<Place<Ix>> for IncidenceMatrix {
-    type Output = [i8];
-    fn index(&self, place: Place<Ix>) -> &Self::Output {
-        &self.0.row(place.index.into()).as_slice()
+    #[must_use]
+    pub fn row(&self, transition: Transition) -> MatrixView<'_, i8, U1, Dyn, U1, Dyn> {
+        self.0.row(transition.index.into())
     }
 }
 
@@ -131,7 +117,7 @@ impl<Ix: NetIndex> Index<Place<Ix>> for IncidenceMatrix {
 /// and the set x• = {y | (x, y) ∈ F} is called the postset of x.
 /// For X ⊆ S ∪ T, we define •X = ∪<sub>x∈X</sub> •x and X• = ∪<sub>x∈X</sub> x•.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Net<Index: NetIndex> {
+pub struct Net {
     /// Denotes the number of places, densely indexed from 0 to num_places-1
     n_places: Index,
 
@@ -139,76 +125,84 @@ pub struct Net<Index: NetIndex> {
     n_transitions: Index,
 
     /// The input places of each transition, indexed by transition ID.
-    preset: Box<[Box<[Place<Index>]>]>,
+    preset: Box<[Box<[Place]>]>,
 
     /// The output places of each transition, indexed by transition ID.
-    postset: Box<[Box<[Place<Index>]>]>,
+    postset: Box<[Box<[Place]>]>,
 
-    preset_p: Box<[Box<[Transition<Index>]>]>,
+    preset_p: Box<[Box<[Transition]>]>,
 
-    postset_p: Box<[Box<[Transition<Index>]>]>,
+    postset_p: Box<[Box<[Transition]>]>,
 
     /// The incidence matrix of the net.
     pub(crate) incidence_matrix: IncidenceMatrix,
 }
 
-impl<Index: NetIndex> Net<Index> {
+impl Net {
+    #[must_use]
     pub fn n_places(&self) -> Index {
         self.n_places
     }
     
     /// Returns an iterator over all places in the net.
-    pub fn places(&self) -> impl Iterator<Item=Place<Index>> {
+    pub fn places(&self) -> impl Iterator<Item=Place> {
         (Index::zero()..self.n_places).map(|index| Place { index })
     }
 
+    #[must_use]
     pub fn n_transitions(&self) -> Index {
         self.n_transitions
     }
 
     /// Returns an iterator over all transitions in the net.
-    pub fn transitions(&self) -> impl Iterator<Item = Transition<Index>> {
+    pub fn transitions(&self) -> impl Iterator<Item = Transition> {
         (Index::zero()..self.n_transitions).map(|index| Transition { index })
     }
 
     /// Returns an iterator over all arcs in the net.
-    pub fn arcs(&self) -> impl Iterator<Item = Arc<Index>> {
-        self.transitions().map(|t| (t, self.preset_t(t), self.postset_t(t))).flat_map(|(t, preset, postset)| {
-            Iterator::chain(
-                preset.map(move |&p| Arc::PlaceTransition(p, t)),
-                postset.map(move |&p| Arc::TransitionPlace(t, p)),
-            )
-        })
+    pub fn arcs(&self) -> impl Iterator<Item = Arc> {
+        self.transitions()
+            .map(|t| (t, self.preset_t(t), self.postset_t(t)))
+            .flat_map(|(t, preset, postset)| {
+                Iterator::chain(
+                    preset.map(move |&p| Arc::PlaceTransition(p, t)),
+                    postset.map(move |&p| Arc::TransitionPlace(t, p)),
+                )
+            })
     }
 
-    pub fn preset_t(&self, transition: Transition<Index>) -> impl Iterator<Item = &Place<Index>> {
-        self.preset[transition.index.into()].iter()
+    pub fn preset_t(&self, transition: Transition) -> impl Iterator<Item = &Place> {
+        self.preset[usize::from(transition.index)].iter()
     }
 
-    pub fn postset_t(&self, transition: Transition<Index>) -> impl Iterator<Item = &Place<Index>> {
-        self.postset[transition.index.into()].iter()
+    pub fn postset_t(&self, transition: Transition) -> impl Iterator<Item = &Place> {
+        self.postset[usize::from(transition.index)].iter()
     }
 
-    pub fn preset_p(&self, place: Place<Index>) -> impl Iterator<Item = &Transition<Index>> {
-        self.preset_p[place.index.into()].iter()
+    pub fn preset_p(&self, place: Place) -> impl Iterator<Item = &Transition> {
+        self.preset_p[usize::from(place.index)].iter()
     }
 
-    pub fn postset_p(&self, place: Place<Index>) -> impl Iterator<Item = &Transition<Index>> {
-        self.preset_p[place.index.into()].iter()
+    pub fn postset_p(&self, place: Place) -> impl Iterator<Item = &Transition> {
+        self.preset_p[usize::from(place.index)].iter()
     }
 
+    #[must_use]
     pub fn is_circuit(&self) -> bool {
         self.is_s_net() && self.is_t_net()
     }
 
+    #[must_use]
     pub fn is_s_net(&self) -> bool {
         self.transitions().all(|t| self.preset_t(t).count() == 1 && self.postset_t(t).count() == 1)
     }
 
+    #[must_use]
     pub fn is_t_net(&self) -> bool {
         self.places().all(|p| self.preset_p(p).count() == 1 && self.postset_p(p).count() == 1)
     }
 
+    #[must_use]
     pub fn is_free_choice(&self) -> bool {
         self.transitions().all(|t1| {
             self.transitions().all(|t2| {
@@ -225,39 +219,41 @@ impl<Index: NetIndex> Net<Index> {
         })
     }
 
+    #[must_use]
     pub fn n_nodes(&self) -> Index {
         self.n_transitions + self.n_places
     }
 
-    pub fn nodes(&self) -> impl Iterator<Item=Node<Index>> {
+    pub fn nodes(&self) -> impl Iterator<Item=Node> {
         Iterator::chain(
-            self.places().map(Node::from),
-            self.transitions().map(Node::from),
+            self.places().map(Node::Place),
+            self.transitions().map(Node::Transition),
         )
     }
 
-    pub fn to_graph(&self) -> Graph<Node<Index>, ()> {
+    #[must_use]
+    pub fn to_graph(&self) -> Graph<Node, ()> {
         let mut graph = Graph::with_capacity(self.nodes().count(), self.arcs().count());
-        let map: ahash::HashMap<_, _> = self.nodes()
+        let map: ahash::HashMap<Node, NodeIndex> = self.nodes()
             .map(|node| (node, graph.add_node(node)))
             .collect();
-        self.transitions()
-            .for_each(|t| {
-                let transition_idx = map[&Node::Transition(t)];
-                self.preset_t(t)
-                    .map(|&p| map[&Node::Place(p)])
-                    .for_each(|input_place| {
-                        graph.add_edge(input_place, transition_idx, ());
-                    });
-                self.postset_t(t)
-                    .map(|&p| map[&Node::Place(p)])
-                    .for_each(|input_place| {
-                        graph.add_edge(input_place, transition_idx, ());
-                    });
-            });
+        self.transitions().for_each(|t| {
+            let transition_idx = map[&Node::Transition(t)];
+            self.preset_t(t)
+                .map(|&p| map[&Node::Place(p)])
+                .for_each(|input_place_idx| {
+                    graph.add_edge(input_place_idx, transition_idx, ());
+                });
+            self.postset_t(t)
+                .map(|&p| map[&Node::Place(p)])
+                .for_each(|output_place_idx| {
+                    graph.add_edge(transition_idx, output_place_idx, ());
+                });
+        });
         graph
     }
 
+    #[must_use]
     pub fn is_strongly_connected(&self) -> bool {
         let graph = self.to_graph();
         let sccs = petgraph::algo::kosaraju_scc(&graph);
@@ -328,7 +324,7 @@ impl<Index: NetIndex> Net<Index> {
 /// Then there is a firing sequence M<sub>0</sub> <sup>σ</sup>→ M
 /// such that `|σ| ≤ bn(n+1)(n+2)/6`, where n = |T| is the number of transitions of N.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FreeChoiceNet<Index: NetIndex>(Net<Index>);
+pub struct FreeChoiceNet(Net);
 
 /// A net N = (S, T, F) is a `T-net` if |•s| = |s•| = 1 for every place s ∈ S.
 /// This means each place has exactly one input and one output transition.
@@ -389,7 +385,7 @@ pub struct FreeChoiceNet<Index: NetIndex>(Net<Index>);
 ///   For any marking M reachable from M<sub>0</sub>, there exists a firing sequence
 ///   M<sub>0</sub> <sup>σ</sup>→ M such that |σ| ≤ b * n(n-1)/2, where n = |T| is the number of transitions.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TNet<Index: NetIndex>(Net<Index>);
+pub struct TNet(Net);
 
 /// A net N = (S, T, F) is an `S-net` if |•t| = |t•| = 1 for every transition t ∈ T.
 /// This means each transition has exactly one input and one output place.
@@ -413,7 +409,7 @@ pub struct TNet<Index: NetIndex>(Net<Index>);
 ///   Let N = (S, T, F) be an S-net. A vector I: S → Q is an S-invariant of N
 ///   iff I = (x, ..., x) for some x ∈ Q.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SNet<Index: NetIndex>(pub(crate) Net<Index>);
+pub struct SNet(pub(crate) Net);
 
 /// A net N = (S, T, F) is a `circuit` iff it is both an S-net and a T-net,
 /// i.e., |•t| = |t•| = 1 for every t ∈ T and |•s| = |s•| = 1 for every s ∈ S.
@@ -433,26 +429,36 @@ pub struct SNet<Index: NetIndex>(pub(crate) Net<Index>);
 /// iff I = (x, ..., x) for some x ∈ Q. Similarly, a vector J: T → Q is a T-invariant of N
 /// iff J = (y, ..., y) for some y ∈ Q.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Circuit<Index: NetIndex>(Net<Index>);
+pub struct Circuit(Net);
 
 /// Structural classification of Petri nets.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StructureClass<Index: NetIndex> {
+pub enum StructureClass {
     /// The most general class of Petri nets, with no structural restrictions.
-    Unrestricted(Net<Index>),
+    Unrestricted(Net),
     /// Subclass of unrestricted nets where for every two transitions t1, t2 ∈ T,
     /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
-    FreeChoiceNet(FreeChoiceNet<Index>),
+    FreeChoiceNet(FreeChoiceNet),
     /// Subclass of free-choice nets where |•s| = |s•| = 1 for every place s ∈ S.
-    TNet(TNet<Index>),
+    TNet(TNet),
     /// Subclass of free-choice nets where |•t| = |t•| = 1 for every transition t ∈ T.
-    SNet(SNet<Index>),
+    SNet(SNet),
     /// A net fulfilling both the S-net and T-net properties.
-    Circuit(Circuit<Index>),
+    Circuit(Circuit),
 }
 
-impl<Index: NetIndex> StructureClass<Index> {
-    pub fn into_inner(self) -> Net<Index> {
+impl StructureClass {
+    #[must_use]
+    pub fn into_inner(self) -> Net {
+        match self {
+            StructureClass::Unrestricted(net) => net,
+            StructureClass::FreeChoiceNet(FreeChoiceNet(net)) => net,
+            StructureClass::TNet(TNet(net)) => net,
+            StructureClass::SNet(SNet(net)) => net,
+            StructureClass::Circuit(Circuit(net)) => net,
+        }
+    }
+    pub fn inner(&self) -> &Net {
         match self {
             StructureClass::Unrestricted(net) => net,
             StructureClass::FreeChoiceNet(FreeChoiceNet(net)) => net,
@@ -463,10 +469,10 @@ impl<Index: NetIndex> StructureClass<Index> {
     }
 }
 
-impl<Index: NetIndex> TryFrom<Net<Index>> for Circuit<Index> {
-    type Error = Net<Index>;
+impl TryFrom<Net> for Circuit {
+    type Error = Net;
 
-    fn try_from(net: Net<Index>) -> Result<Self, Self::Error> {
+    fn try_from(net: Net) -> Result<Self, Self::Error> {
         if net.is_circuit() {
             Ok(Circuit(net))
         } else {
@@ -475,10 +481,10 @@ impl<Index: NetIndex> TryFrom<Net<Index>> for Circuit<Index> {
     }
 }
 
-impl<Index: NetIndex> TryFrom<Net<Index>> for SNet<Index> {
-    type Error = Net<Index>;
+impl TryFrom<Net> for SNet {
+    type Error = Net;
 
-    fn try_from(net: Net<Index>) -> Result<Self, Self::Error> {
+    fn try_from(net: Net) -> Result<Self, Self::Error> {
         if net.is_s_net() {
             Ok(SNet(net))
         } else {
@@ -487,10 +493,10 @@ impl<Index: NetIndex> TryFrom<Net<Index>> for SNet<Index> {
     }
 }
 
-impl<Index: NetIndex> TryFrom<Net<Index>> for TNet<Index> {
-    type Error = Net<Index>;
+impl TryFrom<Net> for TNet {
+    type Error = Net;
 
-    fn try_from(net: Net<Index>) -> Result<Self, Self::Error> {
+    fn try_from(net: Net) -> Result<Self, Self::Error> {
         if net.is_t_net() {
             Ok(TNet(net))
         } else {
@@ -499,10 +505,10 @@ impl<Index: NetIndex> TryFrom<Net<Index>> for TNet<Index> {
     }
 }
 
-impl<Index: NetIndex> TryFrom<Net<Index>> for FreeChoiceNet<Index> {
-    type Error = Net<Index>;
+impl TryFrom<Net> for FreeChoiceNet {
+    type Error = Net;
 
-    fn try_from(net: Net<Index>) -> Result<Self, Self::Error> {
+    fn try_from(net: Net) -> Result<Self, Self::Error> {
         if net.is_free_choice() {
             Ok(FreeChoiceNet(net))
         } else {
@@ -512,13 +518,18 @@ impl<Index: NetIndex> TryFrom<Net<Index>> for FreeChoiceNet<Index> {
 }
 
 pub mod builder {
-    use crate::structure::{Arc, Circuit, FreeChoiceNet, IncidenceMatrix, Net, NetIndex, Place, SNet, StructureClass, TNet, Transition};
+    use crate::structure::{Arc, Circuit, FreeChoiceNet, IncidenceMatrix, Index, Net, Place, SNet, StructureClass, TNet, Transition};
+    use nalgebra::DMatrix;
+    use num_traits::{One, Zero};
+    use std::error::Error;
+    use std::fmt::{Display, Formatter};
+    use std::ops::AddAssign;
 
     #[derive(Debug, Clone)]
-    pub struct NetBuilder<Index: NetIndex> {
+    pub struct NetBuilder {
         num_places: Index,
         num_transitions: Index,
-        arcs: Vec<Arc<Index>>,
+        arcs: Vec<Arc>,
     }
 
     #[derive(Debug)]
@@ -529,15 +540,27 @@ pub mod builder {
         InvalidArc,
     }
 
-    impl<Index: NetIndex> Default for NetBuilder<Index> {
+    impl Display for BuildError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            match self {
+                BuildError::NotConnected => write!(f, "the net is not connected"),
+                BuildError::InvalidArc => write!(f, "an arc references a non-existent place or transition"),
+            }
+        }
+    }
+
+    impl Error for BuildError {}
+
+    impl Default for NetBuilder {
         fn default() -> Self {
             Self::new()
         }
     }
 
-    impl<Index: NetIndex> NetBuilder<Index> {
+    impl NetBuilder {
         /// Creates a new, empty builder.
         /// ```
+        /// use petrivet::structure::builder::NetBuilder;
         /// let builder = NetBuilder::new();
         /// ```
         #[must_use]
@@ -551,11 +574,12 @@ pub mod builder {
 
         /// Adds a new place to the net, returning a safe handle to it.
         /// ```
+        /// use petrivet::structure::builder::NetBuilder;
         /// let mut builder = NetBuilder::new();
         /// let p1 = builder.add_place();
         /// let p2 = builder.add_place();
         /// ```
-        pub fn add_place(&mut self) -> Place<Index> {
+        pub fn add_place(&mut self) -> Place {
             let place = Place { index: self.num_places };
             self.num_places.add_assign(Index::one());
             place
@@ -563,24 +587,25 @@ pub mod builder {
 
         /// Adds a new transition, returning a safe handle.
         /// ```
+        /// use petrivet::structure::builder::NetBuilder;
         /// let mut builder = NetBuilder::new();
         /// let t1 = builder.add_transition();
         /// let t2 = builder.add_transition();
         /// ```
-        pub fn add_transition(&mut self) -> Transition<Index> {
+        pub fn add_transition(&mut self) -> Transition {
             let transition = Transition { index: self.num_transitions };
             self.num_transitions.add_assign(Index::one());
             transition
         }
 
         /// Adds N places to the net, returning an array of safe handles.
-        /// The number of places is determined by the const generic parameter N.
         /// ```
+        /// use petrivet::structure::builder::NetBuilder;
         /// let mut builder = NetBuilder::new();
         /// let [p1, p2, p3] = builder.add_places();
         /// let [p4, p5] = builder.add_places();
         /// ```
-        pub fn add_places<const N: usize>(&mut self) -> [Place<Index>; N] {
+        pub fn add_places<const N: usize>(&mut self) -> [Place; N] {
             let mut places = [Place { index: Index::zero() }; N];
             for place in &mut places {
                 *place = self.add_place();
@@ -589,12 +614,12 @@ pub mod builder {
         }
 
         /// Adds N transitions to the net, returning an array of safe handles.
-        /// The number of transitions is determined by the const generic parameter N.
         /// ```
+        /// use petrivet::structure::builder::NetBuilder;
         /// let mut builder = NetBuilder::new();
         /// let [t1, t2] = builder.add_transitions();
         /// let [t3, t4, t5] = builder.add_transitions();
-        pub fn add_transitions<const N: usize>(&mut self) -> [Transition<Index>; N] {
+        pub fn add_transitions<const N: usize>(&mut self) -> [Transition; N] {
             let mut transitions = [Transition { index: Index::zero() }; N];
             for transition in &mut transitions {
                 *transition = self.add_transition();
@@ -607,13 +632,14 @@ pub mod builder {
         /// - `add_arc((place_id, transition_id))` for place-to-transition arcs
         /// - `add_arc((transition_id, place_id))` for transition-to-place arcs
         /// ```
+        /// use petrivet::structure::builder::NetBuilder;
         /// let mut builder = NetBuilder::new();
         /// let [p0, p1] = builder.add_places();
         /// let [t0] = builder.add_transitions();
         /// builder.add_arc((p0, t0)); // place to transition
         /// builder.add_arc((t0, p1)); // transition to place
         /// ```
-        pub fn add_arc<A: Into<Arc<Index>>>(&mut self, arc: A) {
+        pub fn add_arc<A: Into<Arc>>(&mut self, arc: A) {
             self.arcs.push(arc.into());
         }
 
@@ -624,6 +650,7 @@ pub mod builder {
         /// - All places and transitions are referenced by at least one arc.
         /// - All arcs reference valid place and transition IDs.
         /// ```
+        /// use petrivet::structure::builder::NetBuilder;
         /// let mut builder = NetBuilder::new();
         /// let [p0, p1] = builder.add_places();
         /// let [t0] = builder.add_transitions();
@@ -636,41 +663,38 @@ pub mod builder {
         /// This function will return an error if:
         /// - The net is not connected (some places or transitions are isolated).
         /// - An arc references a non-existent place or transition.
-        pub fn build(self) -> Result<StructureClass<Index>, BuildError> {
+        pub fn build(self) -> Result<StructureClass, BuildError> {
             // check if all places and transitions are referenced by at least one arc
             let mut preset = vec![Vec::new(); self.num_transitions.into()].into_boxed_slice();
             let mut postset = vec![Vec::new(); self.num_transitions.into()].into_boxed_slice();
             let mut preset_p = vec![Vec::new(); self.num_places.into()].into_boxed_slice();
             let mut postset_p = vec![Vec::new(); self.num_places.into()].into_boxed_slice();
-            for arc in &self.arcs {
+            let mut matrix: DMatrix<i8> = DMatrix::zeros(self.num_places.into(), self.num_transitions.into());
+            for arc in self.arcs {
                 match arc {
                     Arc::PlaceTransition(place, transition) => {
                         if place.index >= self.num_places || transition.index >= self.num_transitions {
                             return Err(BuildError::InvalidArc);
                         }
-                        preset[transition.index.into()].push(*place);
-                        postset_p[place.index.into()].push(*transition);
+                        preset[usize::from(transition.index)].push(place);
+                        postset_p[usize::from(place.index)].push(transition);
+                        matrix[(place.index.into(), transition.index.into())] -= 1;
                     }
                     Arc::TransitionPlace(transition, place) => {
                         if transition.index >= self.num_transitions || place.index >= self.num_places {
                             return Err(BuildError::InvalidArc);
                         }
-                        postset[transition.index.into()].push(*place);
-                        preset_p[place.index.into()].push(*transition);
+                        postset[usize::from(transition.index)].push(place);
+                        preset_p[usize::from(place.index)].push(transition);
+                        matrix[(place.index.into(), transition.index.into())] += 1;
                     }
                 }
             }
-            if preset.iter().any(Vec::is_empty)
-                || postset.iter().any(Vec::is_empty)
-                || preset_p.iter().any(Vec::is_empty)
-                || postset_p.iter().any(Vec::is_empty) {
+            if Iterator::zip(preset.iter(), postset.iter()).any(|(pre, post)| pre.is_empty() && post.is_empty())
+                || Iterator::zip(preset_p.iter(), postset_p.iter()).any(|(pre, post)| pre.is_empty() && post.is_empty()) {
                 return Err(BuildError::NotConnected);
             }
-            let incidence_matrix = IncidenceMatrix::new(
-                self.num_places,
-                self.num_transitions,
-                &self.arcs,
-            );
+            let incidence_matrix = IncidenceMatrix(matrix);
             let net = Net {
                 n_places: self.num_places,
                 n_transitions: self.num_transitions,
@@ -689,11 +713,9 @@ pub mod builder {
     }
 
     mod test {
-        use super::{BuildError, NetBuilder};
-
         #[test]
         fn test_builder() {
-            let mut builder = NetBuilder::<u8>::new();
+            let mut builder = super::NetBuilder::new();
             let [p0, p1, p2] = builder.add_places();
             let [t0, t1] = builder.add_transitions();
             builder.add_arc((p0, t0));
@@ -708,28 +730,28 @@ pub mod builder {
 
         #[test]
         fn test_builder_invalid_arc() {
-            let mut builder = NetBuilder::<u8>::new();
-            let mut other_builder = NetBuilder::new();
+            let mut builder = super::NetBuilder::new();
+            let mut other_builder = super::NetBuilder::new();
             let p0 = builder.add_place();
             let _ = builder.add_transition();
             let [_, t1] = other_builder.add_transitions();
             builder.add_arc((p0, t1)); // t1 does not exist in builder
-            assert!(matches!(builder.build(), Err(BuildError::InvalidArc)));
+            assert!(matches!(builder.build(), Err(super::BuildError::InvalidArc)));
         }
 
         #[test]
         fn test_builder_not_connected() {
-            let mut builder = NetBuilder::<u8>::new();
+            let mut builder = super::NetBuilder::new();
             let p0 = builder.add_place();
             let [t0, _t1] = builder.add_transitions();
             builder.add_arc((p0, t0));
             // _t1 is not connected
-            assert!(matches!(builder.build(), Err(BuildError::NotConnected)));
+            assert!(matches!(builder.build(), Err(super::BuildError::NotConnected)));
         }
 
         #[test]
         fn test_builder_circuit() {
-            let mut builder = NetBuilder::<u8>::new();
+            let mut builder = super::NetBuilder::new();
             let [p0, p1] = builder.add_places();
             let [t0, t1] = builder.add_transitions();
             builder.add_arc((p0, t0));
@@ -742,7 +764,7 @@ pub mod builder {
 
         #[test]
         fn test_builder_s_net() {
-            let mut builder = NetBuilder::<u8>::new();
+            let mut builder = super::NetBuilder::new();
             let [p0, p1, p2] = builder.add_places();
             let [t0, t1] = builder.add_transitions();
             builder.add_arc((p0, t0));
@@ -755,7 +777,7 @@ pub mod builder {
 
         #[test]
         fn test_builder_t_net() {
-            let mut builder = NetBuilder::<u8>::new();
+            let mut builder = super::NetBuilder::new();
             let [p0, p1] = builder.add_places();
             let [t0, t1, t2] = builder.add_transitions();
             builder.add_arc((p0, t0));
@@ -770,7 +792,7 @@ pub mod builder {
 
         #[test]
         fn test_builder_free_choice_net() {
-            let mut builder = NetBuilder::<u8>::new();
+            let mut builder = super::NetBuilder::new();
             let [p0, p1, p2] = builder.add_places();
             let [t0, t1] = builder.add_transitions();
             builder.add_arc((p0, t0));
@@ -783,7 +805,7 @@ pub mod builder {
 
         #[test]
         fn test_builder_unrestricted_net() {
-            let mut builder = NetBuilder::<u8>::new();
+            let mut builder = super::NetBuilder::new();
             let [p0, p1] = builder.add_places();
             let [t0, t1] = builder.add_transitions();
             builder.add_arc((p0, t0));
