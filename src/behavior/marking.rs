@@ -1,53 +1,32 @@
 use crate::structure::{Net, Place};
+use derive_more::{Add, Sub, AddAssign, SubAssign};
+use num_traits::Zero;
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
-use std::ops::{Add, Index, IndexMut, Sub};
+use std::fmt;
+use std::ops::{Add, AddAssign, Index, IndexMut, Sub, SubAssign};
 
-/// A simple token count type for testing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct Tokens(pub u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Add, Sub, AddAssign, SubAssign)]
+pub struct Tokens(pub i32);
 
-impl From<u32> for Tokens {
-    fn from(value: u32) -> Self {
-        Tokens(value)
+impl<T: Into<i32>> From<T> for Tokens {
+    fn from(value: T) -> Self {
+        Tokens(value.into())
     }
 }
 
-impl Display for Tokens {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl Zero for Tokens {
+    fn zero() -> Self {
+        Tokens(0)
+    }
+
+    fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl fmt::Display for Tokens {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TokenError {
-    Underflow,
-    Overflow,
-}
-
-impl Add for Tokens {
-    type Output = Result<Self, TokenError>;
-    fn add(self, other: Self) -> Self::Output {
-        self.0.checked_add(other.0).map(Tokens).ok_or(TokenError::Overflow)
-    }
-}
-
-impl Sub for Tokens {
-    type Output = Result<Self, TokenError>;
-    fn sub(self, other: Self) -> Self::Output {
-        self.0.checked_sub(other.0).map(Tokens).ok_or(TokenError::Underflow)
-    }
-}
-
-impl<I: Into<i32>> Add<I> for Tokens {
-    type Output = Result<Self, TokenError>;
-
-    fn add(self, rhs: I) -> Self::Output {
-        let rhs: i32 = rhs.into();
-        self.0
-            .checked_add_signed(rhs)
-            .map(Tokens)
-            .ok_or(if rhs < 0 { TokenError::Underflow } else { TokenError::Overflow })
     }
 }
 
@@ -90,7 +69,6 @@ impl<T> IntoIterator for Marking<T> {
 
 macro_rules! impl_marking_trait_for_tuple {
     ($($name:tt),+) => {
-        #[allow(non_snake_case)]
         impl<T, $($name),+> From<($($name),+)> for Marking<T>
         where
             $($name: Into<T>,)+
@@ -103,7 +81,19 @@ macro_rules! impl_marking_trait_for_tuple {
     };
 }
 
-// impl_marking_trait_for_tuple!(T1); // conflicts with impl<T> std::convert::From<T> for T; why?
+// impl_marking_trait_for_tuple!(T1);
+// macro currently generates (T1) when it should generate (T1,)
+// so we implement the 1-tuple case manually
+impl<T, T1> From<(T1,)> for Marking<T>
+where
+    T1: Into<T>,
+{
+    #[allow(non_snake_case)]
+    fn from((T1,): (T1,)) -> Self {
+        Marking(Box::new([T1.into()]))
+    }
+}
+
 impl_marking_trait_for_tuple!(T1, T2);
 impl_marking_trait_for_tuple!(T1, T2, T3);
 impl_marking_trait_for_tuple!(T1, T2, T3, T4);
@@ -119,23 +109,21 @@ impl<T> Index<Place> for Marking<T> {
     type Output = T;
 
     fn index(&self, place: Place) -> &Self::Output {
-        let index: usize = place.index.into();
-        self.0.get(index).expect("place index out of bounds")
+        self.0.get(place.index).expect("place index out of bounds")
     }
 }
 
 impl<T> IndexMut<Place> for Marking<T> {
     fn index_mut(&mut self, place: Place) -> &mut Self::Output {
-        let index: usize = place.index.into();
-        self.0.get_mut(index).expect("place index out of bounds")
+        self.0.get_mut(place.index).expect("place index out of bounds")
     }
 }
 
 impl<T> Marking<T> {
     /// Creates a new empty marking with the given capacity (number of places).
     #[must_use]
-    pub fn zero(net: &Net) -> Self where T: Default + Clone {
-        Self(vec![T::default(); net.n_places().into()].into_boxed_slice())
+    pub fn zeroes(n_places: impl Into<usize>) -> Self where T: Zero + Clone {
+        Self(vec![T::zero(); n_places.into()].into_boxed_slice())
     }
 
     /// Returns the number of places in the marking.
@@ -152,13 +140,144 @@ impl<T> Marking<T> {
     }
 
     /// Returns true if the marking is zero (all places have zero tokens).
-    pub fn is_zero(&self) -> bool where T: Default + PartialEq {
-        self.0.iter().all(|t| *t == T::default())
+    #[must_use]
+    pub fn is_zero(&self) -> bool where T: Zero + PartialEq {
+        self.0.iter().all(|t| *t == T::zero())
+    }
+    /// In-place ceiling operation: self[i] = max(self[i], other[i])
+    pub fn ceil(&mut self, other: &Marking<T>) where T: Clone + PartialOrd {
+        debug_assert!(self.len() == other.len(), "mismatched length");
+        for (a, b) in Iterator::zip(self.iter_mut(), other.iter()) {
+            if *a < *b {
+                *a = b.clone();
+            }
+        }
+    }
+    /// In-place floor operation: self[i] = min(self[i], other[i])
+    pub fn floor(&mut self, other: &Marking<T>) where T: Clone + PartialOrd {
+        debug_assert!(self.len() == other.len(), "mismatched length");
+        for (a, b) in Iterator::zip(self.iter_mut(), other.iter()) {
+            if *a > *b {
+                *a = b.clone();
+            }
+        }
+    }
+    pub fn support(&self) -> impl Iterator<Item = Place>
+    where
+        T: Zero + PartialOrd,
+    {
+        self.iter()
+            .enumerate()
+            .filter_map(|(index, t)| {
+                if t > &T::zero() {
+                    Some(Place { index })
+                } else {
+                    None
+                }
+            })
+    }
+    /// Tries to add two markings together. Returns Err(()) if addition overflows for any place.
+    pub fn try_add(mut self, other: &NormalMarking) -> Result<Self, ()>
+    where
+        T: Zero + AddAssign<Tokens> + PartialOrd,
+    {
+        debug_assert!(self.len() == other.len(), "mismatched length");
+        for (a, b) in Iterator::zip(self.iter_mut(), other.iter()) {
+            *a += *b;
+            if (*a < T::zero()) {
+                return Err(());
+            }
+        }
+        Ok(self)
     }
 }
 
-impl<T: Display> Display for Marking<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl OmegaMarking {
+    pub fn omegas(n_places: impl Into<usize>) -> Self {
+        Self(vec![Omega::Omega; n_places.into()].into_boxed_slice())
+    }
+    #[must_use]
+    pub fn is_finite(&self) -> bool {
+        self.iter().all(|t| matches!(t, Omega::Finite(_)))
+    }
+}
+
+pub struct Unbounded;
+
+impl Add for Omega<Tokens> {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Omega::Finite(a), Omega::Finite(b)) => Omega::Finite(a + b),
+            _ => Omega::Omega,
+        }
+    }
+}
+
+impl AddAssign for Omega<Tokens> {
+    fn add_assign(&mut self, other: Self) {
+        *self = match (&self, other) {
+            (Omega::Finite(a), Omega::Finite(b)) => Omega::Finite(*a + b),
+            _ => Omega::Omega,
+        }
+    }
+}
+
+impl AddAssign<Tokens> for Omega<Tokens> {
+    fn add_assign(&mut self, other: Tokens) {
+        *self = match &self {
+            Omega::Finite(a) => Omega::Finite(*a + other),
+            Omega::Omega => Omega::Omega,
+        }
+    }
+}
+
+impl Zero for Omega<Tokens> {
+    fn zero() -> Self {
+        Omega::Finite(Tokens::default())
+    }
+
+    fn is_zero(&self) -> bool {
+        matches!(self, Omega::Finite(t) if *t == Tokens::default())
+    }
+}
+
+impl TryFrom<Omega<Tokens>> for Tokens {
+    type Error = Unbounded;
+
+    fn try_from(value: Omega<Tokens>) -> Result<Self, Self::Error> {
+        match value {
+            Omega::Finite(t) => Ok(t),
+            Omega::Omega => Err(Unbounded),
+        }
+    }
+}
+
+impl TryFrom<OmegaMarking> for NormalMarking {
+    type Error = Unbounded;
+
+    fn try_from(value: OmegaMarking) -> Result<Self, Self::Error> {
+        value.into_iter().map(TryInto::try_into).collect()
+    }
+}
+
+pub fn ceil<T: Clone + PartialOrd>(a: &Marking<T>, b: &Marking<T>) -> Marking<T> {
+    debug_assert!(a.len() == b.len(), "mismatched length");
+    Iterator::zip(a.iter(), b.iter())
+        .map(|(x, y)| if x > y { x.clone() } else { y.clone() })
+        .collect()
+}
+
+pub fn floor<T: Clone + PartialOrd>(a: &Marking<T>, b: &Marking<T>) -> Marking<T> {
+    debug_assert!(a.len() == b.len(), "mismatched length");
+    Iterator::zip(a.iter(), b.iter())
+        .map(|(x, y)| if x < y { x.clone() } else { y.clone() })
+        .collect()
+}
+
+impl<T: fmt::Display> fmt::Display for Marking<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
         for (i, token) in self.iter().enumerate() {
             if i > 0 {
@@ -219,14 +338,41 @@ where
 
 pub type NormalMarking = Marking<Tokens>;
 
-impl Add<&[i8]> for NormalMarking {
-    type Output = Result<Self, TokenError>;
+impl Add<OmegaMarking> for NormalMarking {
+    type Output = OmegaMarking;
 
-    fn add(self, rhs: &[i8]) -> Self::Output {
+    fn add(self, rhs: OmegaMarking) -> Self::Output {
         debug_assert!(self.len() == rhs.len(), "mismatched length");
-        Iterator::zip(self.into_iter(), rhs.iter())
-            .map(|(a, b)| a + *b)
+        Iterator::zip(self.into_iter(), rhs)
+            .map(|(a, b)| a + b)
             .collect()
+    }
+}
+
+impl Add<NormalMarking> for OmegaMarking {
+    type Output = OmegaMarking;
+
+    fn add(self, rhs: NormalMarking) -> Self::Output {
+        rhs + self
+    }
+}
+
+impl Add<Omega<Tokens>> for Tokens {
+    type Output = Omega<Tokens>;
+
+    fn add(self, rhs: Omega<Tokens>) -> Self::Output {
+        match rhs {
+            Omega::Finite(t) => Omega::Finite(self + t),
+            Omega::Omega => Omega::Omega,
+        }
+    }
+}
+
+impl Add<Tokens> for Omega<Tokens> {
+    type Output = Omega<Tokens>;
+
+    fn add(self, rhs: Tokens) -> Self::Output {
+        rhs + self
     }
 }
 
@@ -239,8 +385,8 @@ pub enum Omega<T> {
     Omega, // Omega is greater than any finite value
 }
 
-impl<T: Display> Display for Omega<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl<T: fmt::Display> fmt::Display for Omega<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Omega::Finite(t) => write!(f, "{t}"),
             Omega::Omega => write!(f, "ω"),
@@ -250,8 +396,8 @@ impl<T: Display> Display for Omega<T> {
 
 /// Allow easy conversion from a Token count to an Omega.
 impl<T> From<T> for Omega<Tokens> where T: Into<Tokens> {
-    fn from(tc: T) -> Self {
-        Omega::Finite(tc.into())
+    fn from(t: T) -> Self {
+        Omega::Finite(t.into())
     }
 }
 
@@ -259,20 +405,6 @@ impl<T> From<T> for Omega<Tokens> where T: Into<Tokens> {
 impl<T: Default> Default for Omega<T> {
     fn default() -> Self {
         Omega::Finite(T::default())
-    }
-}
-
-impl Add<i8> for Omega<Tokens> {
-    type Output = Result<Self, TokenError>;
-
-    fn add(self, rhs: i8) -> Self::Output {
-        match self {
-            Omega::Finite(current) => current.0.checked_add_signed(i32::from(rhs))
-                .map(Tokens)
-                .map(Omega::Finite)
-                .ok_or(if rhs < 0 { TokenError::Underflow } else { TokenError::Overflow }),
-            Omega::Omega => Ok(Omega::Omega), // Omega plus or minus any finite number is still Omega
-        }
     }
 }
 
@@ -285,6 +417,15 @@ impl PartialEq<Tokens> for Omega<Tokens> {
             Omega::Finite(t) => t == other,
             Omega::Omega => false,
         }
+    }
+}
+
+/// Makes it possible to compare a finite token count with an omega marking
+/// Omega is always unequal to any finite number
+/// This implementation is specifically for comparing Tokens with Omega<Tokens>
+impl PartialEq<Omega<Tokens>> for Tokens {
+    fn eq(&self, other: &Omega<Tokens>) -> bool {
+        other == self
     }
 }
 
@@ -301,15 +442,6 @@ impl PartialOrd<Tokens> for Omega<Tokens> {
 }
 
 /// Makes it possible to compare a finite token count with an omega marking
-/// Omega is always unequal to any finite number
-/// This implementation is specifically for comparing Tokens with Omega<Tokens>
-impl PartialEq<Omega<Tokens>> for Tokens {
-    fn eq(&self, other: &Omega<Tokens>) -> bool {
-        other == self
-    }
-}
-
-/// Makes it possible to compare a finite token count with an omega marking
 /// Omega is always larger than any finite number
 /// This implementation is specifically for comparing Tokens with Omega<Tokens>
 impl PartialOrd<Omega<Tokens>> for Tokens {
@@ -320,26 +452,27 @@ impl PartialOrd<Omega<Tokens>> for Tokens {
 
 pub type OmegaMarking = Marking<Omega<Tokens>>;
 
+impl OmegaMarking {
+    #[must_use]
+    pub fn is_normal(&self) -> bool {
+        self.iter().all(|t| matches!(t, Omega::Finite(_)))
+    }
+}
+
 impl From<NormalMarking> for OmegaMarking {
     fn from(marking: NormalMarking) -> Self {
         Marking(marking.into_iter().map(Omega::Finite).collect())
     }
 }
 
-impl Add<&[i8]> for OmegaMarking {
-    type Output = Result<Self, TokenError>;
-
-    fn add(self, rhs: &[i8]) -> Self::Output {
-        debug_assert!(self.len() == rhs.len(), "mismatched length");
-        Iterator::zip(self.into_iter(), rhs.iter().copied())
-            .map(|(a, b)| a + b)
-            .collect()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const fn size() {
+        const { assert!(size_of::<Omega<Tokens>>() == 8); }
+        const { assert!(size_of::<Tokens>() == 4); }
+    }
 
     #[test]
     fn test_normal_marking_eq_omega_marking_all_finite() {
@@ -382,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_omega_always_greater_than_finite() {
-        let token = Tokens(u32::MAX); // Even a very large number
+        let token = Tokens(i32::MAX); // Even a very large number
         let omega = Omega::Omega;
 
         assert!(token < omega);

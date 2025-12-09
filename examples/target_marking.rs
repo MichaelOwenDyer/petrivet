@@ -20,7 +20,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let target: OmegaMarking = (0, 1, 100).into();
 
-    for (from, over, to) in petri_net.coverability_iter().dfs() {
+    // TODO: Reduce lifetime of mutable borrow to avoid clone
+    for (from, over, to) in petri_net.clone().coverability_iter().dfs() {
         println!("From: {from} --[{over}]--> To: {to}");
         if target <= to {
             println!("Covered target marking: {to} >= {target}");
