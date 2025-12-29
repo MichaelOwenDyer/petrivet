@@ -33,3 +33,4 @@
 
 pub mod structure;
 pub mod behavior;
+pub mod analysis;

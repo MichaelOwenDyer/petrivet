@@ -1,4 +1,4 @@
-use crate::behavior::NormalMarking;
+use crate::behavior::Marking;
 use crate::structure::Net;
 
 /// A net N = (S, T, F) is a `Free-Choice Net` if •t x s• ⊆ F
@@ -158,7 +158,7 @@ pub struct SNet(pub(crate) Net);
 
 impl SNet {
     #[must_use]
-    pub fn is_live(&self, initial_marking: &NormalMarking) -> bool {
+    pub fn is_live(&self, initial_marking: &Marking) -> bool {
         self.0.is_strongly_connected() && !initial_marking.is_zero()
     }
 }

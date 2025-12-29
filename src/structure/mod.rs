@@ -7,7 +7,7 @@ use petgraph::Graph;
 use std::fmt;
 use std::hash::Hash;
 use petgraph::graph::NodeIndex;
-use crate::behavior::{Marking, NormalMarking, Tokens};
+use crate::behavior::{Marking, Tokens};
 use crate::structure::invariants::IncidenceMatrix;
 
 pub type Index = usize;
@@ -105,11 +105,11 @@ pub struct Net {
 
     /// The input markings of each transition, indexed by transition ID.
     /// That is, the minimal marking that enables the transition.
-    input_markings: Box<[NormalMarking]>,
+    input_markings: Box<[Marking]>,
 
     /// The incidence markings of each transition, indexed by transition ID.
     /// That is, the marking that represents the net effect of firing the transition once.
-    incidence_markings: Box<[NormalMarking]>,
+    incidence_markings: Box<[Marking]>,
 
     /// The output places of each transition, indexed by transition ID.
     postset: Box<[Box<[Place]>]>,
@@ -223,14 +223,14 @@ impl Net {
     /// Returns the minimal marking that enables the given transition.
     /// That is, the marking that puts one token in each input place of the given transition.
     #[must_use]
-    pub fn input_marking(&self, transition: Transition) -> &NormalMarking {
+    pub fn input_marking(&self, transition: Transition) -> &Marking {
         &self.input_markings[transition.index]
     }
 
     /// Returns the minimal marking produced by the given transition.
     /// That is, the marking that puts one token in each output place of the given transition.
     #[must_use]
-    pub fn output_marking(&self, transition: Transition) -> NormalMarking {
+    pub fn output_marking(&self, transition: Transition) -> Marking {
         let mut marking = Marking::zeroes(self.n_places());
         for place in self.postset_t(transition) {
             marking[place] = Tokens(1);
@@ -241,7 +241,7 @@ impl Net {
     /// Returns the incidence marking of the given transition.
     /// That is, the marking that represents the net effect of firing the transition once.
     #[must_use]
-    pub fn incidence_marking(&self, transition: Transition) -> &NormalMarking {
+    pub fn incidence_marking(&self, transition: Transition) -> &Marking {
         &self.incidence_markings[transition.index]
     }
 

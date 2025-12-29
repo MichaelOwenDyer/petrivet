@@ -1,6 +1,6 @@
 mod marking;
 
-pub use crate::behavior::marking::{Marking, NormalMarking, Omega, OmegaMarking, Tokens};
+pub use crate::behavior::marking::{Marking, Omega, OmegaMarking, Tokens};
 pub use crate::behavior::model::CoverabilityGraph;
 use crate::behavior::model::{StateSpaceEntry, ReachabilityGraph, StateSpace};
 use crate::behavior::state_machine::NoStrategy;
@@ -9,7 +9,7 @@ use std::fmt::Debug;
 use std::ops::{Add, Index};
 
 pub mod model {
-    use crate::behavior::marking::{NormalMarking, OmegaMarking};
+    use super::{Marking, OmegaMarking};
     use crate::structure::{Net, Transition};
     use ahash::{HashMap, HashMapExt, HashSet};
     use petgraph::graph::NodeIndex;
@@ -18,7 +18,6 @@ pub mod model {
     use std::fmt::Debug;
     use std::hash::Hash;
     use num_traits::Zero;
-    use crate::behavior::Marking;
 
     /// An entry in the state space graph,
     /// representing a marking and its depth in the exploration tree,
@@ -54,7 +53,7 @@ pub mod model {
         pub frontier: VecDeque<(NodeIndex, Transition)>,
     }
 
-    pub type ReachabilityGraph<'net> = StateSpace<'net, NormalMarking>;
+    pub type ReachabilityGraph<'net> = StateSpace<'net, Marking>;
     pub type CoverabilityGraph<'net> = StateSpace<'net, OmegaMarking>;
 
 
@@ -148,14 +147,14 @@ pub enum StateSpaces<'net> {
     /// The net is (as far as we know) bounded.
     /// The reachability graph and coverability graph are equivalent.
     Bounded {
-        graph: StateSpace<'net, NormalMarking>,
+        graph: StateSpace<'net, Marking>,
     },
     /// The net is unbounded.
     /// The coverability graph contains omega markings.
     /// The reachability graph is finite but incomplete.
     Unbounded {
         coverability_graph: StateSpace<'net, OmegaMarking>,
-        reachability_graph: StateSpace<'net, NormalMarking>,
+        reachability_graph: StateSpace<'net, Marking>,
     }
 }
 
@@ -189,7 +188,7 @@ pub struct Findings<'net> {
 
 impl<'net> Findings<'net> {
     #[must_use]
-    pub fn new(net: &'net Net, m0: NormalMarking) -> Self {
+    pub fn new(net: &'net Net, m0: Marking) -> Self {
         Self {
             graphs: StateSpaces::new(net, m0.clone()),
             reachability_graph: ReachabilityGraph::new(net, m0.clone()),
@@ -206,12 +205,12 @@ impl<'net> Findings<'net> {
 #[derive(Debug, Clone)]
 pub struct PetriNet<'net> {
     net: &'net Net,
-    m0: NormalMarking,
+    m0: Marking,
     findings: Findings<'net>,
 }
 
-impl<'net> From<(&'net Net, NormalMarking)> for PetriNet<'net> {
-    fn from((net, m0): (&'net Net, NormalMarking)) -> Self {
+impl<'net> From<(&'net Net, Marking)> for PetriNet<'net> {
+    fn from((net, m0): (&'net Net, Marking)) -> Self {
         let findings = Findings::new(net, m0.clone());
         Self { net, m0, findings }
     }
@@ -224,7 +223,7 @@ impl<'net> PetriNet<'net> {
             &mut self.findings.coverability_graph
         )
     }
-    pub fn reachability_iter(&'net mut self) -> state_machine::StateSpaceIterator<'net, NoStrategy, NormalMarking> {
+    pub fn reachability_iter(&'net mut self) -> state_machine::StateSpaceIterator<'net, NoStrategy, Marking> {
         state_machine::StateSpaceIterator::new(
             self.net,
             &mut self.findings.reachability_graph,
@@ -258,7 +257,7 @@ impl<'net> PetriNet<'net> {
     /// to disprove reachability, parallel to reachability graph exploration to prove reachability.
     /// This is decidable; one of these must terminate.
     /// This is an operation of non-elementary complexity (Ackermann-complete).
-    pub fn reach(&mut self, target: &NormalMarking) -> Option<Box<[Transition]>> {
+    pub fn reach(&mut self, target: &Marking) -> Option<Box<[Transition]>> {
         // Use the provided reachability graph to search for the target marking.
         // If found, reconstruct the firing sequence from m0 to that marking.
 
@@ -288,7 +287,7 @@ impl<'net> PetriNet<'net> {
     /// This method tries to find a firing sequence which covers the provided marking from m0, if one exists.
     /// Karp-Miller tree, backward reachability graph algorithm, Rackoff's theorem
     /// This is EXPSPACE-complete.
-    pub fn cover(&mut self, target: &NormalMarking) -> Option<Box<[Transition]>> {
+    pub fn cover(&mut self, target: &Marking) -> Option<Box<[Transition]>> {
         // algorithm::coverability_graph(self.net, &mut self.findings.coverability_graph);
         // Use the provided coverability graph to search for a node that covers the target marking.
         // If found, reconstruct the firing sequence from m0 to that node.
@@ -343,7 +342,7 @@ impl<'net> PetriNet<'net> {
 
 pub mod state_machine {
     use crate::behavior::model::StateSpace;
-    use crate::behavior::{NormalMarking, Omega, OmegaMarking, StateSpaces};
+    use crate::behavior::{Marking, Omega, OmegaMarking, StateSpaces};
     use crate::structure::{Net, Transition};
     use petgraph::graph::NodeIndex;
     use std::hash::Hash;
@@ -356,7 +355,7 @@ pub mod state_machine {
         strategy: S,
     }
 
-    pub type ReachabilityIterator<'net, Strategy> = StateSpaceIterator<'net, Strategy, NormalMarking>;
+    pub type ReachabilityIterator<'net, Strategy> = StateSpaceIterator<'net, Strategy, Marking>;
     pub type CoverabilityIterator<'net, Strategy> = StateSpaceIterator<'net, Strategy, OmegaMarking>;
 
     #[diagnostic::on_unimplemented(
@@ -472,9 +471,9 @@ pub mod state_machine {
 
     impl<S> Iterator for ReachabilityIterator<'_, S>
     where
-        S: ExplorationStrategy<NormalMarking>
+        S: ExplorationStrategy<Marking>
     {
-        type Item = (NormalMarking, Transition, NormalMarking);
+        type Item = (Marking, Transition, Marking);
 
         fn next(&mut self) -> Option<Self::Item> {
             while let Some((source_marking_idx, transition)) = self.strategy.find_next_unexplored_state(self.state_space) {

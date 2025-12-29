@@ -32,7 +32,7 @@ impl fmt::Display for Tokens {
 
 /// A marking represented by a vector of length |S|, indexed by place ID.
 #[derive(Debug, Default, Clone, Eq, Hash)]
-pub struct Marking<T>(Box<[T]>);
+pub struct Marking<T = Tokens>(Box<[T]>);
 
 impl<T> From<Vec<T>> for Marking<T> {
     fn from(value: Vec<T>) -> Self {
@@ -177,7 +177,7 @@ impl<T> Marking<T> {
             })
     }
     /// Tries to add two markings together. Returns Err(()) if addition overflows for any place.
-    pub fn try_add(mut self, other: &NormalMarking) -> Result<Self, ()>
+    pub fn try_add(mut self, other: &Marking) -> Result<Self, ()>
     where
         T: Zero + AddAssign<Tokens> + PartialOrd,
     {
@@ -254,7 +254,7 @@ impl TryFrom<Omega<Tokens>> for Tokens {
     }
 }
 
-impl TryFrom<OmegaMarking> for NormalMarking {
+impl TryFrom<OmegaMarking> for Marking {
     type Error = Unbounded;
 
     fn try_from(value: OmegaMarking) -> Result<Self, Self::Error> {
@@ -310,10 +310,10 @@ where
 /// can be compared.
 ///
 /// ```
-/// use petrivet::behavior::NormalMarking;
-/// let m0: NormalMarking = (1, 3, 0).into();
-/// let m1: NormalMarking = (2, 3, 0).into();
-/// let m2: NormalMarking = (1, 4, 0).into();
+/// use petrivet::behavior::{Marking};
+/// let m0: Marking = (1, 3, 0).into();
+/// let m1: Marking = (2, 3, 0).into();
+/// let m2: Marking = (1, 4, 0).into();
 /// assert!(m1 > m0);
 /// assert!(m2 > m0);
 /// assert!(m0 < m1);
@@ -336,9 +336,7 @@ where
     }
 }
 
-pub type NormalMarking = Marking<Tokens>;
-
-impl Add<OmegaMarking> for NormalMarking {
+impl Add<OmegaMarking> for Marking {
     type Output = OmegaMarking;
 
     fn add(self, rhs: OmegaMarking) -> Self::Output {
@@ -349,10 +347,10 @@ impl Add<OmegaMarking> for NormalMarking {
     }
 }
 
-impl Add<NormalMarking> for OmegaMarking {
+impl Add<Marking> for OmegaMarking {
     type Output = OmegaMarking;
 
-    fn add(self, rhs: NormalMarking) -> Self::Output {
+    fn add(self, rhs: Marking) -> Self::Output {
         rhs + self
     }
 }
@@ -408,36 +406,24 @@ impl<T: Default> Default for Omega<T> {
     }
 }
 
-/// Makes it possible to compare an omega marking with a finite token count
-/// Omega is always unequal to any finite number
-/// This implementation is specifically for comparing Omega<Tokens> with Tokens
-impl PartialEq<Tokens> for Omega<Tokens> {
-    fn eq(&self, other: &Tokens) -> bool {
-        match self {
-            Omega::Finite(t) => t == other,
-            Omega::Omega => false,
-        }
-    }
-}
-
 /// Makes it possible to compare a finite token count with an omega marking
 /// Omega is always unequal to any finite number
 /// This implementation is specifically for comparing Tokens with Omega<Tokens>
 impl PartialEq<Omega<Tokens>> for Tokens {
     fn eq(&self, other: &Omega<Tokens>) -> bool {
-        other == self
+        match other {
+            Omega::Omega => false,
+            Omega::Finite(other) => self.eq(other),
+        }
     }
 }
 
 /// Makes it possible to compare an omega marking with a finite token count
-/// Omega is always larger than any finite number
+/// Omega is always unequal to any finite number
 /// This implementation is specifically for comparing Omega<Tokens> with Tokens
-impl PartialOrd<Tokens> for Omega<Tokens> {
-    fn partial_cmp(&self, other: &Tokens) -> Option<Ordering> {
-        match self {
-            Omega::Omega => Some(Ordering::Greater),
-            Omega::Finite(t) => t.partial_cmp(other),
-        }
+impl PartialEq<Tokens> for Omega<Tokens> {
+    fn eq(&self, other: &Tokens) -> bool {
+        other.eq(self)
     }
 }
 
@@ -446,6 +432,18 @@ impl PartialOrd<Tokens> for Omega<Tokens> {
 /// This implementation is specifically for comparing Tokens with Omega<Tokens>
 impl PartialOrd<Omega<Tokens>> for Tokens {
     fn partial_cmp(&self, other: &Omega<Tokens>) -> Option<Ordering> {
+        match other {
+            Omega::Omega => Some(Ordering::Less),
+            Omega::Finite(other) => self.partial_cmp(other),
+        }
+    }
+}
+
+/// Makes it possible to compare an omega marking with a finite token count
+/// Omega is always larger than any finite number
+/// This implementation is specifically for comparing Omega<Tokens> with Tokens
+impl PartialOrd<Tokens> for Omega<Tokens> {
+    fn partial_cmp(&self, other: &Tokens) -> Option<Ordering> {
         other.partial_cmp(self).map(Ordering::reverse)
     }
 }
@@ -459,8 +457,8 @@ impl OmegaMarking {
     }
 }
 
-impl From<NormalMarking> for OmegaMarking {
-    fn from(marking: NormalMarking) -> Self {
+impl From<Marking> for OmegaMarking {
+    fn from(marking: Marking) -> Self {
         Marking(marking.into_iter().map(Omega::Finite).collect())
     }
 }
@@ -476,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_normal_marking_eq_omega_marking_all_finite() {
-        let normal: NormalMarking = (1, 2, 3).into();
+        let normal: Marking = (1, 2, 3).into();
         let omega: OmegaMarking = (1, 2, 3).into();
         assert_eq!(normal, omega);
         assert_eq!(omega, normal); // symmetric
@@ -484,7 +482,7 @@ mod tests {
 
     #[test]
     fn test_normal_marking_ne_omega_marking_with_omega() {
-        let normal: NormalMarking = (1, 2, 3).into();
+        let normal: Marking = (1, 2, 3).into();
         let omega: OmegaMarking = (1, Omega::Omega, 3).into();
         assert_ne!(normal, omega);
         assert_ne!(omega, normal); // symmetric
@@ -492,7 +490,7 @@ mod tests {
 
     #[test]
     fn test_normal_marking_lt_omega_marking_with_omega() {
-        let normal: NormalMarking = (1, 2, 3).into();
+        let normal: Marking = (1, 2, 3).into();
         let omega: OmegaMarking = (1, Omega::Omega, 3).into();
         assert!(normal < omega);
         assert!(omega > normal); // symmetric
@@ -526,8 +524,8 @@ mod tests {
 
     #[test]
     fn test_marking_incomparable() {
-        let m1: NormalMarking = (2, 3, 0).into();
-        let m2: NormalMarking = (1, 4, 0).into();
+        let m1: Marking = (2, 3, 0).into();
+        let m2: Marking = (1, 4, 0).into();
         assert!(m1.partial_cmp(&m2).is_none()); // m1 and m2 are incomparable
         assert!(m2.partial_cmp(&m1).is_none()); // m2 and m1 are incomparable
     }
