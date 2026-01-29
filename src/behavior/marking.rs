@@ -1,12 +1,39 @@
 use crate::structure::{Net, Place};
-use derive_more::{Add, Sub, AddAssign, SubAssign};
 use num_traits::Zero;
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, AddAssign, Index, IndexMut, Sub, SubAssign};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Add, Sub, AddAssign, SubAssign)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Tokens(pub i32);
+
+impl Add for Tokens {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self::Output {
+        Tokens(self.0.saturating_add(other.0))
+    }
+}
+
+impl Sub for Tokens {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+        Tokens(self.0.saturating_sub(other.0))
+    }
+}
+
+impl AddAssign for Tokens {
+    fn add_assign(&mut self, other: Self) {
+        self.0 = self.0.saturating_add(other.0);
+    }
+}
+
+impl SubAssign for Tokens {
+    fn sub_assign(&mut self, other: Self) {
+        self.0 = self.0.saturating_sub(other.0);
+    }
+}
 
 impl<T: Into<i32>> From<T> for Tokens {
     fn from(value: T) -> Self {
@@ -127,6 +154,8 @@ impl<T> Marking<T> {
     }
 
     /// Returns the number of places in the marking.
+    #[must_use]
+    #[expect(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.len()
     }
@@ -177,7 +206,9 @@ impl<T> Marking<T> {
             })
     }
     /// Tries to add two markings together. Returns Err(()) if addition overflows for any place.
-    pub fn try_add(mut self, other: &Marking) -> Result<Self, ()>
+    /// # Errors
+    /// Returns Err(AdditionOverflow) if addition overflows for any place.
+    pub fn try_add(mut self, other: &Marking) -> Result<Self, AdditionOverflow>
     where
         T: Zero + AddAssign<Tokens> + PartialOrd,
     {
@@ -185,12 +216,14 @@ impl<T> Marking<T> {
         for (a, b) in Iterator::zip(self.iter_mut(), other.iter()) {
             *a += *b;
             if (*a < T::zero()) {
-                return Err(());
+                return Err(AdditionOverflow);
             }
         }
         Ok(self)
     }
 }
+
+pub struct AdditionOverflow;
 
 impl OmegaMarking {
     pub fn omegas(n_places: impl Into<usize>) -> Self {
@@ -217,17 +250,14 @@ impl Add for Omega<Tokens> {
 
 impl AddAssign for Omega<Tokens> {
     fn add_assign(&mut self, other: Self) {
-        *self = match (&self, other) {
-            (Omega::Finite(a), Omega::Finite(b)) => Omega::Finite(*a + b),
-            _ => Omega::Omega,
-        }
+        *self = self.add(other);
     }
 }
 
 impl AddAssign<Tokens> for Omega<Tokens> {
     fn add_assign(&mut self, other: Tokens) {
-        *self = match &self {
-            Omega::Finite(a) => Omega::Finite(*a + other),
+        *self = match *self {
+            Omega::Finite(tokens) => Omega::Finite(tokens + other),
             Omega::Omega => Omega::Omega,
         }
     }
@@ -239,7 +269,7 @@ impl Zero for Omega<Tokens> {
     }
 
     fn is_zero(&self) -> bool {
-        matches!(self, Omega::Finite(t) if *t == Tokens::default())
+        matches!(self, Omega::Finite(tokens) if *tokens == Tokens::default())
     }
 }
 
@@ -248,17 +278,9 @@ impl TryFrom<Omega<Tokens>> for Tokens {
 
     fn try_from(value: Omega<Tokens>) -> Result<Self, Self::Error> {
         match value {
-            Omega::Finite(t) => Ok(t),
+            Omega::Finite(value) => Ok(value),
             Omega::Omega => Err(Unbounded),
         }
-    }
-}
-
-impl TryFrom<OmegaMarking> for Marking {
-    type Error = Unbounded;
-
-    fn try_from(value: OmegaMarking) -> Result<Self, Self::Error> {
-        value.into_iter().map(TryInto::try_into).collect()
     }
 }
 
@@ -310,7 +332,7 @@ where
 /// can be compared.
 ///
 /// ```
-/// use petrivet::behavior::{Marking};
+/// use petrivet::behavior::Marking;
 /// let m0: Marking = (1, 3, 0).into();
 /// let m1: Marking = (2, 3, 0).into();
 /// let m2: Marking = (1, 4, 0).into();
@@ -360,7 +382,7 @@ impl Add<Omega<Tokens>> for Tokens {
 
     fn add(self, rhs: Omega<Tokens>) -> Self::Output {
         match rhs {
-            Omega::Finite(t) => Omega::Finite(self + t),
+            Omega::Finite(rhs) => Omega::Finite(self.0.saturating_add(rhs.0).into()),
             Omega::Omega => Omega::Omega,
         }
     }
@@ -383,6 +405,17 @@ pub enum Omega<T> {
     Omega, // Omega is greater than any finite value
 }
 
+impl<T> Omega<T> {
+    /// Returns the inner value if this Omega is Finite, None otherwise.
+    #[must_use]
+    pub fn value(&self) -> Option<&T> {
+        match self {
+            Omega::Finite(t) => Some(t),
+            Omega::Omega => None,
+        }
+    }
+}
+
 impl<T: fmt::Display> fmt::Display for Omega<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -393,7 +426,7 @@ impl<T: fmt::Display> fmt::Display for Omega<T> {
 }
 
 /// Allow easy conversion from a Token count to an Omega.
-impl<T> From<T> for Omega<Tokens> where T: Into<Tokens> {
+impl<T: Into<Tokens>> From<T> for Omega<Tokens> {
     fn from(t: T) -> Self {
         Omega::Finite(t.into())
     }
@@ -459,7 +492,15 @@ impl OmegaMarking {
 
 impl From<Marking> for OmegaMarking {
     fn from(marking: Marking) -> Self {
-        Marking(marking.into_iter().map(Omega::Finite).collect())
+        marking.into_iter().map(Omega::Finite).collect()
+    }
+}
+
+impl TryFrom<OmegaMarking> for Marking {
+    type Error = Unbounded;
+
+    fn try_from(value: OmegaMarking) -> Result<Self, Self::Error> {
+        value.into_iter().map(TryInto::try_into).collect()
     }
 }
 

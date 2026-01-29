@@ -88,7 +88,7 @@ use std::ops::Deref;
 /// # Type Parameter
 ///
 /// - `N`: The net type, which can be `Net`, `FreeChoiceNet`, `SNet`, `TNet`, or `Circuit`.
-///        This enables compile-time specialization of analysis methods.
+///   This enables compile-time specialization of analysis methods.
 ///
 /// # Examples
 ///

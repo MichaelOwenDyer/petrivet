@@ -239,7 +239,7 @@ impl LivenessAnalysis for System<FreeChoiceNet> {
 // Blanket Implementation for Reference Types
 // =============================================================================
 
-impl<'a, N> LivenessAnalysis for &'a System<N>
+impl<N> LivenessAnalysis for &System<N>
 where
     System<N>: LivenessAnalysis,
 {

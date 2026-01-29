@@ -23,7 +23,7 @@
 //! | General         | EXPSPACE-complete    | Coverability graph          |
 
 use crate::analysis::System;
-use crate::behavior::{Omega, Tokens};
+use crate::behavior::{Omega, PetriNet, Tokens};
 use crate::structure::class::{Circuit, FreeChoiceNet, SNet, TNet};
 use crate::structure::{Net, Place};
 
@@ -82,10 +82,21 @@ pub trait BoundednessAnalysis {
 
 impl BoundednessAnalysis for System<Net> {
     fn boundedness(&self) -> BoundednessResult {
-        // General case: requires coverability graph exploration
-        // A place is unbounded iff it has ω in the coverability graph
-        // This is EXPSPACE-complete
-        BoundednessResult::Unknown
+        PetriNet::from((&self.net, self.initial_marking().clone()))
+            .coverability_iter()
+            .dfs()
+            .try_fold(
+                0i32,
+                |acc, (_from, _over, to)| {
+                    to.iter()
+                        .map(|t| t.value())
+                        .try_fold(acc, |max_bound, place_bound| {
+                            place_bound.map(|Tokens(b)| max_bound.max(*b))
+                        })
+                },
+            )
+            .map(|i32| u32::try_from(i32).unwrap())
+            .map_or(BoundednessResult::Unbounded, BoundednessResult::Bounded)
     }
 
     fn place_boundedness(&self, _place: Place) -> BoundednessResult {

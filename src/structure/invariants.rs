@@ -2,8 +2,7 @@ use nalgebra::{DMatrix, Dyn, MatrixView, U1};
 use crate::structure::Transition;
 
 /// The incidence matrix of a net describes the net effect of firing each transition on the marking of each place.
-/// It is a |S| x |T| matrix N where:
-/// - N(s, t) = |t•(s)| - |•t(s)|
+/// It is a |S| x |T| matrix N where N(s, t) = |t•(s)| - |•t(s)|.
 /// The rows correspond to places and the columns to transitions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncidenceMatrix(pub(crate) DMatrix<i8>);

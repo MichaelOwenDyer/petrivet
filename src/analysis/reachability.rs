@@ -258,7 +258,7 @@ impl FiringSequenceBounds for System<TNet> {
 // Blanket Implementation for Reference Types
 // =============================================================================
 
-impl<'a, N> ReachabilityAnalysis for &'a System<N>
+impl<N> ReachabilityAnalysis for &System<N>
 where
     System<N>: ReachabilityAnalysis,
 {
