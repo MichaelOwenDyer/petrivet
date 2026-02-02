@@ -34,3 +34,9 @@
 pub mod structure;
 pub mod behavior;
 pub mod analysis;
+
+/// Data-Interpreted Petri Net (DIPN) for simulation with guards and actions.
+///
+/// Based on Hussain et al. (2023) - "Discovering a data interpreted petri net model
+/// of industrial control systems for anomaly detection."
+pub mod dipn;
