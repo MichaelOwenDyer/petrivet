@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut petri_net = PetriNet::from((&net, initial_marking));
 
     for (from, over, to) in petri_net.coverability_iter().dfs() {
-        let transition = &transitions[usize::from(over.index)];
+        let transition = &transitions[over.index];
         println!("From: {from} --[{transition}]--> To: {to}");
     }
     Ok(())
