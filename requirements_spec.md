@@ -6,21 +6,19 @@
 This document outlines the software requirements for **petrivet**, a comprehensive Rust library for the modeling, simulation, and analysis of Petri nets.
 
 ### 1.2. Vision
-The vision for petrivet is to become the de facto standard, high-performance, and ergonomic library for working with Petri nets in the Rust ecosystem. It will provide a robust framework for academic research, industrial applications, and educational purposes by offering a strongly-typed, modular, and extensible API.
+The vision for petrivet is to become the de facto standard, high-performance, and ergonomic library for working with Petri nets in the Rust ecosystem.
+It will provide a robust framework for academic research, industrial applications, and educational purposes by offering a strongly-typed, modular, and extensible API and support for various Petri net classes and analysis techniques.
 
 ## 2. Core Design Principles
 
-### 2.1. Modularity and Composition
-The library shall provide mechanisms for the modular construction of Petri nets. Users should be able to define net components and compose them to create larger, more complex nets. This allows for a bottom-up design approach and encourages reusability of net structures.
+The library's API will be heavily reliant on Rust's trait system and type-state programming paradigm to enforce correctness at compile time.
+Different types of Petri nets and their associated properties will be represented by distinct types or type combinations, with analysis methods implemented as trait methods available only to valid net constructions.
 
-### 2.2. Type-State Programming and Trait-Based API
-The library's API will be heavily reliant on Rust's trait system and type-state programming paradigm to enforce correctness at compile time. Different types of Petri nets and their associated properties will be represented by distinct types or type combinations, with analysis methods implemented as trait methods available only to valid net constructions.
+[//]: # (- **Structural Properties**: A tuple of sets `&#40;S, T, F&#41;` &#40;Places, Transitions, Flow Relation&#41; will grant access to traits for fundamental structural analysis.)
 
-- **Structural Properties**: A tuple of sets `(S, T, F)` (Places, Transitions, Flow Relation) will grant access to traits for fundamental structural analysis.
+[//]: # (- **Capacity and Weight**: A tuple `&#40;S, T, F, K, W&#41;` representing a net with place capacities and arc weights will expose different trait implementations for analysis that considers these factors.)
 
-- **Capacity and Weight**: A tuple `(S, T, F, K, W)` representing a net with place capacities and arc weights will expose different trait implementations for analysis that considers these factors.
-
-- **Behavioral Properties**: A tuple `(N, M0)` representing a net N with an initial marking M0 will provide access to traits for behavioral analysis (e.g., reachability).
+[//]: # (- **Behavioral Properties**: A tuple `&#40;N, M0&#41;` representing a net N with an initial marking M0 will provide access to traits for behavioral analysis &#40;e.g., reachability&#41;.)
 
 - **Equivalence via Newtype Pattern**: The library will use the newtype pattern to wrap complex nets (e.g., those with capacities/weights) to behave as an equivalent ordinary net where applicable. This will enable the use of theorems and algorithms defined only for ordinary Petri nets on a wider class of nets.
 
@@ -32,6 +30,10 @@ The library's API will be heavily reliant on Rust's trait system and type-state 
 
 ## 3. Core Features and Functional Requirements
 This section outlines the specific functional capabilities the library will provide.
+All Petri net classes will, at the very minimum, be "simulatable" in the sense that the user can execute firing sequences and observe the resulting markings.
+Beyond that, the library will provide a rich set of analysis tools for both structural and behavioral properties of Petri nets, in particular reachability, coverability, liveness, boundedness, and deadlock-freedom.
+Different net classes will have different complexity characteristics for these properties, and the library will make a best effort to optimize analysis by leveraging structural properties and known theorems where applicable.
+Where appropriate, the library will provide traits for the various properties that can be analyzed, with implementations that leverage the specific structural features of the net class to optimize analysis.
 
 ### 3.1. Structural Analysis
 The library shall provide tools for analyzing the static structure of a Petri net.
