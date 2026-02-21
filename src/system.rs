@@ -2,7 +2,7 @@
 //!
 //! `System<N>` pairs a net structure with a mutable marking, providing methods
 //! to check enablement and fire transitions. The type parameter `N` defaults to
-//! [`Net`] for simplicity, but accepts [`ClassifiedNet`], [`SNet`], etc.
+//! [`Net`] for simplicity, but accepts any type implementing `AsRef<Net>`.
 //!
 //! # Firing API
 //!
@@ -42,7 +42,7 @@ pub struct System<N = Net> {
 impl<N: AsRef<Net>> System<N> {
     /// Creates a new system from a net and initial marking.
     ///
-    /// Accepts anything that converts to `Marking` (tuples, arrays, vecs).
+    /// Accepts anything that converts to `Marking`.
     ///
     /// # Panics
     ///
@@ -95,7 +95,8 @@ impl<N: AsRef<Net>> System<N> {
 
     /// Whether a transition is enabled under the current marking.
     ///
-    /// A transition t is enabled if every input place p ∈ •t has at least one token.
+    /// A transition t is enabled if every input place p in its preset has
+    /// at least one token.
     #[must_use]
     pub fn is_enabled(&self, t: Transition) -> bool {
         let net = self.net.as_ref();
@@ -164,7 +165,7 @@ impl<N: AsRef<Net>> System<N> {
     ///
     /// // Pick a specific transition if it's enabled
     /// system.choose_and_fire(|enabled| {
-    ///     enabled.iter().find(|et| et.transition() == t0)
+    ///     enabled.iter().find(|et| *et == t0)
     /// });
     /// ```
     pub fn choose_and_fire<F>(&mut self, choose: F) -> Option<Transition>
@@ -180,8 +181,6 @@ impl<N: AsRef<Net>> System<N> {
     }
 
     /// Fire a transition without checking enablement.
-    ///
-    /// # Safety (logical)
     ///
     /// The caller must guarantee the transition is enabled. Underflow will
     /// panic in debug mode and wrap in release mode.
