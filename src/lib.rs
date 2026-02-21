@@ -25,17 +25,3 @@
 pub mod net;
 pub mod marking;
 pub mod system;
-
-// Legacy modules — kept temporarily during migration, will be removed.
-#[doc(hidden)]
-#[allow(unused, dead_code)]
-pub mod structure;
-#[doc(hidden)]
-#[allow(unused, dead_code)]
-pub mod behavior;
-#[doc(hidden)]
-#[allow(unused, dead_code)]
-pub mod analysis;
-#[doc(hidden)]
-#[allow(unused, dead_code)]
-pub mod dipn;

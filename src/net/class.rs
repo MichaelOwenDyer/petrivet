@@ -13,7 +13,7 @@ use std::ops::Deref;
 /// A net with its structural class determined at build time.
 ///
 /// This is the default type returned by [`NetBuilder::build`](super::builder::NetBuilder::build).
-/// Analysis methods on [`System<ClassifiedNet>`](crate::analysis::System) dispatch
+/// Analysis methods on [`System<ClassifiedNet>`](crate::system::System) dispatch
 /// to the best algorithm based on the stored class.
 ///
 /// Users don't need to interact with the classification directly — just build
