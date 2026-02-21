@@ -1,7 +1,6 @@
 pub mod invariants;
 pub mod class;
 
-use nalgebra::{DMatrix, Dyn, MatrixView, U1};
 use num_traits::Zero;
 use petgraph::Graph;
 use std::fmt;

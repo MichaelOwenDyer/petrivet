@@ -15,6 +15,12 @@ use std::fmt;
 pub struct Place(pub(crate) usize);
 
 impl Place {
+    /// Creates a place from a raw index.
+    #[must_use]
+    pub fn from_index(index: usize) -> Self {
+        Place(index)
+    }
+
     /// Returns the raw index of this place.
     #[must_use]
     pub fn index(self) -> usize {
@@ -33,6 +39,12 @@ impl fmt::Display for Place {
 pub struct Transition(pub(crate) usize);
 
 impl Transition {
+    /// Creates a transition from a raw index.
+    #[must_use]
+    pub fn from_index(index: usize) -> Self {
+        Transition(index)
+    }
+
     /// Returns the raw index of this transition.
     #[must_use]
     pub fn index(self) -> usize {
@@ -244,6 +256,12 @@ pub enum NetClass {
     TNet,
     FreeChoice,
     Unrestricted,
+}
+
+impl AsRef<Net> for Net {
+    fn as_ref(&self) -> &Net {
+        self
+    }
 }
 
 impl fmt::Display for NetClass {

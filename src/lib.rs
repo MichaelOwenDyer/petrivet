@@ -4,7 +4,7 @@
 //!
 //! ```
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::marking::Marking;
+//! use petrivet::system::System;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -16,10 +16,15 @@
 //!
 //! let net = b.build().expect("valid net");
 //! println!("Class: {}", net.class());
+//!
+//! let mut sys = System::new(net, [1, 0]);
+//! sys.choose_and_fire(|enabled| enabled.first());
+//! println!("Marking after firing: {}", sys.marking());
 //! ```
 
 pub mod net;
 pub mod marking;
+pub mod system;
 
 // Legacy modules — kept temporarily during migration, will be removed.
 #[doc(hidden)]
