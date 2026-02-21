@@ -72,16 +72,6 @@ impl From<(Transition, Place)> for Arc {
     }
 }
 
-// pub trait NetTrait {
-//     fn places(&self) -> impl Iterator<Item = Place>;
-//     fn transitions(&self) -> impl Iterator<Item = Transition>;
-//     fn arcs(&self) -> impl Iterator<Item = Arc>;
-//     fn preset_t(&self, transition: Transition) -> Vec<Place>;
-//     fn postset_t(&self, transition: Transition) -> Vec<Place>;
-//     fn preset_p(&self, place: Place) -> Vec<Transition>;
-//     fn postset_p(&self, place: Place) -> Vec<Transition>;
-// }
-
 /// A net N = (S, T, F) consists of
 /// a finite set of [places](Place) S (circles),
 /// a finite set of [transitions](Transition) T (rectangles), and
@@ -168,7 +158,7 @@ impl Net {
     }
 
     pub fn postset_p(&self, place: Place) -> impl Iterator<Item = Transition> {
-        self.preset_p[place.index].iter().copied()
+        self.postset_p[place.index].iter().copied()
     }
 
     #[must_use]
@@ -577,40 +567,55 @@ pub mod builder {
 
         #[test]
         fn test_builder_t_net() {
+            // T-net: every place has exactly one input and one output transition.
+            //   t1 → p0 → t0
+            //   t1 → p1 → t0
+            //             t0 → p2 → t1
             let mut builder = super::NetBuilder::new();
-            let [p0, p1] = builder.add_places();
-            let [t0, t1, t2] = builder.add_transitions();
+            let [p0, p1, p2] = builder.add_places();
+            let [t0, t1] = builder.add_transitions();
             builder.add_arc((p0, t0));
-            builder.add_arc((t0, p1));
-            builder.add_arc((p1, t1));
+            builder.add_arc((p1, t0));
+            builder.add_arc((t0, p2));
+            builder.add_arc((p2, t1));
             builder.add_arc((t1, p0));
-            builder.add_arc((p0, t2));
-            builder.add_arc((t2, p1));
+            builder.add_arc((t1, p1));
             let net = builder.build().unwrap();
             assert!(matches!(net, StructureClass::TNet(_)));
         }
 
         #[test]
         fn test_builder_free_choice_net() {
+            // Free-choice: if two transitions share an input place, they share ALL input places.
+            // Not an S-net (t2 has 2 inputs), not a T-net (p0 has 2 outputs).
+            //   p0 → t0 → p1 → t2 → p0
+            //   p0 → t1 → p2 → t2
             let mut builder = super::NetBuilder::new();
             let [p0, p1, p2] = builder.add_places();
-            let [t0, t1] = builder.add_transitions();
+            let [t0, t1, t2] = builder.add_transitions();
             builder.add_arc((p0, t0));
-            builder.add_arc((p0, t1));
             builder.add_arc((t0, p1));
+            builder.add_arc((p0, t1));
             builder.add_arc((t1, p2));
+            builder.add_arc((p1, t2));
+            builder.add_arc((p2, t2));
+            builder.add_arc((t2, p0));
             let net = builder.build().unwrap();
             assert!(matches!(net, StructureClass::FreeChoiceNet(_)));
         }
 
         #[test]
         fn test_builder_unrestricted_net() {
+            // Not free-choice: t0 and t1 share input p0, but t1 also requires p1.
+            //   •t0 = {p0}, •t1 = {p0, p1} → •t0 ∩ •t1 ≠ ∅ but •t0 ≠ •t1
             let mut builder = super::NetBuilder::new();
-            let [p0, p1] = builder.add_places();
+            let [p0, p1, p2, p3] = builder.add_places();
             let [t0, t1] = builder.add_transitions();
             builder.add_arc((p0, t0));
-            builder.add_arc((t0, p1));
+            builder.add_arc((t0, p2));
+            builder.add_arc((p0, t1));
             builder.add_arc((p1, t1));
+            builder.add_arc((t1, p3));
             let net = builder.build().unwrap();
             assert!(matches!(net, StructureClass::Unrestricted(_)));
         }
