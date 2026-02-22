@@ -58,25 +58,6 @@ impl fmt::Display for Transition {
     }
 }
 
-/// A node in the net: either a place or a transition.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Node {
-    Place(Place),
-    Transition(Transition),
-}
-
-impl From<Place> for Node {
-    fn from(p: Place) -> Self {
-        Node::Place(p)
-    }
-}
-
-impl From<Transition> for Node {
-    fn from(t: Transition) -> Self {
-        Node::Transition(t)
-    }
-}
-
 /// An arc in the flow relation.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Arc {
@@ -96,25 +77,47 @@ impl From<(Transition, Place)> for Arc {
     }
 }
 
+/// A node in the net: either a place or a transition.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Node {
+    Place(Place),
+    Transition(Transition),
+}
+
+impl From<Place> for Node {
+    fn from(p: Place) -> Self {
+        Node::Place(p)
+    }
+}
+
+impl From<Transition> for Node {
+    fn from(t: Transition) -> Self {
+        Node::Transition(t)
+    }
+}
+
 /// An ordinary Petri net N = (S, T, F).
-///
 /// All arc weights are implicitly 1. No place capacities.
-/// This struct stores only the graph topology — no precomputed matrices or
-/// markings. Analysis data is computed on demand.
 ///
 /// Given x ∈ S ∪ T, the set •x = {y | (y, x) ∈ F} is called the preset of x,
 /// and the set x• = {y | (x, y) ∈ F} is called the postset of x.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Net {
+    /// Number of places in the net.
     n_places: usize,
+    /// Number of transitions in the net.
     n_transitions: usize,
-    /// preset[t] = input places of transition t (•t)
+    /// Transition presets indexed by transition index:
+    /// for each transition t, the list of places in •t.
     preset: Box<[Box<[Place]>]>,
-    /// postset[t] = output places of transition t (t•)
+    /// Transition postsets indexed by transition index:
+    /// for each transition t, the list of places in t•.
     postset: Box<[Box<[Place]>]>,
-    /// preset_p[p] = input transitions of place p (•p)
+    /// Place presets indexed by place index:
+    /// for each place p, the list of transitions in •p.
     preset_p: Box<[Box<[Transition]>]>,
-    /// postset_p[p] = output transitions of place p (p•)
+    /// Place postsets indexed by place index:
+    /// for each place p, the list of transitions in p•.
     postset_p: Box<[Box<[Transition]>]>,
 }
 
@@ -149,44 +152,46 @@ impl Net {
     /// Iterator over all arcs.
     pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
         self.transitions().flat_map(move |t| {
-            let pt = self.preset_t(t).map(move |p| Arc::PlaceToTransition(p, t));
-            let tp = self.postset_t(t).map(move |p| Arc::TransitionToPlace(t, p));
+            let pt = self.preset_t(t).iter().map(move |&p| Arc::PlaceToTransition(p, t));
+            let tp = self.postset_t(t).iter().map(move |&p| Arc::TransitionToPlace(t, p));
             pt.chain(tp)
         })
     }
 
     /// Preset of a transition: input places (•t).
-    pub fn preset_t(&self, t: Transition) -> impl Iterator<Item = Place> + '_ {
-        self.preset[t.0].iter().copied()
+    /// Sorted by place index in ascending order.
+    pub fn preset_t(&self, t: Transition) -> &[Place] {
+        self.preset[t.0].as_ref()
     }
 
     /// Postset of a transition: output places (t•).
-    pub fn postset_t(&self, t: Transition) -> impl Iterator<Item = Place> + '_ {
-        self.postset[t.0].iter().copied()
+    /// Sorted by place index in ascending order.
+    pub fn postset_t(&self, t: Transition) -> &[Place] {
+        self.postset[t.0].as_ref()
     }
 
     /// Preset of a place: transitions that produce into this place (•p).
-    pub fn preset_p(&self, p: Place) -> impl Iterator<Item = Transition> + '_ {
-        self.preset_p[p.0].iter().copied()
+    /// Sorted by transition index in ascending order.
+    pub fn preset_p(&self, p: Place) -> &[Transition] {
+        self.preset_p[p.0].as_ref()
     }
 
     /// Postset of a place: transitions that consume from this place (p•).
-    pub fn postset_p(&self, p: Place) -> impl Iterator<Item = Transition> + '_ {
-        self.postset_p[p.0].iter().copied()
+    /// Sorted by transition index in ascending order.
+    pub fn postset_p(&self, p: Place) -> &[Transition] {
+        self.postset_p[p.0].as_ref()
     }
-
-    // --- Structural classification queries ---
 
     /// A net is an S-net if every transition has exactly one input and one output place.
     #[must_use]
     pub fn is_s_net(&self) -> bool {
-        self.transitions().all(|t| self.preset_t(t).count() == 1 && self.postset_t(t).count() == 1)
+        self.transitions().all(|t| self.preset_t(t).len() == 1 && self.postset_t(t).len() == 1)
     }
 
     /// A net is a T-net if every place has exactly one input and one output transition.
     #[must_use]
     pub fn is_t_net(&self) -> bool {
-        self.places().all(|p| self.preset_p(p).count() == 1 && self.postset_p(p).count() == 1)
+        self.places().all(|p| self.preset_p(p).len() == 1 && self.postset_p(p).len() == 1)
     }
 
     /// A net is a circuit if it is both an S-net and a T-net.
@@ -204,9 +209,11 @@ impl Net {
                 if t1 == t2 {
                     return true;
                 }
-                let presets_overlap = self.preset_t(t1).any(|p1| self.preset_t(t2).any(|p2| p1 == p2));
+                let presets_overlap = self.preset_t(t1).iter().any(|p1| {
+                    self.preset_t(t2).iter().any(|p2| p1 == p2)
+                });
                 if presets_overlap {
-                    self.preset_t(t1).all(|p1| self.preset_t(t2).any(|p2| p1 == p2))
+                    self.preset_t(t1) == self.preset_t(t2)
                 } else {
                     true
                 }
@@ -251,10 +258,22 @@ impl Net {
 /// Structural classification of a Petri net.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum NetClass {
+    /// The most restrictive class of Petri net:
+    /// a single directed cycle of alternating places and transitions.
+    /// Circuits model purely sequential processes with no choices or concurrency.
     Circuit,
+    /// Every transition has exactly one input and one output place.
+    /// S-nets model sequential processes and choices, but not concurrency.
     SNet,
+    /// Every place has exactly one input and one output transition.
+    /// T-nets model concurrency and synchronization, but not choices.
     TNet,
+    /// If two transitions share any input place, they share all input places.
+    /// Free-choice nets model concurrency and choices, but eliminate complex
+    /// conflicts where two transitions share some but not all input places.
     FreeChoice,
+    /// No structural restrictions.
+    /// Can model arbitrary concurrency, choices, and conflicts.
     Unrestricted,
 }
 

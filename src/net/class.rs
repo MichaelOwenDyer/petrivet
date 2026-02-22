@@ -61,10 +61,6 @@ impl AsRef<Net> for ClassifiedNet {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Newtype wrappers for compile-time structural guarantees
-// ---------------------------------------------------------------------------
-
 macro_rules! net_subclass {
     ($(#[$meta:meta])* $name:ident, $class:ident) => {
         $(#[$meta])*

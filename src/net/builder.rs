@@ -149,6 +149,12 @@ impl NetBuilder {
             return Err(BuildError::NotConnected);
         }
 
+        // sort all presets and postsets in order of place/transition index
+        preset.iter_mut().for_each(|v| v.sort_unstable_by_key(|p| p.0));
+        postset.iter_mut().for_each(|v| v.sort_unstable_by_key(|p| p.0));
+        preset_p.iter_mut().for_each(|v| v.sort_unstable_by_key(|t| t.0));
+        postset_p.iter_mut().for_each(|v| v.sort_unstable_by_key(|t| t.0));
+
         let net = Net {
             n_places: self.n_places,
             n_transitions: self.n_transitions,

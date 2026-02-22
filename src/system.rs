@@ -24,10 +24,6 @@ use crate::net::{Net, Transition};
 use std::fmt;
 use std::marker::PhantomData;
 
-// ===========================================================================
-// System
-// ===========================================================================
-
 /// A Petri net system: a net N paired with a mutable marking.
 ///
 /// The initial marking is stored for reference and [`reset`](System::reset).
@@ -91,8 +87,6 @@ impl<N: AsRef<Net>> System<N> {
         (self.net, self.initial_marking, self.marking)
     }
 
-    // --- Enablement ---
-
     /// Whether a transition is enabled under the current marking.
     ///
     /// A transition t is enabled if every input place p in its preset has
@@ -100,7 +94,7 @@ impl<N: AsRef<Net>> System<N> {
     #[must_use]
     pub fn is_enabled(&self, t: Transition) -> bool {
         let net = self.net.as_ref();
-        net.preset_t(t).all(|p| self.marking[p] >= 1)
+        net.preset_t(t).iter().all(|&p| self.marking[p] >= 1)
     }
 
     /// Returns the set of currently enabled transitions.
@@ -119,8 +113,6 @@ impl<N: AsRef<Net>> System<N> {
         let net = self.net.as_ref();
         net.transitions().all(|t| !self.is_enabled(t))
     }
-
-    // --- Firing ---
 
     /// Check-and-fire a specific transition.
     ///
@@ -186,18 +178,14 @@ impl<N: AsRef<Net>> System<N> {
     /// panic in debug mode and wrap in release mode.
     fn fire_unchecked(&mut self, t: Transition) {
         let net = self.net.as_ref();
-        for p in net.preset_t(t) {
+        for &p in net.preset_t(t) {
             self.marking[p] -= 1;
         }
-        for p in net.postset_t(t) {
+        for &p in net.postset_t(t) {
             self.marking[p] += 1;
         }
     }
 }
-
-// ===========================================================================
-// EnabledTransition / EnabledSet — proof tokens
-// ===========================================================================
 
 /// Proof that a transition was found enabled in the current marking.
 ///
@@ -205,14 +193,6 @@ impl<N: AsRef<Net>> System<N> {
 /// copied or cloned, and cannot escape the [`choose_and_fire`](System::choose_and_fire)
 /// closure (higher-ranked lifetime bound).
 pub struct EnabledTransition<'a>(Transition, PhantomData<&'a ()>);
-
-impl EnabledTransition<'_> {
-    /// The underlying transition.
-    #[must_use]
-    pub fn transition(&self) -> Transition {
-        self.0
-    }
-}
 
 impl std::ops::Deref for EnabledTransition<'_> {
     type Target = Transition;
@@ -281,10 +261,6 @@ impl fmt::Debug for EnabledSet<'_> {
     }
 }
 
-// ===========================================================================
-// FireError
-// ===========================================================================
-
 /// Error returned when attempting to fire a transition that is not enabled.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FireError {
@@ -301,10 +277,6 @@ impl fmt::Display for FireError {
 }
 
 impl std::error::Error for FireError {}
-
-// ===========================================================================
-// Tests
-// ===========================================================================
 
 #[cfg(test)]
 mod tests {

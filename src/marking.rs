@@ -11,12 +11,8 @@
 
 use crate::net::Place;
 use std::cmp::Ordering;
-use std::fmt;
+use std::{fmt, iter};
 use std::ops::{Index, IndexMut};
-
-// ===========================================================================
-// Marking<T>
-// ===========================================================================
 
 /// A marking: one value of type `T` per place, indexed by [`Place`].
 ///
@@ -35,8 +31,6 @@ pub struct Marking<T = u32>(Box<[T]>);
 
 /// Alias for coverability markings that may contain ω.
 pub type OmegaMarking = Marking<Omega>;
-
-// --- Methods for all Marking<T> ---
 
 impl<T> Marking<T> {
     /// Number of places in this marking.
@@ -81,8 +75,6 @@ impl<T: Ord + Copy> Marking<T> {
     }
 }
 
-// --- Cross-reference PartialEq (lets assert_eq! compare &Marking with Marking) ---
-
 impl<T: PartialEq> PartialEq<Marking<T>> for &Marking<T> {
     fn eq(&self, other: &Marking<T>) -> bool {
         *self == other
@@ -94,8 +86,6 @@ impl<T: PartialEq> PartialEq<&Marking<T>> for Marking<T> {
         self == *other
     }
 }
-
-// --- Index by Place ---
 
 impl<T> Index<Place> for Marking<T> {
     type Output = T;
@@ -109,8 +99,6 @@ impl<T> IndexMut<Place> for Marking<T> {
         &mut self.0[p.0]
     }
 }
-
-// --- Conversions (generic) ---
 
 impl<T> From<Vec<T>> for Marking<T> {
     fn from(v: Vec<T>) -> Self {
@@ -138,8 +126,6 @@ impl<T> IntoIterator for Marking<T> {
     }
 }
 
-// --- Display ---
-
 impl<T: fmt::Display> fmt::Display for Marking<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
@@ -150,10 +136,6 @@ impl<T: fmt::Display> fmt::Display for Marking<T> {
         write!(f, ")")
     }
 }
-
-// --- Partial ordering (covering relation) ---
-// M1 >= M2 iff M1(p) >= M2(p) for all places p.
-// Two markings may be incomparable.
 
 /// Folds element-wise orderings into a single partial ordering.
 /// Returns `None` if the elements are incomparable (some greater, some lesser).
@@ -166,16 +148,15 @@ fn partial_cmp_fold(mut iter: impl Iterator<Item = Ordering>) -> Option<Ordering
     })
 }
 
+/// Covering relation on markings:
+/// M1 >= M2 iff M1(p) >= M2(p) for all places p.
+/// Two markings may be incomparable if some places are greater and others are lesser.
 impl<T: Ord> PartialOrd for Marking<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         debug_assert_eq!(self.len(), other.len());
-        partial_cmp_fold(self.0.iter().zip(other.0.iter()).map(|(a, b)| a.cmp(b)))
+        partial_cmp_fold(iter::zip(&self.0, &other.0).map(|(a, b)| a.cmp(b)))
     }
 }
-
-// ===========================================================================
-// Marking<u32> — concrete token markings
-// ===========================================================================
 
 impl Marking<u32> {
     /// Whether all places have zero tokens.
@@ -211,10 +192,6 @@ impl Marking<u32> {
         Some(Marking(result.into_boxed_slice()))
     }
 }
-
-// ===========================================================================
-// Omega — extended token count for coverability
-// ===========================================================================
 
 /// A token count that is either finite or ω (unbounded).
 ///
@@ -282,17 +259,7 @@ impl fmt::Display for Omega {
     }
 }
 
-// ===========================================================================
-// Marking<Omega> (OmegaMarking) — specialized methods
-// ===========================================================================
-
 impl Marking<Omega> {
-    /// Creates an all-ω marking.
-    #[must_use]
-    pub fn unbounded(n_places: usize) -> Self {
-        Self(vec![Omega::Unbounded; n_places].into_boxed_slice())
-    }
-
     /// Returns `true` if all components are finite (no ω).
     #[must_use]
     pub fn is_finite(&self) -> bool {
@@ -319,26 +286,22 @@ impl Marking<Omega> {
     }
 }
 
-// ===========================================================================
-// Cross-type conversions and comparisons
-// ===========================================================================
-
 impl From<&Marking<u32>> for Marking<Omega> {
-    fn from(m: &Marking<u32>) -> Self {
-        Marking(m.iter().map(|&n| Omega::Finite(n)).collect())
+    fn from(marking: &Marking<u32>) -> Self {
+        Marking(marking.iter().map(|&n| Omega::Finite(n)).collect())
     }
 }
 
 impl From<Marking<u32>> for Marking<Omega> {
-    fn from(m: Marking<u32>) -> Self {
-        Marking(m.into_iter().map(Omega::Finite).collect())
+    fn from(marking: Marking<u32>) -> Self {
+        Marking(marking.into_iter().map(Omega::Finite).collect())
     }
 }
 
 impl TryFrom<Marking<Omega>> for Marking<u32> {
     type Error = ();
-    fn try_from(om: Marking<Omega>) -> Result<Self, ()> {
-        om.into_iter()
+    fn try_from(omega_marking: Marking<Omega>) -> Result<Self, ()> {
+        omega_marking.into_iter()
             .map(|o| o.finite().ok_or(()))
             .collect::<Result<Vec<_>, _>>()
             .map(Marking::from)
@@ -348,8 +311,7 @@ impl TryFrom<Marking<Omega>> for Marking<u32> {
 impl PartialEq<Marking<Omega>> for Marking<u32> {
     fn eq(&self, other: &Marking<Omega>) -> bool {
         self.len() == other.len()
-            && self.0.iter().zip(other.0.iter())
-                .all(|(&n, &o)| o == Omega::Finite(n))
+            && iter::zip(&self.0, &other.0).all(|(&n, &o)| o == Omega::Finite(n))
     }
 }
 
@@ -363,8 +325,7 @@ impl PartialOrd<Marking<Omega>> for Marking<u32> {
     fn partial_cmp(&self, other: &Marking<Omega>) -> Option<Ordering> {
         debug_assert_eq!(self.len(), other.len());
         partial_cmp_fold(
-            self.0.iter().zip(other.0.iter())
-                .map(|(&n, &o)| Omega::Finite(n).cmp(&o))
+            iter::zip(&self.0, &other.0).map(|(&n, o)| Omega::Finite(n).cmp(o))
         )
     }
 }
@@ -374,10 +335,6 @@ impl PartialOrd<Marking<u32>> for Marking<Omega> {
         other.partial_cmp(self).map(Ordering::reverse)
     }
 }
-
-// ===========================================================================
-// Tests
-// ===========================================================================
 
 #[cfg(test)]
 mod tests {

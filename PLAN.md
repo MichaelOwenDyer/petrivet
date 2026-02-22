@@ -295,42 +295,25 @@ What to **remove**:
 
 ## 4. Phased Implementation Plan
 
-### Phase 0: Cleanup & Unification (Foundation)
+### Phase 0: Cleanup & Unification (Foundation) — COMPLETE
 
 **Goal**: One coherent codebase with no dead code, no `todo!()` panics, stable Rust.
 
-Tasks:
-- [ ] Remove `#![feature(step_trait)]` and any let-chain usage; ensure `cargo +stable build` works
-- [ ] Restructure modules per Section 2.2
-- [ ] Change `Tokens(i32)` to `u32` for `Marking`; handle signed arithmetic internally
-- [ ] Remove incidence matrix / input_markings / incidence_markings from `Net` struct
-- [ ] Provide `Net::incidence_matrix()` as a computed method instead
-- [ ] Builder returns `Net` directly; add `Net::classify()` method
-- [ ] Remove `StructureClass`, `ClassifiedSystem`, `PetriNet`, `Findings`, `StateSpaces`
-- [ ] Unify into single `System<N>` with `N` defaulting to `Net`
-- [ ] Extract simulation into `Simulate` trait; implement for `Net`
-- [ ] Adapt DIPN into `InterpretedNet` using core types
-- [ ] Ensure all existing tests still pass (adapt as needed)
-- [ ] Remove `#![allow(unused)]`; fix or remove all dead code
-- [ ] Every public API item has a doc comment
+Completed:
+- [x] Remove `#![feature(step_trait)]` and any let-chain usage; ensure `cargo +stable build` works
+- [x] Restructure modules: `net/` (Net, Place, Transition, builder, class), `marking.rs`, `system.rs`
+- [x] Change `Tokens(i32)` to `u32` for `Marking<T>`; handle signed arithmetic via `apply_delta`
+- [x] `Net` stores only topology (presets/postsets); no incidence matrix
+- [x] Builder returns `ClassifiedNet`; classification is automatic and transparent
+- [x] Unify into single `System<N>` with simulation (`choose_and_fire`, `try_fire`, `fire_any`)
+- [x] `EnabledTransition` proof-token design with HRTB closure for zero-redundancy firing
+- [x] `Marking<T>` generic over token type; `OmegaMarking` as type alias
+- [x] Delete all legacy code (`structure/`, `behavior/`, `analysis/`, `dipn/`) and legacy examples
+- [x] Remove unused dependencies (`ahash`, `num-traits`, `nalgebra`, `serde`, `serde_json`)
+- [x] All 30 tests pass on stable, clippy clean, no `todo!()` in any public method
+- [x] Mutex example demonstrating new simulation API
 
-**Exit criteria**: `cargo test` passes on stable, `cargo doc` builds cleanly, no `todo!()` in any public method, no duplicate type definitions.
-
-### Phase 1: Working Simulation
-
-**Goal**: You can build a net, create a marking, and step through execution reliably.
-
-Tasks:
-- [ ] `Simulate` trait with `enabled_transitions`, `fire`, `is_enabled`
-- [ ] `System::step()` — fire one enabled transition (user-chosen or random)
-- [ ] `System::run()` — fire transitions until deadlock or step limit
-- [ ] Execution history: optional recording of `(Marking, Transition)` trace
-- [ ] `InterpretedNet` implements `Simulate` with guards and actions
-- [ ] Examples: simple producer-consumer, mutex, dining philosophers
-
-**Exit criteria**: The water treatment DIPN example works using `InterpretedNet` + core types. A new example demonstrates step-by-step execution with history.
-
-### Phase 2: State Space Exploration
+### Phase 1: State Space Exploration
 
 **Goal**: Fully working reachability and coverability graph construction with useful queries.
 
@@ -348,7 +331,7 @@ Tasks:
 
 **Exit criteria**: Can build the full coverability graph for any small net, determine boundedness, find covering markings, detect deadlocks.
 
-### Phase 3: Structural Analysis Algorithms
+### Phase 2: Structural Analysis Algorithms
 
 **Goal**: The structural analysis traits return real results, not empty vecs.
 
@@ -363,7 +346,7 @@ Tasks:
 
 **Exit criteria**: Can compute invariants and siphons/traps for textbook examples and verify against known results.
 
-### Phase 4: Behavioral Analysis That Leverages Structure
+### Phase 3: Behavioral Analysis That Leverages Structure
 
 **Goal**: Liveness, boundedness, and reachability analysis that actually works, using the best available algorithm.
 
@@ -380,7 +363,7 @@ Tasks:
 
 **Exit criteria**: `system.is_live()`, `system.is_bounded()`, `system.is_reachable(target)` return real answers for all net classes where the theory gives us polynomial algorithms.
 
-### Phase 5: Weighted and Capacity Nets
+### Phase 4: Weighted and Capacity Nets
 
 **Goal**: Support for the most common generalization of ordinary nets.
 
@@ -395,7 +378,7 @@ Tasks:
 
 **Exit criteria**: Can build, simulate, and analyze weighted nets. E/C nets work as a constrained case.
 
-### Phase 6 and Beyond (Future)
+### Phase 5 and Beyond (Future)
 
 Candidates for future phases, roughly ordered by value:
 - Import/export (PNML at minimum, DOT for visualization)

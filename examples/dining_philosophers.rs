@@ -78,8 +78,8 @@ fn main() {
 
     // Show that the firing sequence take_left_0, take_left_1, ..., take_left_(N-1) is possible (all philosophers pick up their left fork), but then no philosopher can eat (deadlock).
 
-    for i in 0..N {
-        sys.try_fire(take_left[i]).ok();
+    for (i, &take_left) in take_left.iter().enumerate() {
+        sys.try_fire(take_left).ok();
         println!("Philosopher {i} takes left fork");
     }
 

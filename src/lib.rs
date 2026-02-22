@@ -6,15 +6,15 @@
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::system::System;
 //!
-//! let mut b = NetBuilder::new();
-//! let [p0, p1] = b.add_places();
-//! let [t0, t1] = b.add_transitions();
-//! b.add_arc((p0, t0));
-//! b.add_arc((t0, p1));
-//! b.add_arc((p1, t1));
-//! b.add_arc((t1, p0));
+//! let mut net = NetBuilder::new();
+//! let [p0, p1] = net.add_places();
+//! let [t0, t1] = net.add_transitions();
+//! net.add_arc((p0, t0));
+//! net.add_arc((t0, p1));
+//! net.add_arc((p1, t1));
+//! net.add_arc((t1, p0));
 //!
-//! let net = b.build().expect("valid net");
+//! let net = net.build().expect("valid net");
 //! println!("Class: {}", net.class());
 //!
 //! let mut sys = System::new(net, [1, 0]);
@@ -25,3 +25,4 @@
 pub mod net;
 pub mod marking;
 pub mod system;
+pub mod state_space;
