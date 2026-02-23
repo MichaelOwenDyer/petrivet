@@ -313,23 +313,26 @@ Completed:
 - [x] All 30 tests pass on stable, clippy clean, no `todo!()` in any public method
 - [x] Mutex example demonstrating new simulation API
 
-### Phase 1: State Space Exploration
+### Phase 1: State Space Exploration — COMPLETE
 
 **Goal**: Fully working reachability and coverability graph construction with useful queries.
 
-Tasks:
-- [ ] Clean up `StateSpace` and exploration iterators
-- [ ] `ReachabilityGraph`: BFS/DFS exploration with configurable limits (max states, max depth)
-- [ ] `CoverabilityGraph`: full Karp-Miller construction with omega-acceleration
-- [ ] Query methods on completed/partial graphs:
-  - `is_reachable(target) -> Option<Vec<Transition>>` (witness path)
-  - `is_coverable(target) -> Option<Vec<Transition>>`
-  - `is_bounded() -> bool` (from coverability graph)
-  - `is_deadlock_free() -> bool` (check all terminal states)
-- [ ] `ExplorationLimits` struct for bounded exploration
-- [ ] Rich result types: `Reachable(path)`, `Unreachable`, `Inconclusive { reason }`
+Completed:
+- [x] Replace old `StateSpace` with shared `ExplorerCore<'a, T>` generic over token type
+- [x] `ReachabilityGraph<'a>`: BFS/DFS exploration with user-driven termination via `explore_next()` / `iter()`
+- [x] `CoverabilityGraph<'a>`: full Karp-Miller construction with omega-acceleration
+- [x] `ExplorationOrder` (BFS/DFS) switchable mid-exploration
+- [x] Frontier optimization: only seed transitions whose input places gained tokens, plus precomputed source transitions
+- [x] `ExplorerCore` borrows `&'a Net` (no cloning); lifetime threads through CG and RG
+- [x] Query methods: `is_reachable`, `path_to`, `is_coverable`, `is_bounded`, `place_bound`, `is_deadlock_free`, `deadlocks`, `contains`, `markings`, `state_count`, `edge_count`
+- [x] `CoverabilityGraph::into_reachability_graph()` — near-zero-cost promotion for bounded nets
+- [x] `ReachabilityGraph::from_coverability()` — O(n) conversion unwrapping `Omega::Finite(k)` → `k`
+- [x] All 47 tests pass, clippy clean
 
-**Exit criteria**: Can build the full coverability graph for any small net, determine boundedness, find covering markings, detect deadlocks.
+Design decisions:
+- No `ExplorationLimits` struct — the user controls termination externally via `explore_next()` or iterator combinators like `.take(n)`
+- No `Inconclusive` result type — queries answer based on what has been explored so far; `is_fully_explored()` tells the user if the answer is definitive
+- Graph stores `Marking<T>` directly as node weights (no wrapper struct)
 
 ### Phase 2: Structural Analysis Algorithms
 

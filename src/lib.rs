@@ -25,4 +25,6 @@
 pub mod net;
 pub mod marking;
 pub mod system;
-pub mod state_space;
+pub(crate) mod explorer;
+pub mod coverability;
+pub mod reachability;
