@@ -10,6 +10,7 @@
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::system::System;
 //! use petrivet::coverability::CoverabilityGraph;
+//! use petrivet::explorer::ExplorationOrder;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -20,7 +21,7 @@
 //! let net = b.build().expect("valid net");
 //! let sys = System::new(net, [1, 0]);
 //!
-//! let cg = CoverabilityGraph::build(&sys);
+//! let cg = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
 //! assert!(!cg.is_bounded());
 //! ```
 
@@ -51,6 +52,7 @@ pub struct CoverabilityStep {
 /// Use [`build`](Self::build) for one-shot construction, or [`new`](Self::new) +
 /// [`explore_next`](Self::explore_next) / [`iter`](Self::iter) for step-by-step
 /// control.
+#[derive(Clone)]
 pub struct CoverabilityGraph<'a> {
     core: ExplorerCore<'a, Omega>,
 }
@@ -139,6 +141,11 @@ impl<'a> CoverabilityGraph<'a> {
     #[must_use]
     pub fn is_fully_explored(&self) -> bool {
         self.core.is_fully_explored()
+    }
+
+    /// Iterator over all discovered markings (may contain ω).
+    pub fn states(&self) -> impl Iterator<Item = &OmegaMarking> {
+        self.core.graph.node_weights()
     }
 
     /// Karp-Miller acceleration: if any previously seen marking is strictly
@@ -269,7 +276,7 @@ mod tests {
     use crate::marking::Marking;
     use crate::net::builder::NetBuilder;
     use crate::net::class::ClassifiedNet;
-    use crate::net::Place;
+    use crate::net::{NetClass, Place};
 
     fn m(val: impl Into<Marking>) -> Marking {
         val.into()
@@ -411,5 +418,170 @@ mod tests {
         cg.explore_all();
         assert!(cg.is_fully_explored());
         assert_eq!(cg.state_count(), 2);
+    }
+
+    /// Connected net with two unbounded places: both should get ω.
+    ///
+    /// ```text
+    /// p0 → t0 → p0, p1       (p1 grows unboundedly)
+    /// p0 → t1 → p0, p2       (p2 grows unboundedly)
+    /// ```
+    #[test]
+    fn multiple_omega_places() {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p0));
+        b.add_arc((t0, p1));
+        b.add_arc((p0, t1));
+        b.add_arc((t1, p0));
+        b.add_arc((t1, p2));
+        let net = b.build().expect("valid net");
+        let sys = System::new(net, [1, 0, 0]);
+
+        let cg = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+
+        assert!(cg.is_fully_explored());
+        assert!(!cg.is_bounded());
+        assert_eq!(cg.place_bound(Place::from_index(0)), Omega::Finite(1));
+        assert_eq!(cg.place_bound(Place::from_index(1)), Omega::Unbounded);
+        assert_eq!(cg.place_bound(Place::from_index(2)), Omega::Unbounded);
+    }
+
+    /// CG of a bounded net: CG→RG promotion preserves state and edge counts.
+    #[test]
+    fn promotion_preserves_graph_structure() {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1, t2] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p1));
+        b.add_arc((p1, t1));
+        b.add_arc((t1, p2));
+        b.add_arc((p2, t2));
+        b.add_arc((t2, p0));
+        let net = b.build().expect("valid net");
+        assert_eq!(net.class(), NetClass::Circuit);
+        let sys = System::new(net, [2, 0, 0]);
+
+        let cg = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+        assert!(cg.is_bounded());
+        let cg_states = cg.state_count();
+        let cg_edges = cg.edge_count();
+
+        let rg = cg.into_reachability_graph().expect("bounded");
+        assert_eq!(rg.state_count(), cg_states);
+        assert_eq!(rg.edge_count(), cg_edges);
+        for marking in rg.markings() {
+            assert_eq!(marking.total_tokens(), 2);
+        }
+    }
+
+    /// Connected net with concurrent enabling: both sub-cycles share p_shared.
+    /// Tests that transitions enabled from pre-existing tokens are explored.
+    #[test]
+    fn concurrent_enabling_bounded() {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p_shared] = b.add_places();
+        let [t0, t1, t2, t3] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p_shared));
+        b.add_arc((p_shared, t2));
+        b.add_arc((t2, p0));
+        b.add_arc((p1, t1));
+        b.add_arc((t1, p_shared));
+        b.add_arc((p_shared, t3));
+        b.add_arc((t3, p1));
+        let net = b.build().expect("valid net");
+        let sys = System::new(net, [1, 1, 0]);
+
+        let cg = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+
+        assert!(cg.is_bounded());
+        assert!(cg.is_deadlock_free());
+    }
+
+    /// A net where omega acceleration fires on multiple places simultaneously:
+    /// t0: p0 → p0, p1, p2
+    #[test]
+    fn multi_place_acceleration() {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p0));
+        b.add_arc((t0, p1));
+        b.add_arc((t0, p2));
+        let net = b.build().expect("valid net");
+        let sys = System::new(net, [1, 0, 0]);
+
+        let cg = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+
+        assert!(cg.is_fully_explored());
+        assert!(!cg.is_bounded());
+        assert_eq!(cg.place_bound(Place::from_index(1)), Omega::Unbounded);
+        assert_eq!(cg.place_bound(Place::from_index(2)), Omega::Unbounded);
+        assert!(cg.is_coverable(&m([1, 100, 100])));
+    }
+
+    /// BFS and DFS produce same coverability results for bounded nets.
+    #[test]
+    fn bfs_dfs_same_coverability() {
+        let sys = two_place_cycle();
+        let cg_bfs = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+        let cg_dfs = CoverabilityGraph::build(&sys, ExplorationOrder::DepthFirst);
+
+        assert_eq!(cg_bfs.state_count(), cg_dfs.state_count());
+        assert_eq!(cg_bfs.is_bounded(), cg_dfs.is_bounded());
+    }
+
+    /// Mutex via coverability: mutual exclusion verified over all coverable markings.
+    #[test]
+    fn mutex_bounded_via_coverability() {
+        let mut b = NetBuilder::new();
+        let [idle1, wait1, crit1] = b.add_places();
+        let [idle2, wait2, crit2] = b.add_places();
+        let mutex = b.add_place();
+        let [t_req1, t_enter1, t_exit1] = b.add_transitions();
+        let [t_req2, t_enter2, t_exit2] = b.add_transitions();
+
+        b.add_arc((idle1, t_req1));
+        b.add_arc((t_req1, wait1));
+        b.add_arc((wait1, t_enter1));
+        b.add_arc((t_enter1, crit1));
+        b.add_arc((crit1, t_exit1));
+        b.add_arc((t_exit1, idle1));
+
+        b.add_arc((idle2, t_req2));
+        b.add_arc((t_req2, wait2));
+        b.add_arc((wait2, t_enter2));
+        b.add_arc((t_enter2, crit2));
+        b.add_arc((crit2, t_exit2));
+        b.add_arc((t_exit2, idle2));
+
+        b.add_arc((mutex, t_enter1));
+        b.add_arc((t_exit1, mutex));
+        b.add_arc((mutex, t_enter2));
+        b.add_arc((t_exit2, mutex));
+
+        let net = b.build().expect("valid net");
+        assert_eq!(net.class(), NetClass::Unrestricted);
+        let sys = System::new(net, [1, 0, 0, 1, 0, 0, 1]);
+
+        let cg = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+
+        assert!(cg.is_bounded());
+        assert!(cg.is_deadlock_free());
+        for marking in cg.markings() {
+            assert!(
+                marking[crit1] <= Omega::Finite(0) || marking[crit2] <= Omega::Finite(0),
+                "mutual exclusion violated"
+            );
+        }
+        assert!(!cg.is_coverable(&m([0, 0, 1, 0, 0, 1, 0])));
+
+        let rg = cg.into_reachability_graph().expect("bounded");
+        assert_eq!(rg.state_count(), 8);
     }
 }

@@ -139,7 +139,7 @@ impl NetBuilder {
             }
         }
 
-        // Verify all nodes are connected
+        // Verify all nodes have at least one arc
         let all_transitions_connected = preset.iter().zip(postset.iter())
             .all(|(pre, post)| !pre.is_empty() || !post.is_empty());
         let all_places_connected = preset_p.iter().zip(postset_p.iter())
@@ -149,11 +149,44 @@ impl NetBuilder {
             return Err(BuildError::NotConnected);
         }
 
-        // sort all presets and postsets in order of place/transition index
-        preset.iter_mut().for_each(|v| v.sort_unstable_by_key(|p| p.0));
-        postset.iter_mut().for_each(|v| v.sort_unstable_by_key(|p| p.0));
-        preset_p.iter_mut().for_each(|v| v.sort_unstable_by_key(|t| t.0));
-        postset_p.iter_mut().for_each(|v| v.sort_unstable_by_key(|t| t.0));
+        // Verify the net is weakly connected (BFS over the bipartite graph
+        // treated as undirected).
+        let total = self.n_places + self.n_transitions;
+        if total > 0 {
+            let mut visited = vec![false; total];
+            let mut queue = std::collections::VecDeque::new();
+            visited[0] = true;
+            queue.push_back(0);
+            while let Some(node) = queue.pop_front() {
+                if node < self.n_places {
+                    let p = node;
+                    for &t in &preset_p[p] {
+                        let ti = self.n_places + t.0;
+                        if !visited[ti] { visited[ti] = true; queue.push_back(ti); }
+                    }
+                    for &t in &postset_p[p] {
+                        let ti = self.n_places + t.0;
+                        if !visited[ti] { visited[ti] = true; queue.push_back(ti); }
+                    }
+                } else {
+                    let t = node - self.n_places;
+                    for &p in &preset[t] {
+                        if !visited[p.0] { visited[p.0] = true; queue.push_back(p.0); }
+                    }
+                    for &p in &postset[t] {
+                        if !visited[p.0] { visited[p.0] = true; queue.push_back(p.0); }
+                    }
+                }
+            }
+            if visited.iter().any(|&v| !v) {
+                return Err(BuildError::NotConnected);
+            }
+        }
+
+        for v in &mut preset { v.sort_unstable_by_key(|p| p.0); v.dedup(); }
+        for v in &mut postset { v.sort_unstable_by_key(|p| p.0); v.dedup(); }
+        for v in &mut preset_p { v.sort_unstable_by_key(|t| t.0); v.dedup(); }
+        for v in &mut postset_p { v.sort_unstable_by_key(|t| t.0); v.dedup(); }
 
         let net = Net {
             n_places: self.n_places,
@@ -272,5 +305,56 @@ mod tests {
         b.add_arc((p1, t1));
         b.add_arc((t1, p3));
         assert_eq!(b.build().unwrap().class(), NetClass::Unrestricted);
+    }
+
+    /// Duplicate arcs are silently deduplicated (no-op on second add).
+    #[test]
+    fn duplicate_arcs_are_noop() {
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p1));
+        let net = b.build().expect("should accept duplicate arcs");
+        assert_eq!(net.net().preset_t(t0).len(), 1);
+    }
+
+    /// Single place, single transition, one arc each direction.
+    #[test]
+    fn minimal_net() {
+        let mut b = NetBuilder::new();
+        let p = b.add_place();
+        let t = b.add_transition();
+        b.add_arc((p, t));
+        b.add_arc((t, p));
+        let net = b.build().expect("valid net");
+        assert_eq!(net.class(), NetClass::Circuit);
+        assert_eq!(net.net().n_places(), 1);
+        assert_eq!(net.net().n_transitions(), 1);
+    }
+
+    /// Source transition (no input places) — builder should accept this.
+    #[test]
+    fn source_transition_accepted() {
+        let mut b = NetBuilder::new();
+        let p = b.add_place();
+        let t = b.add_transition();
+        b.add_arc((t, p));
+        let net = b.build().expect("valid net");
+        assert!(net.net().preset_t(t).is_empty());
+        assert_eq!(net.net().postset_t(t), &[p]);
+    }
+
+    /// Sink transition (no output places) — builder should accept this.
+    #[test]
+    fn sink_transition_accepted() {
+        let mut b = NetBuilder::new();
+        let p = b.add_place();
+        let t = b.add_transition();
+        b.add_arc((p, t));
+        let net = b.build().expect("valid net");
+        assert!(net.net().postset_t(t).is_empty());
+        assert_eq!(net.net().preset_t(t), &[p]);
     }
 }

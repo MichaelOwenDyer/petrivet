@@ -5,4 +5,3 @@ edition = "2024"
 
 [dependencies]
 petgraph = "0.8.2"
-rand = "0.10.0"

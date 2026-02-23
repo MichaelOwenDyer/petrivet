@@ -25,6 +25,6 @@
 pub mod net;
 pub mod marking;
 pub mod system;
-pub(crate) mod explorer;
+pub mod explorer;
 pub mod coverability;
 pub mod reachability;

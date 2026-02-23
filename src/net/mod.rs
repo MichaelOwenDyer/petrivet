@@ -122,6 +122,11 @@ pub struct Net {
 }
 
 impl Net {
+    /// Creates a new net builder for constructing a net.
+    #[must_use]
+    pub fn builder() -> builder::NetBuilder {
+        builder::NetBuilder::new()
+    }
     /// Number of places in the net.
     #[must_use]
     pub fn n_places(&self) -> usize {
@@ -202,21 +207,19 @@ impl Net {
 
     /// A net is free-choice if for every two transitions t1, t2:
     /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
+    /// Equivalently: for every two places p1, p2:
+    /// if p1• ∩ p2• ≠ ∅ then p1• = p2•.
+    /// Intuitively, if two transitions share any input place, they share all input places;
+    /// if any two places share an output transition, they share all output transitions.
     #[must_use]
     pub fn is_free_choice(&self) -> bool {
-        self.transitions().all(|t1| {
-            self.transitions().all(|t2| {
-                if t1 == t2 {
-                    return true;
-                }
-                let presets_overlap = self.preset_t(t1).iter().any(|p1| {
-                    self.preset_t(t2).iter().any(|p2| p1 == p2)
-                });
-                if presets_overlap {
-                    self.preset_t(t1) == self.preset_t(t2)
-                } else {
-                    true
-                }
+        self.places().all(|p| {
+            let consumers = self.postset_p(p);
+            if consumers.len() <= 1 {
+                return true;
+            }
+            consumers.windows(2).all(|t| {
+                self.preset_t(t[0]) == self.preset_t(t[1])
             })
         })
     }

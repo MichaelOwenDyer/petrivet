@@ -12,6 +12,7 @@
 use crate::net::Place;
 use std::cmp::Ordering;
 use std::{fmt, iter};
+use std::fmt::Debug;
 use std::ops::{Index, IndexMut};
 
 /// A marking: one value of type `T` per place, indexed by [`Place`].
@@ -424,5 +425,96 @@ mod tests {
 
         let om: OmegaMarking = [Omega::Finite(1), Omega::Unbounded].into();
         assert_eq!(om.to_string(), "(1, ω)");
+    }
+
+    #[test]
+    fn zero_length_marking() {
+        let m: Marking = Marking::from(Vec::<u32>::new());
+        assert!(m.is_empty());
+        assert_eq!(m.len(), 0);
+        assert!(m.is_zero());
+        assert_eq!(m.total_tokens(), 0);
+
+        let m2: Marking = Marking::from(Vec::<u32>::new());
+        assert_eq!(m, m2);
+        assert_eq!(m.partial_cmp(&m2), Some(Ordering::Equal));
+    }
+
+    #[test]
+    fn incomparable_markings() {
+        let a: Marking = [2, 0, 1].into();
+        let b: Marking = [0, 2, 1].into();
+        assert!(a.partial_cmp(&b).is_none());
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn covering_relation_equal() {
+        let a: Marking = [1, 2, 3].into();
+        let b: Marking = [1, 2, 3].into();
+        assert_eq!(a.partial_cmp(&b), Some(Ordering::Equal));
+    }
+
+    #[test]
+    fn omega_incomparable() {
+        let a: OmegaMarking = [Omega::Unbounded, Omega::Finite(0)].into();
+        let b: OmegaMarking = [Omega::Finite(0), Omega::Unbounded].into();
+        assert!(a.partial_cmp(&b).is_none());
+    }
+
+    #[test]
+    fn cross_type_incomparable() {
+        let u32m: Marking = [5, 0].into();
+        let om: OmegaMarking = [Omega::Finite(0), Omega::Unbounded].into();
+        assert!(u32m.partial_cmp(&om).is_none());
+    }
+
+    #[test]
+    fn cross_type_covering() {
+        let u32m: Marking = [1, 2].into();
+        let om: OmegaMarking = [Omega::Finite(1), Omega::Unbounded].into();
+        assert!(u32m < om);
+        assert!(om > u32m);
+    }
+
+    #[test]
+    fn total_tokens_large() {
+        let m: Marking = [u32::MAX, u32::MAX].into();
+        assert_eq!(m.total_tokens(), 2 * u64::from(u32::MAX));
+    }
+
+    #[test]
+    fn support_sparse() {
+        let m: Marking = [0, 0, 5, 0, 3, 0].into();
+        let support: Vec<Place> = m.support().collect();
+        assert_eq!(support, vec![Place(2), Place(4)]);
+    }
+
+    #[test]
+    fn omega_try_from_all_finite() {
+        let om: OmegaMarking = [Omega::Finite(10), Omega::Finite(20)].into();
+        let result: Result<Marking<u32>, _> = om.try_into();
+        assert_eq!(result.unwrap(), Marking::from([10, 20]));
+    }
+
+    #[test]
+    fn omega_try_from_has_unbounded() {
+        let om: OmegaMarking = [Omega::Finite(1), Omega::Unbounded].into();
+        let result: Result<Marking<u32>, _> = om.try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn from_iterator() {
+        let m: Marking = (0..5).collect();
+        assert_eq!(m.len(), 5);
+        assert_eq!(m[Place(3)], 3);
+    }
+
+    #[test]
+    fn into_iterator() {
+        let m: Marking = [10, 20, 30].into();
+        let v: Vec<u32> = m.into_iter().collect();
+        assert_eq!(v, vec![10, 20, 30]);
     }
 }

@@ -57,6 +57,7 @@ pub enum ExplorationOrder {
 ///
 /// Borrows the [`Net`] for its lifetime — the graph cannot outlive the net
 /// it explores.
+#[derive(Debug, Clone)]
 pub(crate) struct ExplorerCore<'a, T: TokenOps> {
     pub graph: Graph<Marking<T>, Transition>,
     pub seen: HashMap<Marking<T>, NodeIndex>,
@@ -83,26 +84,17 @@ impl<'a, T: TokenOps> ExplorerCore<'a, T> {
         let source_transitions: Box<[Transition]> = net
             .transitions()
             .filter(|&t| net.preset_t(t).is_empty())
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .collect();
 
         let root = graph.add_node(initial_marking.clone());
 
-        // Source transitions: always seeded, disjoint from postset-derived.
-        for &t in &source_transitions {
-            frontier.push_back((root, t));
-        }
-
-        // Postset-derived transitions: dedup within this set only
-        // (two input places of the same transition can both have tokens).
-        let affected: HashSet<Transition> = net
-            .places()
+        net.places()
             .filter(|&p| initial_marking[p].at_least_one())
             .flat_map(|p| net.postset_p(p).iter().copied())
-            .collect();
-        for t in affected {
-            frontier.push_back((root, t));
-        }
+            .chain(source_transitions.iter().copied())
+            .collect::<HashSet<Transition>>()
+            .into_iter()
+            .for_each(|t| frontier.push_back((root, t)));
 
         seen.insert(initial_marking, root);
 
@@ -149,8 +141,8 @@ impl<'a, T: TokenOps> ExplorerCore<'a, T> {
     /// Register a marking in the graph.
     ///
     /// If already seen, adds an edge and returns `(existing_index, false)`.
-    /// If new, adds the node, seeds the frontier with affected transitions
-    /// (plus source transitions), adds the edge, and returns `(new_index, true)`.
+    /// If new, adds the node, seeds the frontier with all potentially enabled
+    /// transitions, adds the edge, and returns `(new_index, true)`.
     pub fn register(
         &mut self,
         from: NodeIndex,
@@ -163,21 +155,19 @@ impl<'a, T: TokenOps> ExplorerCore<'a, T> {
         }
 
         let idx = self.graph.add_node(marking.clone());
-        self.seen.insert(marking, idx);
         self.graph.add_edge(from, idx, over);
 
-        // Source transitions: always seeded, disjoint from postset-derived.
-        for &t in &self.source_transitions {
-            self.frontier.push_back((idx, t));
-        }
-
+        // seed frontier with all transitions that could possibly be enabled at this marking
         self.net
-            .postset_t(over)
-            .iter()
-            .flat_map(|&p| self.net.postset_p(p).iter().copied())
+            .places()
+            .filter(|&p| marking[p].at_least_one())
+            .flat_map(|p| self.net.postset_p(p).iter().copied())
+            .chain(self.source_transitions.iter().copied())
             .collect::<HashSet<Transition>>()
             .into_iter()
             .for_each(|t| self.frontier.push_back((idx, t)));
+
+        self.seen.insert(marking, idx);
 
         (idx, true)
     }
