@@ -334,37 +334,154 @@ Design decisions:
 - No `Inconclusive` result type — queries answer based on what has been explored so far; `is_fully_explored()` tells the user if the answer is definitive
 - Graph stores `Marking<T>` directly as node weights (no wrapper struct)
 
-### Phase 2: Structural Analysis Algorithms
+### Phase 2: Structural Analysis & Behavioral Shortcuts
 
-**Goal**: The structural analysis traits return real results, not empty vecs.
+**Goal**: Verified structural analysis algorithms and semi-decision procedures that
+serve as computational shortcuts for answering behavioral questions. High-level
+`System` methods dispatch to the best available algorithm automatically.
 
-Tasks:
-- [ ] S-invariant computation (left null space of incidence matrix over integers)
-- [ ] T-invariant computation (right null space)
-- [ ] Positive invariant detection
-- [ ] Minimal siphon enumeration
-- [ ] Minimal trap enumeration
-- [ ] S-component and T-component detection
-- [ ] Circuit (cycle) enumeration for T-net liveness
+Phase 2 is split into two sprints. Sprint 1 laid the foundation; Sprint 2 corrects
+issues found during a literature verification pass and adds remaining features.
 
-**Exit criteria**: Can compute invariants and siphons/traps for textbook examples and verify against known results.
+#### Sprint 1 — COMPLETE
 
-### Phase 3: Behavioral Analysis That Leverages Structure
+Initial implementations of structural analysis and behavioral API. All code
+compiles and passes tests, but a subsequent verification against the literature
+(Murata 1989, Petri Net Primer, Lecture Notes) identified several correctness
+issues and missing features addressed in Sprint 2.
 
-**Goal**: Liveness, boundedness, and reachability analysis that actually works, using the best available algorithm.
+Completed:
+- [x] `IncidenceMatrix` struct and `Net::incidence_matrix()` computation
+- [x] Integer null space via Bareiss algorithm (`analysis::math::integer_null_space`)
+- [x] `Invariants` struct with S-invariant and T-invariant basis vectors
+- [x] `compute_invariants(net)` using null space of incidence matrix
+- [x] LP-based coverage check: `is_covered_by_s_invariants` / `is_covered_by_t_invariants`
+- [x] `minimal_siphons(net)` and `minimal_traps(net)` (initial growing algorithm — buggy, replaced in Sprint 2)
+- [x] `every_siphon_contains_marked_trap()` for Commoner's theorem
+- [x] `check_marking_equation()` — LP relaxation of the state equation
+- [x] `is_structurally_bounded(net)` and `is_place_structurally_bounded(net, place)` — LP formulations
+- [x] `From<Net> for NetBuilder` and `From<ClassifiedNet> for NetBuilder`
+- [x] High-level `System` methods: `is_bounded`, `is_dead`, `is_quasi_live`, `is_live`
+- [x] `is_live` dispatches to Commoner's theorem for free-choice/S-net/T-net, otherwise exploration
+- [x] Integration of `good_lp` with `microlp` backend (pure Rust, supports ILP via branch-and-bound)
+- [x] `pub(crate) core()` accessors on `CoverabilityGraph` and `ReachabilityGraph`
+- [x] `pub graph()` accessor on `ExplorerCore`
 
-Tasks:
-- [ ] General liveness via coverability graph SCC analysis
-- [ ] General boundedness via coverability graph (already partially works)
-- [ ] T-net liveness via circuit enumeration (every circuit has tokens)
-- [ ] Free-choice liveness via Commoner's theorem (every siphon contains a marked trap)
-- [ ] Free-choice boundedness via Heck's theorem (every place in an S-component)
-- [ ] S-net reachability (token sum conservation)
-- [ ] T-net reachability (marking equation over integers)
-- [ ] Auto-dispatch: `System<Net>` methods internally classify and delegate when beneficial
-- [ ] Firing sequence bounds for bounded free-choice and T-nets
+#### Sprint 2 — IN PROGRESS
 
-**Exit criteria**: `system.is_live()`, `system.is_bounded()`, `system.is_reachable(target)` return real answers for all net classes where the theory gives us polynomial algorithms.
+Corrections from literature verification and remaining features.
+
+**A. Corrections**
+
+- [ ] **A1. Incidence matrix convention switch.**
+  Currently `|T|×|P|` (Murata convention). Switch to `|P|×|T|` (Primer convention)
+  so the state equation reads `M' = M₀ + N·x` directly, without a transpose.
+  The Primer convention is more intuitive: row index = place, column index = transition,
+  so `N[p][t]` is the net token change at place `p` when transition `t` fires.
+  Affects: `Net::incidence_matrix()`, `compute_invariants()`, `check_marking_equation()`,
+  `is_structurally_bounded()`, `is_place_structurally_bounded()`, and all tests
+  that construct raw `IncidenceMatrix` values.
+
+- [ ] **A2. Fix siphon/trap enumeration.**
+  The Sprint 1 growing algorithm can overshoot and miss minimal siphons.
+  Replace with two correct alternatives:
+  - *Shrinking algorithm* (Primer, Algorithm 6.19): `maximal_siphon_in(net, subset)`
+    iteratively removes places that violate the siphon property. O(|S|²·|T|²) per call.
+    Minimal siphon enumeration via backtracking on top.
+  - *ILP enumeration*: binary LP encoding the siphon/trap property with no-good cuts
+    for systematic enumeration of all minimal siphons/traps.
+  Dual algorithms for traps (`maximal_trap_in`, `minimal_traps`, `minimal_traps_ilp`).
+
+- [ ] **A3. Fix `is_live_by_exploration`.**
+  Current code requires exactly one terminal SCC. The correct condition for L4-liveness
+  of a transition `t` in a bounded net: `t` must label an edge in **every** terminal SCC
+  of the reachability graph. A net is L4-live iff every transition satisfies this.
+  (Justification: once you enter a terminal SCC you stay forever; if any terminal SCC
+  lacks `t`, markings in that SCC can never fire `t` again.)
+
+- [ ] **A4. Fix `is_dead` marking equation usage.**
+  Currently constructs a target marking with exactly 1 token in each preset place and 0
+  elsewhere, then checks the marking equation with equality constraints. This is too
+  restrictive — it misses reachable markings that *cover* the preset with additional
+  tokens elsewhere. Fix: use inequality constraints (`≥`) for the semi-decision check,
+  consistent with how coverability works.
+
+**B. New Features**
+
+- [ ] **B1. ILP variant of marking equation.**
+  Add `check_marking_equation_ilp()` alongside the existing LP relaxation.
+  - LP infeasible → definitely unreachable (sound).
+  - LP feasible, ILP infeasible → definitely unreachable (strictly stronger).
+  - ILP feasible → possibly reachable (necessary but not sufficient; firing order
+    may not exist even with an integer firing count vector).
+  Both LP and ILP are necessary conditions for reachability, not sufficient.
+  ILP is more expensive but can rule out cases LP cannot.
+  (Murata 1989, §IV-B: "a nonnegative integer solution x must exist" is a
+  necessary reachability condition.)
+
+- [ ] **B2. `LivenessLevel` enum and per-transition liveness analysis.**
+  Introduce `LivenessLevel` with variants `Dead` (L0), `L1`, `L2`, `L3`, `L4`
+  following Murata 1989 §V-C definitions:
+  - L0 (dead): `t` can never fire in any firing sequence from M₀.
+  - L1 (potentially firable): `t` fires at least once in some firing sequence.
+  - L2: for any positive integer k, `t` can fire at least k times in some sequence.
+  - L3 (weakly live): `t` appears infinitely often in some infinite firing sequence.
+  - L4 (live): `t` is L1-live for every marking M ∈ R(M₀).
+
+  **Key insight**: for bounded nets, L2 ≡ L3. (Proof: in a finite RG, any path
+  firing `t` more than |R(M₀)| times must revisit a marking, creating a cycle
+  containing `t`, which yields an infinite sequence — making `t` L3.)
+
+  SCC-based decision procedure for bounded nets (methods on `ReachabilityGraph`):
+  - L0: `t` does not label any edge in the RG.
+  - L1: `t` labels at least one edge.
+  - L2/L3: `t` labels an edge within some non-trivial SCC (≥2 nodes or self-loop).
+  - L4: `t` labels an edge in every terminal SCC.
+
+  CG-level methods on `CoverabilityGraph`:
+  - `is_quasi_live(t)`: `t` labels at least one edge (exact even for unbounded nets).
+
+  High-level `System` methods orchestrate: structural shortcuts (Commoner's theorem
+  for FC nets) first, then build CG, promote to RG if bounded for exact SCC analysis.
+
+- [ ] **B3. Document conservativeness.**
+  S-invariant coverage implies *conservativeness*: the net has a positive S-invariant,
+  meaning every firing preserves a weighted token sum. Conservativeness is strictly
+  stronger than structural boundedness.
+  Relationship: S-invariant coverage → conservativeness → structural boundedness.
+  The structural boundedness LP (which finds any positive S-sub-invariant with
+  `C·y ≤ 0`, `y > 0`) is a weaker but more direct check. Both belong in the library
+  for different use cases. Add doc comments clarifying this hierarchy.
+
+**C. Deferred Items (noted for future phases)**
+
+These were planned in earlier phases but are out of scope for Sprint 2. They are
+recorded here so nothing is lost:
+
+- S-component and T-component detection
+- Circuit (cycle) enumeration for T-net liveness
+- Free-choice boundedness via Heck's theorem (every place in an S-component)
+- S-net reachability via token sum conservation
+- T-net reachability via marking equation over integers (partially addressed by B1)
+- Firing sequence bounds for bounded free-choice and T-nets
+- Liveness-to-reachability reduction (wrapping a net to test liveness via reachability)
+- L2 vs L3 distinction for unbounded nets (requires CG-based approximation)
+- `analyze_*` richer API returning reasoning/witnesses beyond `bool`
+
+**D. Testing and Quality**
+
+- [ ] Comprehensive tests for all corrections (A1–A4)
+- [ ] Tests for ILP marking equation (B1)
+- [ ] Tests for liveness levels on known nets (B2)
+- [ ] Run clippy and address all warnings
+- [ ] Update PLAN.md to reflect completed items
+
+**Execution order**: A1 → A2 → A4 → A3+B2 → B1 → B3 → D
+
+**Exit criteria**: All structural analysis and semi-decision procedures are verified
+against the literature. `system.is_live()`, `system.is_bounded()`, and per-transition
+`liveness_level()` return correct results for textbook nets. Siphon/trap enumeration
+is complete (finds all minimal siphons/traps). Tests cover non-trivial nets.
 
 ### Phase 4: Weighted and Capacity Nets
 
