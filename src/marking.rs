@@ -25,7 +25,7 @@ use std::ops::{Index, IndexMut};
 /// use petrivet::marking::Marking;
 /// let m: Marking = [1, 0, 3].into();
 /// let m = Marking::from([1, 0, 3]);
-/// let m: Marking = vec![1u32, 0, 3].into();
+/// let m: Marking = vec![1, 0, 3].into();
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Marking<T = u32>(Box<[T]>);
@@ -91,13 +91,13 @@ impl<T: PartialEq> PartialEq<&Marking<T>> for Marking<T> {
 impl<T> Index<Place> for Marking<T> {
     type Output = T;
     fn index(&self, p: Place) -> &T {
-        &self.0[p.0]
+        &self.0[p.idx]
     }
 }
 
 impl<T> IndexMut<Place> for Marking<T> {
     fn index_mut(&mut self, p: Place) -> &mut T {
-        &mut self.0[p.0]
+        &mut self.0[p.idx]
     }
 }
 
@@ -175,7 +175,7 @@ impl Marking<u32> {
     /// Places that have at least one token.
     pub fn support(&self) -> impl Iterator<Item = Place> + '_ {
         self.0.iter().enumerate().filter_map(|(i, &t)| {
-            if t > 0 { Some(Place(i)) } else { None }
+            if t > 0 { Some(Place { idx: i }) } else { None }
         })
     }
 
@@ -344,9 +344,9 @@ mod tests {
     #[test]
     fn from_array() {
         let m: Marking = [1, 0, 3].into();
-        assert_eq!(m[Place(0)], 1);
-        assert_eq!(m[Place(1)], 0);
-        assert_eq!(m[Place(2)], 3);
+        assert_eq!(m[Place { idx: 0 }], 1);
+        assert_eq!(m[Place { idx: 1 }], 0);
+        assert_eq!(m[Place { idx: 2 }], 3);
     }
 
     #[test]
@@ -382,8 +382,8 @@ mod tests {
     #[test]
     fn omega_marking_from_array() {
         let om: OmegaMarking = [Omega::Finite(1), Omega::Unbounded].into();
-        assert_eq!(om[Place(0)], Omega::Finite(1));
-        assert_eq!(om[Place(1)], Omega::Unbounded);
+        assert_eq!(om[Place { idx: 0 }], Omega::Finite(1));
+        assert_eq!(om[Place { idx: 1 }], Omega::Unbounded);
     }
 
     #[test]
@@ -406,8 +406,8 @@ mod tests {
     fn omega_apply_delta() {
         let om: OmegaMarking = [Omega::Finite(2), Omega::Unbounded].into();
         let result = om.apply_delta(&[-1, 5]).unwrap();
-        assert_eq!(result[Place(0)], Omega::Finite(1));
-        assert_eq!(result[Place(1)], Omega::Unbounded);
+        assert_eq!(result[Place { idx: 0 }], Omega::Finite(1));
+        assert_eq!(result[Place { idx: 1 }], Omega::Unbounded);
     }
 
     #[test]
@@ -487,7 +487,7 @@ mod tests {
     fn support_sparse() {
         let m: Marking = [0, 0, 5, 0, 3, 0].into();
         let support: Vec<Place> = m.support().collect();
-        assert_eq!(support, vec![Place(2), Place(4)]);
+        assert_eq!(support, vec![Place { idx: 2 }, Place { idx: 4 }]);
     }
 
     #[test]
@@ -508,7 +508,7 @@ mod tests {
     fn from_iterator() {
         let m: Marking = (0..5).collect();
         assert_eq!(m.len(), 5);
-        assert_eq!(m[Place(3)], 3);
+        assert_eq!(m[Place { idx: 3 }], 3);
     }
 
     #[test]

@@ -246,13 +246,18 @@ impl<'a> CoverabilityGraph<'a> {
             .collect()
     }
 
+    /// Borrow the inner explorer core.
+    pub(crate) fn core(&self) -> &ExplorerCore<'a, Omega> {
+        &self.core
+    }
+
     /// Consume and return the inner explorer core (used by `ReachabilityGraph`
     /// for the promotion conversion).
     pub(crate) fn into_core(self) -> ExplorerCore<'a, Omega> {
         self.core
     }
 
-    /// Promote to a [`ReachabilityGraph`] if the net is bounded.
+    /// Promote to a [`ReachabilityGraph`] if the system is bounded.
     ///
     /// When the coverability graph contains no ω, it is exactly the
     /// reachability graph. This conversion is O(n) in the number of states
@@ -263,10 +268,7 @@ impl<'a> CoverabilityGraph<'a> {
     /// the coverability graph.
     #[allow(clippy::result_large_err)]
     pub fn into_reachability_graph(self) -> Result<ReachabilityGraph<'a>, Self> {
-        if !self.is_bounded() {
-            return Err(self);
-        }
-        Ok(ReachabilityGraph::from_coverability(self))
+        ReachabilityGraph::try_from(self)
     }
 }
 

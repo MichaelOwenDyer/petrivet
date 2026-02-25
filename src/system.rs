@@ -19,8 +19,12 @@
 //! system.fire_any();
 //! ```
 
+use crate::analysis;
+use crate::coverability::CoverabilityGraph;
+use crate::explorer::ExplorationOrder;
 use crate::marking::Marking;
 use crate::net::{Net, Transition};
+use std::collections::HashSet;
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -117,6 +121,7 @@ impl<N: AsRef<Net>> System<N> {
     /// Check-and-fire a specific transition.
     ///
     /// Returns `Ok(())` if the transition was enabled and has been fired.
+    /// # Errors
     /// Returns `Err(FireError::NotEnabled)` if it was not enabled.
     pub fn try_fire(&mut self, t: Transition) -> Result<(), FireError> {
         if self.is_enabled(t) {
@@ -215,7 +220,7 @@ impl PartialEq<EnabledTransition<'_>> for Transition {
 
 impl fmt::Debug for EnabledTransition<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "EnabledTransition({})", self.0)
+        write!(f, "EnabledTransition({})", self.idx)
     }
 }
 
@@ -277,6 +282,161 @@ impl fmt::Display for FireError {
 }
 
 impl std::error::Error for FireError {}
+
+impl<N: AsRef<Net>> System<N> {
+
+    /// Checks if the system is bounded under its initial marking by
+    /// building the coverability graph and checking for omega values.
+    ///
+    /// Strategy:
+    /// 1. First tries structural boundedness (LP) — if true, we're done.
+    /// 2. Otherwise, builds the coverability graph (always terminates) and
+    ///    checks whether any omega values appear.
+    #[must_use]
+    pub fn is_bounded(&self) -> bool {
+        if self.net.as_ref().is_structurally_bounded() {
+            return true;
+        }
+        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
+        cg.is_bounded()
+    }
+
+    /// Checks whether transition `t` is dead (L0): it can never fire from
+    /// any marking reachable from the initial marking.
+    ///
+    /// Strategy:
+    /// 1. Marking equation check — if no firing vector can produce tokens
+    ///    at all input places of `t`, then `t` is definitely dead.
+    /// 2. Coverability check — asks whether a marking covering the preset
+    ///    of `t` is coverable.
+    #[must_use]
+    pub fn is_dead(&self, t: Transition) -> bool {
+        let net = self.net.as_ref();
+        let preset = net.preset_t(t);
+        if preset.is_empty() {
+            return false;
+        }
+
+        let n_p = net.n_places();
+        let mut target_tokens = vec![0u32; n_p];
+        for &p in preset {
+            target_tokens[p.index()] = 1;
+        }
+        let target = Marking::from(target_tokens);
+
+        let me_result = analysis::semi_decision::check_marking_equation(
+            net,
+            &self.initial_marking,
+            &target,
+        );
+        if me_result.is_infeasible() {
+            return true;
+        }
+
+        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
+        !cg.is_coverable(&target)
+    }
+
+    /// Checks if the system is quasi-live (L1): every transition can fire
+    /// in at least one reachable marking.
+    ///
+    /// Strategy: builds the coverability graph and checks that every
+    /// transition appears on at least one edge.
+    #[must_use]
+    pub fn is_quasi_live(&self) -> bool {
+        let net = self.net.as_ref();
+        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
+
+        let graph = cg.core().graph();
+        let mut fired: HashSet<Transition> = HashSet::new();
+        for edge in graph.edge_references() {
+            fired.insert(*edge.weight());
+        }
+        net.transitions().all(|t| fired.contains(&t))
+    }
+
+    /// Checks if the system is live (L4): every transition can fire from
+    /// every reachable marking (possibly after further firings).
+    ///
+    /// This is the strongest liveness property. For free-choice nets, uses
+    /// Commoner's theorem (structural check). Otherwise falls back to
+    /// state space exploration.
+    ///
+    /// **Note**: For unbounded non-free-choice nets, this builds the
+    /// coverability graph which may be an over-approximation — the result
+    /// is sound but may conservatively return `false`.
+    #[must_use]
+    pub fn is_live(&self) -> bool {
+        let net = self.net.as_ref();
+
+        if net.is_free_choice() || net.is_s_net() || net.is_t_net() {
+            let siphons = analysis::structural::minimal_siphons(net);
+            let traps = analysis::structural::minimal_traps(net);
+            return analysis::structural::every_siphon_contains_marked_trap(
+                &self.initial_marking,
+                &siphons,
+                &traps,
+            );
+        }
+
+        self.is_live_by_exploration()
+    }
+
+    /// Full state-space liveness check: the system is live iff the
+    /// reachability graph has a single terminal SCC containing all
+    /// transitions.
+    ///
+    /// Only works for bounded systems. Returns `false` conservatively
+    /// if the system is unbounded.
+    fn is_live_by_exploration(&self) -> bool {
+        use petgraph::visit::EdgeRef;
+        let net = self.net.as_ref();
+
+        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
+        let Ok(rg) = cg.into_reachability_graph() else { return false };
+
+        let graph = rg.core().graph();
+        let sccs = petgraph::algo::kosaraju_scc(graph);
+        if sccs.is_empty() {
+            return false;
+        }
+
+        let mut node_to_scc = vec![0usize; graph.node_count()];
+        for (scc_id, scc) in sccs.iter().enumerate() {
+            for &node in scc {
+                node_to_scc[node.index()] = scc_id;
+            }
+        }
+
+        let mut has_external_edge = vec![false; sccs.len()];
+        for edge in graph.edge_references() {
+            let src_scc = node_to_scc[edge.source().index()];
+            let dst_scc = node_to_scc[edge.target().index()];
+            if src_scc != dst_scc {
+                has_external_edge[src_scc] = true;
+            }
+        }
+
+        let terminal_sccs: Vec<usize> = (0..sccs.len())
+            .filter(|&i| !has_external_edge[i])
+            .collect();
+
+        let terminal_scc_id = terminal_sccs[0];
+        let terminal_nodes: HashSet<petgraph::graph::NodeIndex> =
+            sccs[terminal_scc_id].iter().copied().collect();
+
+        let mut transitions_in_terminal: HashSet<Transition> = HashSet::new();
+        for edge in graph.edge_references() {
+            if terminal_nodes.contains(&edge.source())
+                && terminal_nodes.contains(&edge.target())
+            {
+                transitions_in_terminal.insert(*edge.weight());
+            }
+        }
+
+        net.transitions().all(|t| transitions_in_terminal.contains(&t))
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -400,5 +560,99 @@ mod tests {
         let (_net, initial, current) = sys.into_parts();
         assert_eq!(initial, m([1, 0]));
         assert_eq!(current, m([0, 1]));
+    }
+
+    // --- Behavioral analysis tests ---
+
+    #[test]
+    fn cycle_is_structurally_bounded() {
+        let (net, _, _) = two_place_cycle();
+        let sys = System::new(&net, [1, 0]);
+        assert!(net.is_structurally_bounded());
+        assert!(sys.is_bounded());
+    }
+
+    #[test]
+    fn cycle_is_live() {
+        let (net, _, _) = two_place_cycle();
+        let sys = System::new(net, [1, 0]);
+        assert!(sys.is_live());
+    }
+
+    #[test]
+    fn cycle_is_quasi_live() {
+        let (net, _, _) = two_place_cycle();
+        let sys = System::new(net, [1, 0]);
+        assert!(sys.is_quasi_live());
+    }
+
+    #[test]
+    fn deadlocked_cycle_not_quasi_live() {
+        let (net, _, _) = two_place_cycle();
+        let sys = System::new(net, [0, 0]);
+        assert!(!sys.is_quasi_live());
+    }
+
+    #[test]
+    fn deadlocked_cycle_not_live() {
+        let (net, _, _) = two_place_cycle();
+        let sys = System::new(net, [0, 0]);
+        assert!(!sys.is_live());
+    }
+
+    #[test]
+    fn dead_transition_detection() {
+        let (net, t0, t1) = two_place_cycle();
+        // With [0, 0], both transitions are dead (never fireable)
+        let sys = System::new(net, [0, 0]);
+        assert!(sys.is_dead(t0));
+        assert!(sys.is_dead(t1));
+    }
+
+    #[test]
+    fn alive_transitions_not_dead() {
+        let (net, t0, t1) = two_place_cycle();
+        let sys = System::new(net, [1, 0]);
+        assert!(!sys.is_dead(t0));
+        assert!(!sys.is_dead(t1));
+    }
+
+    #[test]
+    fn unbounded_not_structurally_bounded() {
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p0));
+        b.add_arc((t0, p1));
+        let net = b.build().expect("valid net");
+        let sys = System::new(&net, [1, 0]);
+        assert!(!net.is_structurally_bounded());
+        assert!(!sys.is_bounded());
+    }
+
+    #[test]
+    fn mutex_is_live_and_bounded() {
+        let mut b = NetBuilder::new();
+        let [idle1, wait1, crit1] = b.add_places();
+        let [idle2, wait2, crit2] = b.add_places();
+        let mutex = b.add_place();
+        let [t_req1, t_enter1, t_exit1] = b.add_transitions();
+        let [t_req2, t_enter2, t_exit2] = b.add_transitions();
+
+        b.add_arc((idle1, t_req1)); b.add_arc((t_req1, wait1));
+        b.add_arc((wait1, t_enter1)); b.add_arc((t_enter1, crit1));
+        b.add_arc((crit1, t_exit1)); b.add_arc((t_exit1, idle1));
+        b.add_arc((idle2, t_req2)); b.add_arc((t_req2, wait2));
+        b.add_arc((wait2, t_enter2)); b.add_arc((t_enter2, crit2));
+        b.add_arc((crit2, t_exit2)); b.add_arc((t_exit2, idle2));
+        b.add_arc((mutex, t_enter1)); b.add_arc((t_exit1, mutex));
+        b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
+
+        let net = b.build().expect("valid net");
+        let sys = System::new(net, [1u32, 0, 0, 1, 0, 0, 1]);
+        assert!(sys.is_bounded());
+        assert!(sys.is_quasi_live());
+        assert!(sys.is_live());
     }
 }

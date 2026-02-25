@@ -197,13 +197,26 @@ impl<'a> ReachabilityGraph<'a> {
         self.core.seen.contains_key(marking)
     }
 
-    /// Convert a fully explored, bounded coverability graph into a
-    /// reachability graph.
-    ///
-    /// This is called by
-    /// [`CoverabilityGraph::into_reachability_graph`](CoverabilityGraph::into_reachability_graph).
-    /// All `Omega::Finite(k)` values are unwrapped to `k`.
-    pub(crate) fn from_coverability(cg: CoverabilityGraph<'a>) -> Self {
+    /// Borrow the inner explorer core.
+    pub(crate) fn core(&self) -> &ExplorerCore<'a, u32> {
+        &self.core
+    }
+}
+
+/// Convert a fully explored, bounded coverability graph into a
+/// reachability graph.
+///
+/// This is called by
+/// [`CoverabilityGraph::into_reachability_graph`](CoverabilityGraph::into_reachability_graph).
+/// All `Omega::Finite(k)` values are unwrapped to `k`.
+impl<'a> TryFrom<CoverabilityGraph<'a>> for ReachabilityGraph<'a> {
+    type Error = CoverabilityGraph<'a>;
+
+    fn try_from(cg: CoverabilityGraph<'a>) -> Result<Self, Self::Error> {
+        if !cg.is_bounded() {
+            return Err(cg);
+        }
+
         let cg_core = cg.into_core();
         let order = cg_core.order;
         let cg_initial = cg_core.initial;
@@ -221,7 +234,8 @@ impl<'a> ReachabilityGraph<'a> {
         let mut seen: HashMap<Marking<u32>, NodeIndex> = HashMap::new();
 
         for old_idx in cg_core.graph.node_indices() {
-            let u32_marking = omega_marking_to_u32(&cg_core.graph[old_idx]);
+            // unwrap safety: the graph has only finite markings (it is bounded)
+            let u32_marking = unwrap_omega_marking_to_u32(&cg_core.graph[old_idx]);
             let new_idx = graph.add_node(u32_marking.clone());
             index_map.insert(old_idx, new_idx);
             seen.insert(u32_marking, new_idx);
@@ -235,7 +249,7 @@ impl<'a> ReachabilityGraph<'a> {
 
         let initial = index_map[&cg_initial];
 
-        Self {
+        Ok(Self {
             core: ExplorerCore {
                 graph,
                 seen,
@@ -245,12 +259,12 @@ impl<'a> ReachabilityGraph<'a> {
                 order,
                 source_transitions,
             },
-        }
+        })
     }
 }
 
 /// Unwrap an `OmegaMarking` with all-finite components to a `Marking<u32>`.
-fn omega_marking_to_u32(om: &Marking<Omega>) -> Marking<u32> {
+fn unwrap_omega_marking_to_u32(om: &Marking<Omega>) -> Marking<u32> {
     om.iter()
         .map(|o| match o {
             Omega::Finite(n) => *n,
@@ -500,7 +514,7 @@ mod tests {
 
     /// Multiple tokens: 3 tokens cycling through 3 places.
     /// p0→t0→p1→t1→p2→t2→p0 with initial marking (3,0,0).
-    /// There are C(3+2, 2) = 10 distributions of 3 tokens among 3 places.
+    /// There are 10 distributions of 3 tokens among 3 places.
     #[test]
     fn multi_token_state_count() {
         let mut b = NetBuilder::new();

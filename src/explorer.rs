@@ -71,6 +71,11 @@ pub(crate) struct ExplorerCore<'a, T: TokenOps> {
 }
 
 impl<'a, T: TokenOps> ExplorerCore<'a, T> {
+    /// Returns a reference to the underlying petgraph.
+    pub fn graph(&self) -> &Graph<Marking<T>, Transition> {
+        &self.graph
+    }
+
     /// Create a new explorer from a net reference and initial marking.
     ///
     /// Seeds the frontier with source transitions (empty preset, always

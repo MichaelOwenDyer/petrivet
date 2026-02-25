@@ -3,6 +3,7 @@
 //! # Quick Start
 //!
 //! ```
+//! use petrivet::{CoverabilityGraph, ExplorationOrder};
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::system::System;
 //!
@@ -20,6 +21,13 @@
 //! let mut sys = System::new(net, [1, 0]);
 //! sys.choose_and_fire(|enabled| enabled.first());
 //! println!("Marking after firing: {}", sys.marking());
+//!
+//! let mut cg = CoverabilityGraph::new(&sys, ExplorationOrder::BreadthFirst);
+//! for s in cg.iter().take(10) {
+//!     if s.is_new {
+//!         println!("{:#?}", s.marking);
+//!     }
+//! }
 //! ```
 
 pub mod net;
@@ -28,3 +36,11 @@ pub mod system;
 pub mod explorer;
 pub mod coverability;
 pub mod reachability;
+pub mod analysis;
+
+pub use net::*;
+pub use marking::*;
+pub use system::System;
+pub use coverability::CoverabilityGraph;
+pub use reachability::ReachabilityGraph;
+pub use explorer::ExplorationOrder;
