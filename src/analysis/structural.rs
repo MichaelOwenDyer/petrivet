@@ -6,7 +6,7 @@
 
 use crate::analysis::math::integer_null_space;
 use crate::marking::Marking;
-use crate::net::{Net, Place, Transition};
+use crate::net::{Net, Place};
 use std::collections::HashSet;
 
 /// Result of structural invariant analysis on a net.
@@ -135,117 +135,325 @@ impl Invariants {
 }
 
 /// Computes the S-invariants and T-invariants of a net.
+///
+/// With the Primer convention (N is |P|×|T|):
+/// - S-invariants: vectors y ∈ ℤ^|P| satisfying Nᵀ · y = 0.
+///   These are place invariants: the weighted token sum y · M is conserved
+///   across all transition firings.
+/// - T-invariants: vectors x ∈ ℤ^|T| satisfying N · x = 0.
+///   These are transition invariants: firing the multiset x returns the
+///   marking to its original value.
+///
+/// References:
+/// - Murata 1989, §VII (invariant analysis)
+/// - Petri Net Primer, §4.3 (S-invariants and T-invariants)
 #[must_use]
 pub fn compute_invariants(net: &Net) -> Invariants {
     let n = net.incidence_matrix();
-    let s_invariants = integer_null_space(&n);
+    // S-invariants: null space of Nᵀ (|T|×|P| matrix → |P|-dimensional vectors)
     let nt = n.transpose();
-    let t_invariants = integer_null_space(&nt);
+    let s_invariants = integer_null_space(&nt);
+    // T-invariants: null space of N (|P|×|T| matrix → |T|-dimensional vectors)
+    let t_invariants = integer_null_space(&n);
     Invariants { s_invariants, t_invariants }
 }
 
-/// Finds all minimal siphons of a net.
+/// Computes the maximal siphon contained in a given set of places.
 ///
 /// A siphon is a set of places D such that •D ⊆ D•: every transition that
 /// produces into D also consumes from D. Once empty, it stays empty forever.
 ///
-/// Uses a simple enumeration: start from each place, grow the set until
-/// the siphon property •D ⊆ D• is satisfied.
+/// Uses the shrinking algorithm from the Petri Net Primer (Algorithm 6.19):
+/// iteratively remove any place p where some transition t ∈ •p has no
+/// input place in the current set. Runs in O(|S|² · |T|²).
+#[must_use]
+pub fn maximal_siphon_in(net: &Net, subset: &HashSet<Place>) -> HashSet<Place> {
+    let mut d: HashSet<Place> = subset.clone();
+    loop {
+        let mut removed = false;
+        let to_remove: Vec<Place> = d.iter().copied().filter(|&p| {
+            // Check if some t ∈ •p has no input place in D.
+            // •p = transitions that produce into p = preset_p(p)
+            net.preset_p(p).iter().any(|&t| {
+                // t ∈ •p. For the siphon property, we need t ∈ D•,
+                // i.e. t consumes from some place in D.
+                // •t = preset_t(t) = input places of t.
+                !net.preset_t(t).iter().any(|&q| d.contains(&q))
+            })
+        }).collect();
+        for p in to_remove {
+            d.remove(&p);
+            removed = true;
+        }
+        if !removed {
+            break;
+        }
+    }
+    d
+}
+
+/// Finds all minimal siphons of a net using backtracking.
+///
+/// Starts by computing the maximal siphon (all places), then recursively
+/// tries excluding each place to find smaller siphons. Results are filtered
+/// to keep only minimal ones.
 #[must_use]
 pub fn minimal_siphons(net: &Net) -> Vec<HashSet<Place>> {
+    let all_places: HashSet<Place> = net.places().collect();
     let mut results: Vec<HashSet<Place>> = Vec::new();
+    let mut stack: Vec<HashSet<Place>> = vec![all_places];
+    let mut visited: HashSet<Vec<usize>> = HashSet::new();
 
-    for seed in net.places() {
-        let mut siphon = HashSet::new();
-        siphon.insert(seed);
+    while let Some(candidate_set) = stack.pop() {
+        let siphon = maximal_siphon_in(net, &candidate_set);
+        if siphon.is_empty() {
+            continue;
+        }
 
-        loop {
-            let mut grew = false;
-            // •D: transitions that produce into D
-            let pre_d: HashSet<Transition> = siphon.iter()
-                .flat_map(|&p| net.preset_p(p).iter().copied())
-                .collect();
-            // D•: transitions that consume from D
-            let post_d: HashSet<Transition> = siphon.iter()
-                .flat_map(|&p| net.postset_p(p).iter().copied())
-                .collect();
+        let mut key: Vec<usize> = siphon.iter().map(|p| p.idx).collect();
+        key.sort_unstable();
+        if !visited.insert(key) {
+            continue;
+        }
 
-            // For •D ⊆ D•, every transition in •D must also be in D•.
-            // If t ∈ •D but t ∉ D•, then t produces into D but doesn't
-            // consume from D. We need to add one of t's input places to D.
-            for &t in &pre_d {
-                if !post_d.contains(&t) {
-                    // t consumes from •t; add all its input places
-                    for &p in net.preset_t(t) {
-                        if siphon.insert(p) {
-                            grew = true;
-                        }
-                    }
-                }
+        // Try excluding each place to find potentially smaller siphons.
+        let mut is_minimal = true;
+        for &p in &siphon {
+            let mut reduced = siphon.clone();
+            reduced.remove(&p);
+            if reduced.is_empty() {
+                continue;
             }
-
-            if !grew {
-                break;
+            let sub = maximal_siphon_in(net, &reduced);
+            if !sub.is_empty() {
+                is_minimal = false;
+                stack.push(reduced);
             }
         }
 
-        // Check if this is genuinely minimal (no proper subset in results)
-        let dominated = results.iter().any(|existing| existing.is_subset(&siphon));
-        if !dominated {
-            results.retain(|existing| !siphon.is_subset(existing));
-            results.push(siphon);
+        if is_minimal {
+            let dominated = results.iter().any(|existing| existing.is_subset(&siphon));
+            if !dominated {
+                results.retain(|existing| !siphon.is_subset(existing));
+                results.push(siphon);
+            }
         }
     }
 
     results
 }
 
-/// Finds all minimal traps of a net.
+/// Computes the maximal trap contained in a given set of places.
 ///
 /// A trap Q satisfies Q• ⊆ •Q: every transition that consumes from Q also
 /// produces into Q. Once marked, a trap stays marked forever.
+///
+/// Uses the dual of the shrinking algorithm: iteratively remove any place p
+/// where some transition t ∈ p• has no output place in the current set.
+#[must_use]
+pub fn maximal_trap_in(net: &Net, subset: &HashSet<Place>) -> HashSet<Place> {
+    let mut q: HashSet<Place> = subset.clone();
+    loop {
+        let mut removed = false;
+        let to_remove: Vec<Place> = q.iter().copied().filter(|&p| {
+            // Check if some t ∈ p• has no output place in Q.
+            // p• = transitions that consume from p = postset_p(p)
+            net.postset_p(p).iter().any(|&t| {
+                // t ∈ p•. For the trap property, we need t ∈ •Q,
+                // i.e. t produces into some place in Q.
+                // t• = postset_t(t) = output places of t.
+                !net.postset_t(t).iter().any(|&r| q.contains(&r))
+            })
+        }).collect();
+        for p in to_remove {
+            q.remove(&p);
+            removed = true;
+        }
+        if !removed {
+            break;
+        }
+    }
+    q
+}
+
+/// Finds all minimal traps of a net using backtracking.
 #[must_use]
 pub fn minimal_traps(net: &Net) -> Vec<HashSet<Place>> {
+    let all_places: HashSet<Place> = net.places().collect();
     let mut results: Vec<HashSet<Place>> = Vec::new();
+    let mut stack: Vec<HashSet<Place>> = vec![all_places];
+    let mut visited: HashSet<Vec<usize>> = HashSet::new();
 
-    for seed in net.places() {
-        let mut trap = HashSet::new();
-        trap.insert(seed);
+    while let Some(candidate_set) = stack.pop() {
+        let trap = maximal_trap_in(net, &candidate_set);
+        if trap.is_empty() {
+            continue;
+        }
 
-        loop {
-            let mut grew = false;
-            // Q•: transitions that consume from Q
-            let post_q: HashSet<Transition> = trap.iter()
-                .flat_map(|&p| net.postset_p(p).iter().copied())
-                .collect();
-            // •Q: transitions that produce into Q
-            let pre_q: HashSet<Transition> = trap.iter()
-                .flat_map(|&p| net.preset_p(p).iter().copied())
-                .collect();
+        let mut key: Vec<usize> = trap.iter().map(|p| p.idx).collect();
+        key.sort_unstable();
+        if !visited.insert(key) {
+            continue;
+        }
 
-            // For Q• ⊆ •Q, every transition in Q• must also be in •Q.
-            // If t ∈ Q• but t ∉ •Q, then t consumes from Q but doesn't
-            // produce into Q. We need to add one of t's output places to Q.
-            for &t in &post_q {
-                if !pre_q.contains(&t) {
-                    for &p in net.postset_t(t) {
-                        if trap.insert(p) {
-                            grew = true;
-                        }
-                    }
-                }
+        let mut is_minimal = true;
+        for &p in &trap {
+            let mut reduced = trap.clone();
+            reduced.remove(&p);
+            if reduced.is_empty() {
+                continue;
             }
-
-            if !grew {
-                break;
+            let sub = maximal_trap_in(net, &reduced);
+            if !sub.is_empty() {
+                is_minimal = false;
+                stack.push(reduced);
             }
+        }
+
+        if is_minimal {
+            let dominated = results.iter().any(|existing| existing.is_subset(&trap));
+            if !dominated {
+                results.retain(|existing| !trap.is_subset(existing));
+                results.push(trap);
+            }
+        }
+    }
+
+    results
+}
+
+/// Finds all minimal siphons using ILP enumeration.
+///
+/// Encodes the siphon property as binary constraints and iteratively
+/// solves for minimum-cardinality siphons, adding no-good cuts to
+/// exclude previously found solutions. Slower than the backtracking
+/// approach for small nets but more systematic.
+#[must_use]
+pub fn minimal_siphons_ilp(net: &Net) -> Vec<HashSet<Place>> {
+    use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
+
+    let n_p = net.n_places();
+    if n_p == 0 {
+        return Vec::new();
+    }
+
+    let mut results: Vec<HashSet<Place>> = Vec::new();
+    let mut nogood_sets: Vec<HashSet<Place>> = Vec::new();
+
+    loop {
+        let mut vars = ProblemVariables::new();
+        let x: Vec<_> = (0..n_p)
+            .map(|_| vars.add(variable().binary()))
+            .collect();
+
+        let objective: Expression = x.iter().copied().sum();
+
+        let mut problem = vars.minimise(objective).using(good_lp::microlp);
+
+        // At least one place must be in the siphon.
+        let at_least_one: Expression = x.iter().copied().sum();
+        problem = problem.with(constraint!(at_least_one >= 1.0));
+
+        // Siphon property: for each place p and each transition t ∈ •p,
+        // if p is in the siphon then at least one input place of t is too.
+        // Encoding: x[p] ≤ Σ_{q ∈ •t} x[q]  for all p, t ∈ •p
+        for p in net.places() {
+            for &t in net.preset_p(p) {
+                let sum_preset: Expression = net.preset_t(t).iter()
+                    .map(|&q| x[q.idx])
+                    .sum();
+                problem = problem.with(constraint!(x[p.idx] <= sum_preset));
+            }
+        }
+
+        // No-good cuts: exclude previously found siphons.
+        for prev in &nogood_sets {
+            let prev_sum: Expression = prev.iter().map(|&p| x[p.idx]).sum();
+            problem = problem.with(constraint!(prev_sum <= (prev.len() as f64 - 1.0)));
+        }
+
+        let Ok(solution) = problem.solve() else { break };
+
+        let siphon: HashSet<Place> = (0..n_p)
+            .filter(|&i| solution.value(x[i]) > 0.5)
+            .map(|i| Place { idx: i })
+            .collect();
+
+        if siphon.is_empty() {
+            break;
+        }
+
+        let dominated = results.iter().any(|existing| existing.is_subset(&siphon));
+        if !dominated {
+            results.retain(|existing| !siphon.is_subset(existing));
+            results.push(siphon.clone());
+        }
+        nogood_sets.push(siphon);
+    }
+
+    results
+}
+
+/// Finds all minimal traps using ILP enumeration.
+#[must_use]
+pub fn minimal_traps_ilp(net: &Net) -> Vec<HashSet<Place>> {
+    use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
+
+    let n_p = net.n_places();
+    if n_p == 0 {
+        return Vec::new();
+    }
+
+    let mut results: Vec<HashSet<Place>> = Vec::new();
+    let mut nogood_sets: Vec<HashSet<Place>> = Vec::new();
+
+    loop {
+        let mut vars = ProblemVariables::new();
+        let x: Vec<_> = (0..n_p)
+            .map(|_| vars.add(variable().binary()))
+            .collect();
+
+        let objective: Expression = x.iter().copied().sum();
+
+        let mut problem = vars.minimise(objective).using(good_lp::microlp);
+
+        let at_least_one: Expression = x.iter().copied().sum();
+        problem = problem.with(constraint!(at_least_one >= 1.0));
+
+        // Trap property: for each place p and each transition t ∈ p•,
+        // if p is in the trap then at least one output place of t is too.
+        // Encoding: x[p] ≤ Σ_{q ∈ t•} x[q]  for all p, t ∈ p•
+        for p in net.places() {
+            for &t in net.postset_p(p) {
+                let sum_postset: Expression = net.postset_t(t).iter()
+                    .map(|&q| x[q.idx])
+                    .sum();
+                problem = problem.with(constraint!(x[p.idx] <= sum_postset));
+            }
+        }
+
+        for prev in &nogood_sets {
+            let prev_sum: Expression = prev.iter().map(|&p| x[p.idx]).sum();
+            problem = problem.with(constraint!(prev_sum <= (prev.len() as f64 - 1.0)));
+        }
+
+        let Ok(solution) = problem.solve() else { break };
+
+        let trap: HashSet<Place> = (0..n_p)
+            .filter(|&i| solution.value(x[i]) > 0.5)
+            .map(|i| Place { idx: i })
+            .collect();
+
+        if trap.is_empty() {
+            break;
         }
 
         let dominated = results.iter().any(|existing| existing.is_subset(&trap));
         if !dominated {
             results.retain(|existing| !trap.is_subset(existing));
-            results.push(trap);
+            results.push(trap.clone());
         }
+        nogood_sets.push(trap);
     }
 
     results
