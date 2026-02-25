@@ -1,22 +1,61 @@
-//! A Petri net system: net + marking, with simulation support.
+//! A Petri net system: net + marking, with simulation and behavioral analysis.
 //!
 //! `System<N>` pairs a net structure with a mutable marking, providing methods
-//! to check enablement and fire transitions. The type parameter `N` defaults to
-//! [`Net`] for simplicity, but accepts any type implementing `AsRef<Net>`.
+//! to simulate (check enablement, fire transitions) and analyze behavior
+//! (boundedness, liveness, deadness).
 //!
-//! # Firing API
+//! # Quick start
+//!
+//! ```
+//! use petrivet::net::builder::NetBuilder;
+//! use petrivet::system::System;
+//!
+//! // Build a simple producer-consumer net
+//! let mut b = NetBuilder::new();
+//! let [idle, busy] = b.add_places();
+//! let [start, finish] = b.add_transitions();
+//! b.add_arc((idle, start));
+//! b.add_arc((start, busy));
+//! b.add_arc((busy, finish));
+//! b.add_arc((finish, idle));
+//! let net = b.build().expect("valid net");
+//!
+//! let mut sys = System::new(net, [1, 0]);
+//!
+//! // Simulation
+//! assert!(sys.is_enabled(start));
+//! sys.try_fire(start).unwrap();
+//! assert_eq!(sys.marking().iter().collect::<Vec<_>>(), vec![&0, &1]);
+//!
+//! // Behavioral analysis
+//! sys.reset();
+//! assert!(sys.is_bounded());
+//! assert!(sys.is_live());
+//! assert!(!sys.is_dead(start));
+//! ```
+//!
+//! # Firing patterns
 //!
 //! Three patterns for firing transitions:
 //!
-//! ```ignore
+//! ```
+//! # use petrivet::net::builder::NetBuilder;
+//! # use petrivet::system::System;
+//! # let mut b = NetBuilder::new();
+//! # let [p0, p1] = b.add_places();
+//! # let [t0, t1] = b.add_transitions();
+//! # b.add_arc((p0, t0)); b.add_arc((t0, p1));
+//! # b.add_arc((p1, t1)); b.add_arc((t1, p0));
+//! # let net = b.build().unwrap();
+//! # let mut sys = System::new(net, [1, 0]);
 //! // 1. I know which transition — just try it
-//! system.try_fire(t0)?;
+//! sys.try_fire(t0).unwrap();
 //!
 //! // 2. I need to choose from the enabled set — zero redundant checks
-//! system.choose_and_fire(|enabled| enabled.first());
+//! sys.choose_and_fire(|enabled| enabled.first());
 //!
 //! // 3. Fire anything, I don't care which
-//! system.fire_any();
+//! sys.fire_any();
 //! ```
 
 use crate::analysis;
@@ -27,6 +66,38 @@ use crate::net::{Net, Transition};
 use std::collections::HashSet;
 use std::fmt;
 use std::marker::PhantomData;
+
+/// Liveness level of a transition, following Murata 1989 §V-C.
+///
+/// The levels form a strict hierarchy: L4 ⊂ L3 ⊂ L2 ⊂ L1, and L0 means
+/// the transition is dead (not even L1).
+///
+/// For **bounded** nets, L2 and L3 coincide: if a transition can fire
+/// arbitrarily many times, the finite state space forces a cycle, making it
+/// fire infinitely often. We still distinguish them in the enum for
+/// theoretical completeness, but bounded-net analysis reports L3 when both
+/// L2 and L3 hold.
+///
+/// References:
+/// - Murata 1989, Definition 5.1 (liveness levels L0–L4)
+/// - Petri Net Primer, §5.4 (liveness)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum LivenessLevel {
+    /// L0 — Dead: the transition never fires in any firing sequence from M₀.
+    Dead,
+    /// L1 — Potentially firable: the transition fires at least once in some
+    /// firing sequence from M₀.
+    L1,
+    /// L2 — For any positive integer k, there exists a firing sequence from
+    /// M₀ in which t fires at least k times. (Equivalent to L3 for bounded nets.)
+    L2,
+    /// L3 — Weakly live: there exists an infinite firing sequence from M₀ in
+    /// which t appears infinitely often. (Equivalent to L2 for bounded nets.)
+    L3,
+    /// L4 — Live: for every marking M reachable from M₀, there exists a
+    /// firing sequence from M that includes t.
+    L4,
+}
 
 /// A Petri net system: a net N paired with a mutable marking.
 ///
@@ -156,14 +227,27 @@ impl<N: AsRef<Net>> System<N> {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// // Pick the first enabled transition
-    /// system.choose_and_fire(|enabled| enabled.first());
+    /// ```
+    /// use petrivet::net::builder::NetBuilder;
+    /// use petrivet::system::System;
     ///
-    /// // Pick a specific transition if it's enabled
-    /// system.choose_and_fire(|enabled| {
-    ///     enabled.iter().find(|et| *et == t0)
+    /// let mut b = NetBuilder::new();
+    /// let [p0, p1] = b.add_places();
+    /// let [t0, t1] = b.add_transitions();
+    /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
+    /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
+    /// let net = b.build().unwrap();
+    /// let mut sys = System::new(net, [1, 0]);
+    ///
+    /// // Pick the first enabled transition
+    /// let fired = sys.choose_and_fire(|enabled| enabled.first());
+    /// assert_eq!(fired, Some(t0));
+    ///
+    /// // Pick a specific transition (t1 is now enabled since marking is [0,1])
+    /// let fired = sys.choose_and_fire(|enabled| {
+    ///     enabled.iter().find(|et| *et == t1)
     /// });
+    /// assert_eq!(fired, Some(t1));
     /// ```
     pub fn choose_and_fire<F>(&mut self, choose: F) -> Option<Transition>
     where
@@ -285,63 +369,140 @@ impl std::error::Error for FireError {}
 
 impl<N: AsRef<Net>> System<N> {
 
-    /// Checks if the system is bounded under its initial marking by
-    /// building the coverability graph and checking for omega values.
+    /// Checks if the system is bounded under its initial marking.
+    ///
+    /// A system is bounded if the number of tokens on every place remains
+    /// finite across all reachable markings. Useful for verifying that
+    /// buffers, queues, or resource pools cannot overflow.
     ///
     /// Strategy:
     /// 1. First tries structural boundedness (LP) — if true, we're done.
     /// 2. Otherwise, builds the coverability graph (always terminates) and
     ///    checks whether any omega values appear.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use petrivet::net::builder::NetBuilder;
+    /// use petrivet::system::System;
+    ///
+    /// // A cycle is bounded: tokens just move around
+    /// let mut b = NetBuilder::new();
+    /// let [p0, p1] = b.add_places();
+    /// let [t0, t1] = b.add_transitions();
+    /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
+    /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
+    /// let net = b.build().unwrap();
+    /// assert!(System::new(net, [1, 0]).is_bounded());
+    ///
+    /// // A source transition makes the net unbounded
+    /// let mut b = NetBuilder::new();
+    /// let [p0, p1] = b.add_places();
+    /// let [t0] = b.add_transitions();
+    /// b.add_arc((p0, t0)); b.add_arc((t0, p0)); b.add_arc((t0, p1));
+    /// let net = b.build().unwrap();
+    /// assert!(!System::new(net, [1, 0]).is_bounded());
+    /// ```
     #[must_use]
     pub fn is_bounded(&self) -> bool {
         if self.net.as_ref().is_structurally_bounded() {
             return true;
         }
-        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
-        cg.is_bounded()
+        CoverabilityGraph::new(self, ExplorationOrder::BreadthFirst)
+            .iter()
+            .all(|step| !step.is_new || step.marking.is_finite())
     }
 
     /// Checks whether transition `t` is dead (L0): it can never fire from
     /// any marking reachable from the initial marking.
     ///
+    /// A dead transition represents an operation that is structurally
+    /// present but can never execute — often indicating a design error
+    /// (unreachable code path, impossible precondition).
+    ///
     /// Strategy:
-    /// 1. Marking equation check — if no firing vector can produce tokens
-    ///    at all input places of `t`, then `t` is definitely dead.
-    /// 2. Coverability check — asks whether a marking covering the preset
-    ///    of `t` is coverable.
+    /// 1. Covering equation check — if no firing vector can produce a
+    ///    marking with at least 1 token on every input place of `t`,
+    ///    then `t` is definitely dead.
+    /// 2. Coverability graph — builds the full coverability graph and
+    ///    checks whether any enabling marking for `t` is coverable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use petrivet::net::builder::NetBuilder;
+    /// use petrivet::system::System;
+    ///
+    /// let mut b = NetBuilder::new();
+    /// let [p0, p1] = b.add_places();
+    /// let [t0, t1] = b.add_transitions();
+    /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
+    /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
+    /// let net = b.build().unwrap();
+    ///
+    /// // With tokens, both transitions are alive
+    /// let sys = System::new(net.clone(), [1, 0]);
+    /// assert!(!sys.is_dead(t0));
+    /// assert!(!sys.is_dead(t1));
+    ///
+    /// // Without tokens, both transitions are dead
+    /// let sys = System::new(net, [0, 0]);
+    /// assert!(sys.is_dead(t0));
+    /// assert!(sys.is_dead(t1));
+    /// ```
     #[must_use]
     pub fn is_dead(&self, t: Transition) -> bool {
         let net = self.net.as_ref();
         let preset = net.preset_t(t);
         if preset.is_empty() {
-            return false;
+            return false; // empty preset means t is trivially L4
         }
 
-        let n_p = net.n_places();
-        let mut target_tokens = vec![0u32; n_p];
+        let mut threshold_tokens = vec![0u32; net.n_places()];
         for &p in preset {
-            target_tokens[p.index()] = 1;
+            threshold_tokens[p.idx] = 1;
         }
-        let target = Marking::from(target_tokens);
+        let threshold = Marking::from(threshold_tokens);
 
-        let me_result = analysis::semi_decision::check_marking_equation(
+        let me_result = analysis::semi_decision::check_covering_equation(
             net,
             &self.initial_marking,
-            &target,
+            &threshold,
         );
         if me_result.is_infeasible() {
             return true;
         }
 
-        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
-        !cg.is_coverable(&target)
+        CoverabilityGraph::new(self, ExplorationOrder::BreadthFirst)
+            .iter()
+            .all(|step| !step.is_new || step.marking <= threshold)
     }
 
     /// Checks if the system is quasi-live (L1): every transition can fire
     /// in at least one reachable marking.
     ///
+    /// Quasi-liveness means every operation in the system is at least
+    /// potentially reachable. A non-quasi-live system has dead code.
+    ///
     /// Strategy: builds the coverability graph and checks that every
     /// transition appears on at least one edge.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use petrivet::net::builder::NetBuilder;
+    /// use petrivet::system::System;
+    ///
+    /// let mut b = NetBuilder::new();
+    /// let [p0, p1] = b.add_places();
+    /// let [t0, t1] = b.add_transitions();
+    /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
+    /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
+    /// let net = b.build().unwrap();
+    ///
+    /// assert!(System::new(net.clone(), [1, 0]).is_quasi_live());
+    /// assert!(!System::new(net, [0, 0]).is_quasi_live());  // no tokens → nothing fires
+    /// ```
     #[must_use]
     pub fn is_quasi_live(&self) -> bool {
         let net = self.net.as_ref();
@@ -358,83 +519,99 @@ impl<N: AsRef<Net>> System<N> {
     /// Checks if the system is live (L4): every transition can fire from
     /// every reachable marking (possibly after further firings).
     ///
-    /// This is the strongest liveness property. For free-choice nets, uses
-    /// Commoner's theorem (structural check). Otherwise falls back to
-    /// state space exploration.
+    /// This is the strongest liveness property — it guarantees the system
+    /// can never reach a state where some operation becomes permanently
+    /// impossible. In manufacturing, liveness means no workstation can
+    /// become permanently idle; in protocols, no message type is ever
+    /// permanently blocked.
+    ///
+    /// For free-choice nets, uses Commoner's theorem (structural check).
+    /// Otherwise falls back to state space exploration.
     ///
     /// **Note**: For unbounded non-free-choice nets, this builds the
     /// coverability graph which may be an over-approximation — the result
     /// is sound but may conservatively return `false`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use petrivet::net::builder::NetBuilder;
+    /// use petrivet::system::System;
+    ///
+    /// let mut b = NetBuilder::new();
+    /// let [p0, p1] = b.add_places();
+    /// let [t0, t1] = b.add_transitions();
+    /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
+    /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
+    /// let net = b.build().unwrap();
+    ///
+    /// // A cycle with tokens is live
+    /// assert!(System::new(net.clone(), [1, 0]).is_live());
+    ///
+    /// // Same net with no tokens is not live
+    /// assert!(!System::new(net, [0, 0]).is_live());
+    /// ```
     #[must_use]
     pub fn is_live(&self) -> bool {
         let net = self.net.as_ref();
 
-        if net.is_free_choice() || net.is_s_net() || net.is_t_net() {
+        if net.is_free_choice() {
             let siphons = analysis::structural::minimal_siphons(net);
-            let traps = analysis::structural::minimal_traps(net);
             return analysis::structural::every_siphon_contains_marked_trap(
+                net,
                 &self.initial_marking,
                 &siphons,
-                &traps,
             );
         }
 
         self.is_live_by_exploration()
     }
 
-    /// Full state-space liveness check: the system is live iff the
-    /// reachability graph has a single terminal SCC containing all
-    /// transitions.
+    /// Full state-space liveness check via SCC analysis on the reachability
+    /// graph. Delegates to [`ReachabilityGraph::is_live`].
     ///
-    /// Only works for bounded systems. Returns `false` conservatively
-    /// if the system is unbounded.
+    /// Returns `false` conservatively if the system is unbounded (cannot
+    /// build a finite reachability graph).
     fn is_live_by_exploration(&self) -> bool {
-        use petgraph::visit::EdgeRef;
-        let net = self.net.as_ref();
-
         let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
         let Ok(rg) = cg.into_reachability_graph() else { return false };
+        rg.is_live()
+    }
 
-        let graph = rg.core().graph();
-        let sccs = petgraph::algo::kosaraju_scc(graph);
-        if sccs.is_empty() {
-            return false;
-        }
-
-        let mut node_to_scc = vec![0usize; graph.node_count()];
-        for (scc_id, scc) in sccs.iter().enumerate() {
-            for &node in scc {
-                node_to_scc[node.index()] = scc_id;
-            }
-        }
-
-        let mut has_external_edge = vec![false; sccs.len()];
-        for edge in graph.edge_references() {
-            let src_scc = node_to_scc[edge.source().index()];
-            let dst_scc = node_to_scc[edge.target().index()];
-            if src_scc != dst_scc {
-                has_external_edge[src_scc] = true;
-            }
-        }
-
-        let terminal_sccs: Vec<usize> = (0..sccs.len())
-            .filter(|&i| !has_external_edge[i])
-            .collect();
-
-        let terminal_scc_id = terminal_sccs[0];
-        let terminal_nodes: HashSet<petgraph::graph::NodeIndex> =
-            sccs[terminal_scc_id].iter().copied().collect();
-
-        let mut transitions_in_terminal: HashSet<Transition> = HashSet::new();
-        for edge in graph.edge_references() {
-            if terminal_nodes.contains(&edge.source())
-                && terminal_nodes.contains(&edge.target())
-            {
-                transitions_in_terminal.insert(*edge.weight());
-            }
-        }
-
-        net.transitions().all(|t| transitions_in_terminal.contains(&t))
+    /// Computes liveness levels for all transitions.
+    ///
+    /// Returns a [`LivenessLevel`] for each transition, classifying it from
+    /// `Dead` (L0) through `L4` (live). This provides a detailed picture of
+    /// which parts of a system are healthy and which are degraded.
+    ///
+    /// Builds the coverability graph. If bounded, promotes to a
+    /// reachability graph for exact SCC-based analysis. Returns `None`
+    /// if the system is unbounded and no structural shortcut applies.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use petrivet::net::builder::NetBuilder;
+    /// use petrivet::system::{System, LivenessLevel};
+    ///
+    /// // A simple cycle: both transitions are L4 (live)
+    /// let mut b = NetBuilder::new();
+    /// let [p0, p1] = b.add_places();
+    /// let [t0, t1] = b.add_transitions();
+    /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
+    /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
+    /// let net = b.build().unwrap();
+    ///
+    /// let sys = System::new(net, [1, 0]);
+    /// let levels = sys.liveness_levels().expect("bounded net");
+    /// assert_eq!(levels[t0.index()], LivenessLevel::L4);
+    /// assert_eq!(levels[t1.index()], LivenessLevel::L4);
+    /// ```
+    #[must_use]
+    pub fn liveness_levels(&self) -> Option<Box<[LivenessLevel]>> {
+        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
+        let rg = cg.into_reachability_graph().ok()?;
+        Some(rg.liveness_levels())
     }
 }
 
@@ -561,8 +738,6 @@ mod tests {
         assert_eq!(initial, m([1, 0]));
         assert_eq!(current, m([0, 1]));
     }
-
-    // --- Behavioral analysis tests ---
 
     #[test]
     fn cycle_is_structurally_bounded() {

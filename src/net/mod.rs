@@ -8,8 +8,8 @@
 pub mod builder;
 pub mod class;
 
-use std::fmt;
 use crate::analysis;
+use std::fmt;
 
 /// A place in the net, identified by a dense index.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -114,10 +114,10 @@ pub struct Net {
     n_transitions: usize,
     /// Transition presets indexed by transition index:
     /// for each transition t, the list of places in •t.
-    preset: Box<[Box<[Place]>]>,
+    preset_t: Box<[Box<[Place]>]>,
     /// Transition postsets indexed by transition index:
     /// for each transition t, the list of places in t•.
-    postset: Box<[Box<[Place]>]>,
+    postset_t: Box<[Box<[Place]>]>,
     /// Place presets indexed by place index:
     /// for each place p, the list of transitions in •p.
     preset_p: Box<[Box<[Transition]>]>,
@@ -132,6 +132,7 @@ impl Net {
     pub fn builder() -> builder::NetBuilder {
         builder::NetBuilder::new()
     }
+
     /// Number of places in the net.
     #[must_use]
     pub fn n_places(&self) -> usize {
@@ -142,6 +143,21 @@ impl Net {
     #[must_use]
     pub fn n_transitions(&self) -> usize {
         self.n_transitions
+    }
+
+    /// Number of nodes in the net (places + transitions).
+    #[must_use]
+    pub fn n_nodes(&self) -> usize {
+        self.n_places + self.n_transitions
+    }
+
+    /// Number of arcs in the net.
+    #[must_use]
+    pub fn n_arcs(&self) -> usize {
+        // Either sum of all presets/postsets of transitions or places should give the same count.
+        self.preset_t.iter().map(|preset| preset.len()).sum::<usize>()
+            +
+        self.postset_t.iter().map(|postset| postset.len()).sum::<usize>()
     }
 
     /// Iterator over all places.
@@ -156,38 +172,45 @@ impl Net {
 
     /// Iterator over all nodes (places then transitions).
     pub fn nodes(&self) -> impl Iterator<Item = Node> + '_ {
-        self.places().map(Node::Place).chain(self.transitions().map(Node::Transition))
+        Iterator::chain(
+            self.places().map(Node::Place),
+            self.transitions().map(Node::Transition)
+        )
     }
 
     /// Iterator over all arcs.
     pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
         self.transitions().flat_map(move |t| {
-            let pt = self.preset_t(t).iter().map(move |&p| Arc::PlaceToTransition(p, t));
-            let tp = self.postset_t(t).iter().map(move |&p| Arc::TransitionToPlace(t, p));
-            pt.chain(tp)
+            let input_arcs = self.preset_t(t).iter().map(move |&p| Arc::PlaceToTransition(p, t));
+            let output_arcs = self.postset_t(t).iter().map(move |&p| Arc::TransitionToPlace(t, p));
+            Iterator::chain(input_arcs, output_arcs)
         })
     }
 
     /// Preset of a transition: input places (•t).
     /// Sorted by place index in ascending order.
+    #[must_use]
     pub fn preset_t(&self, t: Transition) -> &[Place] {
-        self.preset[t.idx].as_ref()
+        self.preset_t[t.idx].as_ref()
     }
 
     /// Postset of a transition: output places (t•).
     /// Sorted by place index in ascending order.
+    #[must_use]
     pub fn postset_t(&self, t: Transition) -> &[Place] {
-        self.postset[t.idx].as_ref()
+        self.postset_t[t.idx].as_ref()
     }
 
     /// Preset of a place: transitions that produce into this place (•p).
     /// Sorted by transition index in ascending order.
+    #[must_use]
     pub fn preset_p(&self, p: Place) -> &[Transition] {
         self.preset_p[p.idx].as_ref()
     }
 
     /// Postset of a place: transitions that consume from this place (p•).
     /// Sorted by transition index in ascending order.
+    #[must_use]
     pub fn postset_p(&self, p: Place) -> &[Transition] {
         self.postset_p[p.idx].as_ref()
     }
@@ -257,28 +280,25 @@ impl Net {
     /// - Petri Net Primer (Best & Devillers), Definition 4.1
     /// - Murata 1989, §IV-B (uses the transposed convention A^T · x = ΔM)
     #[must_use]
-    pub fn incidence_matrix(&self) -> IncidenceMatrix {
-        IncidenceMatrix::new(self)
+    pub fn incidence_matrix(&self) -> analysis::structural::IncidenceMatrix {
+        analysis::structural::IncidenceMatrix::new(self)
     }
 
     /// Checks if the net is strongly connected using Kosaraju's algorithm.
     #[must_use]
     pub fn is_strongly_connected(&self) -> bool {
         use petgraph::graph::NodeIndex;
-        let mut graph = petgraph::Graph::<Node, ()>::with_capacity(
-            self.n_places + self.n_transitions,
-            self.arcs().count(),
-        );
-        let place_indices: Vec<NodeIndex> = self.places().map(|p| graph.add_node(Node::Place(p))).collect();
-        let trans_indices: Vec<NodeIndex> = self.transitions().map(|t| graph.add_node(Node::Transition(t))).collect();
-        for t in self.transitions() {
-            for p in self.preset_t(t) {
-                graph.add_edge(place_indices[p.idx], trans_indices[t.idx], ());
+        let mut graph = petgraph::Graph::<Node, ()>::with_capacity(self.n_nodes(), self.n_arcs());
+        let p_indices: Vec<NodeIndex> = self.places().map(|p| graph.add_node(Node::Place(p))).collect();
+        let t_indices: Vec<NodeIndex> = self.transitions().map(|t| graph.add_node(Node::Transition(t))).collect();
+        self.arcs().for_each(|arc| match arc {
+            Arc::PlaceToTransition(p, t) => {
+                graph.add_edge(p_indices[p.idx], t_indices[t.idx], ());
             }
-            for p in self.postset_t(t) {
-                graph.add_edge(trans_indices[t.idx], place_indices[p.idx], ());
+            Arc::TransitionToPlace(t, p) => {
+                graph.add_edge(t_indices[t.idx], p_indices[p.idx], ());
             }
-        }
+        });
         petgraph::algo::kosaraju_scc(&graph).len() == 1
     }
 
@@ -342,104 +362,46 @@ impl fmt::Display for NetClass {
     }
 }
 
-/// The incidence matrix N of a Petri net.
-///
-/// A |P| × |T| matrix stored in row-major order (Primer convention).
-/// Entry N\[p\]\[t\] is the net token change at place p when transition t fires:
-/// +1 if t produces to p, -1 if t consumes from p, 0 otherwise.
-///
-/// With this convention the state equation reads M' = M₀ + N · x directly,
-/// where x is the |T|×1 firing count vector.
-///
-/// References:
-/// - Petri Net Primer (Best & Devillers), Definition 4.1
-/// - Murata 1989, §IV-B (uses the transposed convention; our N = Murata's Aᵀ)
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IncidenceMatrix {
-    data: Vec<i32>,
-    rows: usize,
-    cols: usize,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl IncidenceMatrix {
-    /// Constructs the |P| × |T| incidence matrix for a given net.
-    #[must_use]
-    pub fn new(net: &Net) -> Self {
-        let rows = net.n_places;
-        let cols = net.n_transitions;
-        let mut data = vec![0; rows * cols];
-        for t in net.transitions() {
-            for &p in net.preset_t(t) {
-                data[p.idx * cols + t.idx] -= 1;
-            }
-            for &p in net.postset_t(t) {
-                data[p.idx * cols + t.idx] += 1;
-            }
-        }
-        IncidenceMatrix { data, rows, cols }
+    fn example_net() -> Net {
+        let mut net = Net::builder();
+        let [p0, p1] = net.add_places();
+        let [t0, t1] = net.add_transitions();
+        net.add_arc((p0, t0));
+        net.add_arc((t0, p1));
+        net.add_arc((p1, t1));
+        net.add_arc((t1, p0));
+        net.build().expect("valid net").into_net()
     }
 
-    /// Constructs an incidence matrix from raw data in row-major order.
-    #[must_use]
-    pub fn from_raw(data: Vec<i32>, rows: usize, cols: usize) -> Self {
-        debug_assert_eq!(data.len(), rows * cols);
-        Self { data, rows, cols }
+    #[test]
+    fn test_n_places() {
+        let net = example_net();
+        assert_eq!(net.n_places(), 2);
+        assert_eq!(net.n_places(), net.places().count());
     }
 
-    /// Number of rows (places).
-    #[must_use]
-    pub fn n_rows(&self) -> usize {
-        self.rows
+    #[test]
+    fn test_n_transitions() {
+        let net = example_net();
+        assert_eq!(net.n_transitions(), 2);
+        assert_eq!(net.n_transitions(), net.transitions().count());
     }
 
-    /// Number of columns (transitions).
-    #[must_use]
-    pub fn n_cols(&self) -> usize {
-        self.cols
+    #[test]
+    fn test_n_nodes() {
+        let net = example_net();
+        assert_eq!(net.n_nodes(), 4);
+        assert_eq!(net.n_nodes(), net.nodes().count());
     }
 
-    /// Entry at (row, col) = N\[place\]\[transition\].
-    #[must_use]
-    pub fn get(&self, row: usize, col: usize) -> i32 {
-        self.data[row * self.cols + col]
-    }
-
-    /// Row slice for a given place.
-    #[must_use]
-    pub fn row(&self, p: usize) -> &[i32] {
-        let start = p * self.cols;
-        &self.data[start..start + self.cols]
-    }
-
-    /// Returns a column vector (extracting one transition across all places).
-    #[must_use]
-    pub fn col(&self, t: usize) -> Vec<i32> {
-        (0..self.rows).map(|p| self.data[p * self.cols + t]).collect()
-    }
-
-    /// Returns the transpose (|T| × |P| matrix).
-    #[must_use]
-    pub fn transpose(&self) -> Self {
-        let mut data = vec![0; self.rows * self.cols];
-        for r in 0..self.rows {
-            for c in 0..self.cols {
-                data[c * self.rows + r] = self.data[r * self.cols + c];
-            }
-        }
-        Self { data, rows: self.cols, cols: self.rows }
-    }
-}
-
-impl fmt::Display for IncidenceMatrix {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for p in 0..self.rows {
-            write!(f, "[")?;
-            for (t, val) in self.row(p).iter().enumerate() {
-                if t > 0 { write!(f, ", ")?; }
-                write!(f, "{val:>3}")?;
-            }
-            writeln!(f, "]")?;
-        }
-        Ok(())
+    #[test]
+    fn test_n_arcs() {
+        let net = example_net();
+        assert_eq!(net.n_arcs(), 4);
+        assert_eq!(net.n_arcs(), net.arcs().count());
     }
 }

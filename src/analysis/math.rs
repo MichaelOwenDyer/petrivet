@@ -5,7 +5,8 @@
 //! computation.
 
 use std::iter;
-use crate::net::IncidenceMatrix;
+use crate::analysis::structural::IncidenceMatrix;
+use crate::Place;
 
 /// Computes an integer basis for the null space of the given matrix.
 ///
@@ -30,7 +31,7 @@ pub fn integer_null_space(matrix: &IncidenceMatrix) -> Box<[Box<[i32]>]> {
 
     // Work on a mutable copy in row-major order.
     let mut mat: Box<[Box<[i32]>]> = (0..rows)
-        .map(|r| matrix.row(r).to_vec().into_boxed_slice())
+        .map(|idx| matrix.row(Place { idx }).to_vec().into_boxed_slice())
         .collect();
 
     // Track which columns are pivot columns.
@@ -124,7 +125,7 @@ pub fn integer_null_space(matrix: &IncidenceMatrix) -> Box<[Box<[i32]>]> {
 
 /// GCD of absolute values of all elements in a row.
 fn row_gcd(row: &[i32]) -> i32 {
-    row.iter().copied().map(|x| x.unsigned_abs()).fold(0u32, gcd_u64) as i32
+    row.iter().copied().map(i32::unsigned_abs).fold(0u32, gcd_u64) as i32
 }
 
 fn gcd_u64(a: u32, b: u32) -> u32 {
@@ -133,6 +134,7 @@ fn gcd_u64(a: u32, b: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use crate::{Place, Transition};
     use super::*;
 
     fn mat_from_vecs(rows: &[&[i32]]) -> IncidenceMatrix {
@@ -148,7 +150,7 @@ mod tests {
         for row in basis {
             for r in 0..matrix.n_rows() {
                 let dot: i32 = (0..matrix.n_cols())
-                    .map(|c| matrix.get(r, c) * row[c])
+                    .map(|c| matrix.get(Place { idx: r }, Transition { idx: c }) * row[c])
                     .sum();
                 assert_eq!(dot, 0, "null space vector is not in kernel");
             }

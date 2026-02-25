@@ -40,7 +40,7 @@ pub mod analysis;
 
 pub use net::*;
 pub use marking::*;
-pub use system::System;
+pub use system::{System, LivenessLevel};
 pub use coverability::CoverabilityGraph;
-pub use reachability::ReachabilityGraph;
+pub use reachability::{ReachabilityExplorer, ReachabilityGraph};
 pub use explorer::ExplorationOrder;

@@ -34,8 +34,6 @@ use petrivet::system::System;
 fn main() {
     println!("=== Mutual Exclusion Protocol ===\n");
 
-    // --- Build the net ---
-
     let mut b = NetBuilder::new();
 
     // Places: process 1 states, process 2 states, shared mutex
@@ -72,7 +70,7 @@ fn main() {
     let net = b.build().expect("valid net");
     println!("Structural class: {}", net.class());
 
-    // --- Initial marking: both processes idle, mutex available ---
+    // Initial marking: both processes idle, mutex available
     // Places: idle1, wait1, crit1, idle2, wait2, crit2, mutex
     let mut sys = System::new(net, [1, 0, 0, 1, 0, 0, 1]);
 
@@ -82,7 +80,7 @@ fn main() {
     println!();
     print_state(&sys, &place_names);
 
-    // --- Simulate 12 steps, always picking the first enabled transition ---
+    // Simulate 12 steps, always picking the first enabled transition
     for step in 1..=12 {
         if let Some(t) = sys.fire_any() {
             println!("Step {step:>2}: fire {:<8} → {}", names[t.index()], sys.marking());
@@ -101,7 +99,6 @@ fn main() {
     println!();
     print_state(&sys, &place_names);
 
-    // --- Demonstrate choose_and_fire with priority ---
     println!("\n--- Priority simulation: process 2 has priority ---\n");
     sys.reset();
     print_state(&sys, &place_names);
@@ -123,7 +120,6 @@ fn main() {
         }
     }
 
-    // --- Demonstrate try_fire ---
     println!("\n--- Manual firing with try_fire ---\n");
     sys.reset();
 

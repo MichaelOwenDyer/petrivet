@@ -5,23 +5,24 @@
 //! up both the fork to their left and the fork to their right. Since forks
 //! are shared between adjacent philosophers, this creates contention.
 //!
-//! ```text
-//!              fork0
-//!         P0 -------- P1
-//!        /                \
-//!   fork4                  fork1
-//!      /                    \
-//!     P4                    P2
-//!       \                  /
-//!        fork3 ---- fork2
-//!              P3
-//! ```
+//! Each philosopher `i` has three places (`thinking_i`, `holding_fork_i`, `eating_i`)
+//! and three transitions (`take_left_i`, `take_right_i`, `put_down_forks_i`):
 //!
-//! TODO: Explain this model in more detail.
+//! - `take_left_i`: consumes from `thinking_i` and `fork_i`, produces to `holding_fork_i`
+//! - `take_right_i`: consumes from `holding_fork_i` and `fork_{(i+1)%N}`, produces to `eating_i`
+//! - `put_down_forks_i`: consumes from `eating_i`, produces to `thinking_i`, `fork_i`, and `fork_{(i+1)%N}`
+//!
+//! This model is known to deadlock: if all philosophers simultaneously pick
+//! up their left fork, nobody can pick up their right fork. We verify this
+//! with state space analysis and structural analysis techniques.
 //!
 //! Run: `cargo run --example dining_philosophers`
 
+use petrivet::analysis::structural;
+use petrivet::explorer::ExplorationOrder;
+use petrivet::marking::Marking;
 use petrivet::net::builder::NetBuilder;
+use petrivet::reachability::ReachabilityGraph;
 use petrivet::system::System;
 
 const N: usize = 4;
@@ -72,7 +73,7 @@ fn main() {
         initial[forks[i].index()] = 1;  // fork available
     }
 
-    let mut sys = System::new(net, initial);
+    let mut sys = System::new(net.clone(), initial.clone());
 
     println!("--- Simulation ---\n");
 
@@ -83,14 +84,88 @@ fn main() {
         println!("Philosopher {i} takes left fork");
     }
 
-    println!("Marking after all philosophers take left fork: {}", sys.marking());
+    println!("Marking after all take left fork: {}", sys.marking());
     if sys.is_deadlocked() {
-        println!("All philosophers have taken their left fork, but no one can eat! DEADLOCK");
+        println!("All philosophers have taken their left fork, but no one can eat! DEADLOCK\n");
     } else {
-        println!("Unexpectedly, the system is not deadlocked!");
+        println!("Unexpectedly, the system is not deadlocked!\n");
     }
 
-    // TODO: Analyze the net further
+    println!("--- State Space Analysis ---\n");
+
+    sys.reset();
+    let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+    println!("Reachable states: {}", rg.state_count());
+    println!("Edges: {}", rg.edge_count());
+    println!("Deadlock-free: {}", rg.is_deadlock_free());
+
+    let deadlocks = rg.deadlocks();
+    println!("Deadlock states: {}", deadlocks.len());
+    for (i, dl) in deadlocks.iter().enumerate() {
+        println!("  deadlock {}: {}", i + 1, dl);
+    }
+
+    // Show the shortest path to the deadlock
+    if let Some(dl) = deadlocks.first() {
+        let dl_marking: Marking = (*dl).clone();
+        if let Some(path) = rg.path_to(&dl_marking) {
+            println!(
+                "\nShortest path to deadlock ({} steps):",
+                path.len()
+            );
+            for (step, t) in path.iter().enumerate() {
+                let kind = t.index() / N;
+                let phil = t.index() % N;
+                let name = match kind {
+                    0 => "take_left",
+                    1 => "take_right",
+                    2 => "put_down",
+                    _ => "?",
+                };
+                println!("  {}: philosopher {} {}", step + 1, phil, name);
+            }
+        }
+    }
+
+    println!("\n--- Liveness ---\n");
+
+    let levels = rg.liveness_levels();
+    for (i, level) in levels.iter().enumerate() {
+        let kind = i / N;
+        let phil = i % N;
+        let name = match kind {
+            0 => "take_left",
+            1 => "take_right",
+            2 => "put_down",
+            _ => "?",
+        };
+        println!("  philosopher {} {}: {:?}", phil, name, level);
+    }
+    println!("\nSystem live: {}", rg.is_live());
+
+    println!("\n--- Structural Analysis ---\n");
+
+    let inv = structural::compute_invariants(&net);
+    println!("S-invariants: {} basis vectors", inv.s_invariants.len());
+    println!(
+        "Conservative (covered by S-invariants): {}",
+        inv.is_covered_by_s_invariants(net.n_places())
+    );
+    println!("T-invariants: {} basis vectors", inv.t_invariants.len());
+    println!(
+        "Structurally bounded: {}",
+        net.is_structurally_bounded()
+    );
+
+    let siphons = structural::minimal_siphons(&net);
+    println!("\nMinimal siphons: {}", siphons.len());
+
+    let m0 = Marking::from(initial.clone());
+    let chc = structural::every_siphon_contains_marked_trap(&net, &m0, &siphons);
+    println!("Every siphon contains a marked trap: {}", chc);
+    if !chc {
+        println!("→ Commoner criterion violated: system is not live (confirmed).");
+    }
 
     println!("\n=== Done ===");
 }

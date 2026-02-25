@@ -1,7 +1,6 @@
-use petrivet::coverability::CoverabilityGraph;
 use petrivet::explorer::ExplorationOrder;
 use petrivet::net::Net;
-use petrivet::reachability::ReachabilityGraph;
+use petrivet::reachability::ReachabilityExplorer;
 use petrivet::system::System;
 
 fn main() {
@@ -17,9 +16,9 @@ fn main() {
     net.add_arc((t2, p3));
     let net = net.build().expect("valid net");
     let sys = System::new(net, [2, 0, 0]);
-    let mut cg = ReachabilityGraph::new(&sys, ExplorationOrder::BreadthFirst);
+    let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
 
-    for s in cg.iter().take(1000) {
+    for s in explorer.iter().take(1000) {
         println!("{s:#?}");
     }
 }

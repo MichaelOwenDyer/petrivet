@@ -367,48 +367,46 @@ Completed:
 - [x] `pub(crate) core()` accessors on `CoverabilityGraph` and `ReachabilityGraph`
 - [x] `pub graph()` accessor on `ExplorerCore`
 
-#### Sprint 2 — IN PROGRESS
+#### Sprint 2 — COMPLETE
 
-Corrections from literature verification and remaining features.
+Corrections from literature verification, new features, and closing optimizations.
 
 **A. Corrections**
 
-- [ ] **A1. Incidence matrix convention switch.**
-  Currently `|T|×|P|` (Murata convention). Switch to `|P|×|T|` (Primer convention)
+- [x] **A1. Incidence matrix convention switch.**
+  Switched from `|T|×|P|` (Murata convention) to `|P|×|T|` (Primer convention)
   so the state equation reads `M' = M₀ + N·x` directly, without a transpose.
-  The Primer convention is more intuitive: row index = place, column index = transition,
-  so `N[p][t]` is the net token change at place `p` when transition `t` fires.
-  Affects: `Net::incidence_matrix()`, `compute_invariants()`, `check_marking_equation()`,
-  `is_structurally_bounded()`, `is_place_structurally_bounded()`, and all tests
-  that construct raw `IncidenceMatrix` values.
+  Row index = place, column index = transition, so `N[p][t]` is the net token
+  change at place `p` when transition `t` fires.
+  Updated: `Net::incidence_matrix()`, `compute_invariants()`, `check_marking_equation()`,
+  `is_structurally_bounded()`, `is_place_structurally_bounded()`, and all tests.
 
-- [ ] **A2. Fix siphon/trap enumeration.**
-  The Sprint 1 growing algorithm can overshoot and miss minimal siphons.
-  Replace with two correct alternatives:
-  - *Shrinking algorithm* (Primer, Algorithm 6.19): `maximal_siphon_in(net, subset)`
-    iteratively removes places that violate the siphon property. O(|S|²·|T|²) per call.
-    Minimal siphon enumeration via backtracking on top.
-  - *ILP enumeration*: binary LP encoding the siphon/trap property with no-good cuts
-    for systematic enumeration of all minimal siphons/traps.
-  Dual algorithms for traps (`maximal_trap_in`, `minimal_traps`, `minimal_traps_ilp`).
+- [x] **A2. Fix siphon/trap enumeration.**
+  Replaced Sprint 1 growing algorithm with two correct alternatives:
+  - *Shrinking algorithm* (Primer, Algorithm 6.19): `maximal_siphon_in(net, subset)` and
+    `maximal_trap_in(net, subset)` iteratively remove places that violate the property.
+    Minimal enumeration via backtracking on top (`minimal_siphons`, `minimal_traps`).
+  - *ILP enumeration*: `minimal_siphons_ilp`, `minimal_traps_ilp` with binary variables
+    and no-good cuts for systematic completeness.
+  - Improved `every_siphon_contains_marked_trap` to compute `maximal_trap_in` per siphon
+    directly instead of requiring pre-enumerated traps. Now takes `&Net` instead of
+    a trap slice. Updated `system.rs` caller accordingly.
 
-- [ ] **A3. Fix `is_live_by_exploration`.**
-  Current code requires exactly one terminal SCC. The correct condition for L4-liveness
-  of a transition `t` in a bounded net: `t` must label an edge in **every** terminal SCC
-  of the reachability graph. A net is L4-live iff every transition satisfies this.
-  (Justification: once you enter a terminal SCC you stay forever; if any terminal SCC
-  lacks `t`, markings in that SCC can never fire `t` again.)
+- [x] **A3. Fix `is_live_by_exploration`.**
+  Moved SCC-based liveness analysis to `ReachabilityGraph::liveness_levels()` and
+  `ReachabilityGraph::is_live()`. Now correctly checks that `t` labels an edge in
+  **every** terminal SCC (not just the first). All liveness levels computed in a
+  single O(V+E) pass. `System::is_live_by_exploration` delegates to `rg.is_live()`.
 
-- [ ] **A4. Fix `is_dead` marking equation usage.**
-  Currently constructs a target marking with exactly 1 token in each preset place and 0
-  elsewhere, then checks the marking equation with equality constraints. This is too
-  restrictive — it misses reachable markings that *cover* the preset with additional
-  tokens elsewhere. Fix: use inequality constraints (`≥`) for the semi-decision check,
-  consistent with how coverability works.
+- [x] **A4. Fix `is_dead` marking equation usage.**
+  Added `check_covering_equation` to `semi_decision.rs` — uses `>=` constraints instead
+  of `==` to check if any marking covering a threshold is reachable. Updated `is_dead`
+  in `system.rs` to use this for the semi-decision step, correctly checking whether
+  any enabling marking for the transition is LP-reachable.
 
 **B. New Features**
 
-- [ ] **B1. ILP variant of marking equation.**
+- [x] **B1. ILP variant of marking equation.**
   Add `check_marking_equation_ilp()` alongside the existing LP relaxation.
   - LP infeasible → definitely unreachable (sound).
   - LP feasible, ILP infeasible → definitely unreachable (strictly stronger).
@@ -419,32 +417,20 @@ Corrections from literature verification and remaining features.
   (Murata 1989, §IV-B: "a nonnegative integer solution x must exist" is a
   necessary reachability condition.)
 
-- [ ] **B2. `LivenessLevel` enum and per-transition liveness analysis.**
-  Introduce `LivenessLevel` with variants `Dead` (L0), `L1`, `L2`, `L3`, `L4`
-  following Murata 1989 §V-C definitions:
-  - L0 (dead): `t` can never fire in any firing sequence from M₀.
-  - L1 (potentially firable): `t` fires at least once in some firing sequence.
-  - L2: for any positive integer k, `t` can fire at least k times in some sequence.
-  - L3 (weakly live): `t` appears infinitely often in some infinite firing sequence.
-  - L4 (live): `t` is L1-live for every marking M ∈ R(M₀).
-
-  **Key insight**: for bounded nets, L2 ≡ L3. (Proof: in a finite RG, any path
-  firing `t` more than |R(M₀)| times must revisit a marking, creating a cycle
-  containing `t`, which yields an infinite sequence — making `t` L3.)
-
-  SCC-based decision procedure for bounded nets (methods on `ReachabilityGraph`):
-  - L0: `t` does not label any edge in the RG.
+- [x] **B2. `LivenessLevel` enum and per-transition liveness analysis.**
+  Implemented `LivenessLevel` enum in `system.rs` (Dead/L1/L2/L3/L4) with
+  `PartialOrd`/`Ord` for level comparison. SCC-based decision for bounded nets on
+  `ReachabilityGraph`:
+  - L0: `t` labels no edge.
   - L1: `t` labels at least one edge.
-  - L2/L3: `t` labels an edge within some non-trivial SCC (≥2 nodes or self-loop).
+  - L3 (≡L2 for bounded): `t` labels an edge in a non-trivial SCC.
   - L4: `t` labels an edge in every terminal SCC.
+  High-level `System::liveness_levels()` builds CG → promotes to RG for SCC analysis,
+  returns `Option<Box<[LivenessLevel]>>` (None if unbounded).
+  Tests: cycle (all L4), deadlocked (all L0), absorbing branch (mixed L1/L3),
+  mutex (all L4).
 
-  CG-level methods on `CoverabilityGraph`:
-  - `is_quasi_live(t)`: `t` labels at least one edge (exact even for unbounded nets).
-
-  High-level `System` methods orchestrate: structural shortcuts (Commoner's theorem
-  for FC nets) first, then build CG, promote to RG if bounded for exact SCC analysis.
-
-- [ ] **B3. Document conservativeness.**
+- [x] **B3. Document conservativeness.**
   S-invariant coverage implies *conservativeness*: the net has a positive S-invariant,
   meaning every firing preserves a weighted token sum. Conservativeness is strictly
   stronger than structural boundedness.
@@ -470,18 +456,50 @@ recorded here so nothing is lost:
 
 **D. Testing and Quality**
 
-- [ ] Comprehensive tests for all corrections (A1–A4)
-- [ ] Tests for ILP marking equation (B1)
-- [ ] Tests for liveness levels on known nets (B2)
-- [ ] Run clippy and address all warnings
-- [ ] Update PLAN.md to reflect completed items
+- [x] Comprehensive tests for all corrections (A1–A4)
+- [x] Tests for ILP marking equation (B1)
+- [x] Tests for liveness levels on known nets (B2)
+- [x] Run clippy and address all warnings
+- [x] Update PLAN.md to reflect completed items
 
-**Execution order**: A1 → A2 → A4 → A3+B2 → B1 → B3 → D
+**E. Closing Optimizations**
+
+- [x] **E1. `ReachabilityExplorer` / `ReachabilityGraph` type split.**
+  Split the monolithic `ReachabilityGraph` into two types:
+  - `ReachabilityExplorer<'a>` — incremental exploration handle for any net (bounded
+    or not). Exposes `explore_next()`, `iter()`, `explore_all()`, basic queries.
+  - `ReachabilityGraph<'a>` — fully explored, bounded graph (type-level proof of
+    boundedness). Carries liveness and deadlock analysis methods.
+  Construction: `ReachabilityGraph::build()` (convenience, non-terminating for
+  unbounded nets), `TryFrom<ReachabilityExplorer>` (checks `is_fully_explored()`),
+  `TryFrom<CoverabilityGraph>` (checks `is_bounded()`).
+
+- [x] **E2. Batch liveness without `OnceCell`.**
+  `ReachabilityGraph::liveness_levels()` computes all liveness levels in a single
+  O(V+E) SCC pass and returns an owned `Box<[LivenessLevel]>`. No hidden caching;
+  users store the result themselves. Convenience methods `liveness_level(t)` and
+  `is_live()` call `liveness_levels()` internally.
+
+- [x] **E3. Single-LP invariant coverage.**
+  `is_covered_by_s_invariants` and `is_covered_by_t_invariants` now use a single
+  LP per check instead of one LP per place/transition. Lambda variables are
+  unrestricted in sign (necessary when the integer basis has negative entries).
+
+- [x] **E4. Doc and code cleanup.**
+  Fixed stale doc comments (removed "cached lazily" reference, corrected `N^T` →
+  `N` for Primer convention). Removed redundant `is_s_net() || is_t_net()` check
+  in `is_live()` (both are subclasses of free-choice). Fixed `is_covered` lambda
+  bounds (was inadvertently restricted to `>= 0`; must be unrestricted for
+  correctness with arbitrary integer basis vectors).
+
+**Execution order**: A1 → A2 → A4 → A3+B2 → B1 → B3 → D → E1–E4
 
 **Exit criteria**: All structural analysis and semi-decision procedures are verified
-against the literature. `system.is_live()`, `system.is_bounded()`, and per-transition
-`liveness_level()` return correct results for textbook nets. Siphon/trap enumeration
+against the literature. `system.is_live()`, `system.is_bounded()`, and
+`liveness_levels()` return correct results for textbook nets. Siphon/trap enumeration
 is complete (finds all minimal siphons/traps). Tests cover non-trivial nets.
+`ReachabilityExplorer`/`ReachabilityGraph` type split provides clear bounded/unbounded
+distinction. All analysis code clean under `clippy -D warnings`.
 
 ### Phase 4: Weighted and Capacity Nets
 

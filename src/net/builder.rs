@@ -201,8 +201,8 @@ impl NetBuilder {
         let net = Net {
             n_places: self.n_places,
             n_transitions: self.n_transitions,
-            preset: preset.into_iter().map(Vec::into_boxed_slice).collect(),
-            postset: postset.into_iter().map(Vec::into_boxed_slice).collect(),
+            preset_t: preset.into_iter().map(Vec::into_boxed_slice).collect(),
+            postset_t: postset.into_iter().map(Vec::into_boxed_slice).collect(),
             preset_p: preset_p.into_iter().map(Vec::into_boxed_slice).collect(),
             postset_p: postset_p.into_iter().map(Vec::into_boxed_slice).collect(),
         };
@@ -257,8 +257,8 @@ mod tests {
         b.add_arc((p1, t1));
         b.add_arc((t1, p2));
         let net = b.build().unwrap();
-        assert_eq!(net.net().n_places(), 3);
-        assert_eq!(net.net().n_transitions(), 2);
+        assert_eq!(net.n_places(), 3);
+        assert_eq!(net.n_transitions(), 2);
     }
 
     #[test]
@@ -357,7 +357,7 @@ mod tests {
         b.add_arc((p0, t0));
         b.add_arc((t0, p1));
         let net = b.build().expect("should accept duplicate arcs");
-        assert_eq!(net.net().preset_t(t0).len(), 1);
+        assert_eq!(net.preset_t(t0).len(), 1);
     }
 
     /// Single place, single transition, one arc each direction.
@@ -370,8 +370,8 @@ mod tests {
         b.add_arc((t, p));
         let net = b.build().expect("valid net");
         assert_eq!(net.class(), NetClass::Circuit);
-        assert_eq!(net.net().n_places(), 1);
-        assert_eq!(net.net().n_transitions(), 1);
+        assert_eq!(net.n_places(), 1);
+        assert_eq!(net.n_transitions(), 1);
     }
 
     /// Source transition (no input places) — builder should accept this.
@@ -382,8 +382,8 @@ mod tests {
         let t = b.add_transition();
         b.add_arc((t, p));
         let net = b.build().expect("valid net");
-        assert!(net.net().preset_t(t).is_empty());
-        assert_eq!(net.net().postset_t(t), &[p]);
+        assert!(net.preset_t(t).is_empty());
+        assert_eq!(net.postset_t(t), &[p]);
     }
 
     /// Sink transition (no output places) — builder should accept this.
@@ -394,8 +394,8 @@ mod tests {
         let t = b.add_transition();
         b.add_arc((p, t));
         let net = b.build().expect("valid net");
-        assert!(net.net().postset_t(t).is_empty());
-        assert_eq!(net.net().preset_t(t), &[p]);
+        assert!(net.postset_t(t).is_empty());
+        assert_eq!(net.preset_t(t), &[p]);
     }
 
     /// Round-trip: `Net` → `NetBuilder` → `Net` preserves structure.
@@ -440,10 +440,10 @@ mod tests {
         b2.add_arc((p_new, t1));
         let extended = b2.build().expect("valid extended net");
 
-        assert_eq!(extended.net().n_places(), 3);
-        assert_eq!(extended.net().n_transitions(), 3);
+        assert_eq!(extended.n_places(), 3);
+        assert_eq!(extended.n_transitions(), 3);
         // Original handles still work
-        assert!(extended.net().preset_t(t0).contains(&p0));
-        assert!(extended.net().postset_t(t0).contains(&p1));
+        assert!(extended.preset_t(t0).contains(&p0));
+        assert!(extended.postset_t(t0).contains(&p1));
     }
 }
