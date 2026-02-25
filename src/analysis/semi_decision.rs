@@ -42,14 +42,19 @@ impl MarkingEquationResult {
     }
 }
 
-/// Checks the marking equation m₀ + N^T · x = m' for feasibility.
+/// Checks the marking equation m₀ + N · x = m' for feasibility.
 ///
 /// This is a necessary condition for reachability: if infeasible, then m'
-/// is definitely not reachable from m₀. Uses LP relaxation first (rational
+/// is definitely not reachable from m₀. Uses LP relaxation (rational
 /// solution), which is faster than ILP.
 ///
-/// The incidence matrix N is |T|×|P|, so N^T is |P|×|T|. The equation
-/// for each place p is:  `m₀[p] + Σ_t N[t][p] · x[t] = m'[p]`
+/// The incidence matrix N is |P|×|T| (Primer convention). The equation
+/// for each place p is:  `m₀[p] + Σ_t N[p][t] · x[t] = m'[p]`
+///
+/// References:
+/// - Murata 1989, §IV-B: "a nonnegative integer solution x must exist"
+///   is a necessary reachability condition.
+/// - Petri Net Primer, Proposition 4.3 (state equation as necessary condition)
 #[must_use]
 pub fn check_marking_equation(
     net: &Net,
@@ -64,14 +69,12 @@ pub fn check_marking_equation(
         .map(|_| variables.add(variable().min(0.0)))
         .collect();
 
-    // Objective: minimize total firings (any feasible solution suffices,
-    // but minimizing keeps numbers small).
     let objective: Expression = x.iter().copied().sum();
 
-    // Constraint: m₀[p] + Σ_t N[t][p] * x[t] = m'[p]  for each place p
+    // Constraint: m₀[p] + Σ_t N[p][t] · x[t] = m'[p]  for each place p
     for p in 0..net.n_places() {
         let lhs: Expression = (0..net.n_transitions())
-            .map(|t| incidence.get(t, p) as f64 * x[t])
+            .map(|t| incidence.get(p, t) as f64 * x[t])
             .sum();
         let rhs = f64::from(target[Place { idx: p }]) - f64::from(initial[Place { idx: p }]);
         constraints.push(constraint!(lhs == rhs));
@@ -94,12 +97,16 @@ pub fn check_marking_equation(
 /// Checks structural boundedness: is the net bounded for every possible
 /// initial marking?
 ///
-/// Uses the primal LP from Murata (Theorem 29) / Petri Net Primer (Proposition 4.12):
-/// find a positive S-subvariant y >> 0 with C · y ≤ 0.
+/// Finds a positive S-sub-invariant y >> 0 such that yᵀ · N ≤ 0.
+/// Equivalently, for each transition t: Σ_p N\[p\]\[t\] · y\[p\] ≤ 0.
 ///
 /// Variables: `y[p] ≥ 1` for each place (`y ≥ 1` encodes `y >> 0`)
-/// Constraints: `Σ_p C[t,p] · y[p] ≤ 0` for each transition `t`
+/// Constraints: `Σ_p N[p][t] · y[p] ≤ 0` for each transition `t`
 /// Feasible → structurally bounded; Infeasible → not structurally bounded
+///
+/// References:
+/// - Murata 1989, Table 5: structural boundedness ⟺ ∃y > 0, Ay ≤ 0
+/// - Petri Net Primer, Proposition 4.12
 #[must_use]
 pub fn is_structurally_bounded(net: &Net) -> bool {
     let mut variables = ProblemVariables::new();
@@ -108,15 +115,16 @@ pub fn is_structurally_bounded(net: &Net) -> bool {
         .collect();
 
     let incidence = net.incidence_matrix();
+    // For each transition t, the weighted change Σ_p N[p][t] · y[p] must be ≤ 0.
     let constraints = net.transitions().map(|t| {
         let weighted_change: Expression = net.places()
-            .map(|p| f64::from(incidence.get(t.idx, p.idx)) * y[p.idx])
+            .map(|p| f64::from(incidence.get(p.idx, t.idx)) * y[p.idx])
             .sum();
         constraint!(weighted_change <= 0.0)
     });
 
     variables
-        .minimise(Expression::from(0)) // no real objective, just a feasibility check
+        .minimise(Expression::from(0))
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
@@ -126,7 +134,7 @@ pub fn is_structurally_bounded(net: &Net) -> bool {
 /// Checks whether a single place is structurally bounded (bounded under
 /// every possible initial marking).
 ///
-/// Uses the primal LP: find `y ≥ 0` with `y[place] ≥ 1` and `C · y ≤ 0`.
+/// Finds y ≥ 0 with y\[place\] ≥ 1 and yᵀ · N ≤ 0.
 /// This is weaker than whole-net structural boundedness (which requires
 /// y >> 0), since only the target place needs a strictly positive weight.
 ///
@@ -148,13 +156,13 @@ pub fn is_place_structurally_bounded(net: &Net, place: Place) -> bool {
     let incidence = net.incidence_matrix();
     let constraints = net.transitions().map(|t| {
         let weighted_change: Expression = net.places()
-            .map(|p| f64::from(incidence.get(t.idx, p.idx)) * y[p.idx])
+            .map(|p| f64::from(incidence.get(p.idx, t.idx)) * y[p.idx])
             .sum();
         constraint!(weighted_change <= 0.0)
     });
 
     variables
-        .minimise(Expression::from(0)) // no real objective, just a feasibility check
+        .minimise(Expression::from(0))
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()

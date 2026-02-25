@@ -218,14 +218,15 @@ mod tests {
     #[test]
     fn mutex_s_invariants() {
         // Mutex net: 7 places, 6 transitions
-        // S-invariants (null space of N, which is |T|×|P|) are |P|-dimensional
-        // vectors y such that N · y = 0.
+        // With Primer convention, N is |P|×|T| (7×6).
+        // S-invariants = null space of Nᵀ (6×7 → vectors of length 7 = |P|)
+        // T-invariants = null space of N (7×6 → vectors of length 6 = |T|)
         // Known S-invariants: [1,1,1,0,0,0,0], [0,0,0,1,1,1,0], [0,0,1,0,0,1,1]
         use crate::net::builder::NetBuilder;
 
         let mut b = NetBuilder::new();
         let [idle1, wait1, crit1] = b.add_places();
-        let [idle2, wait2,crit2] = b.add_places();
+        let [idle2, wait2, crit2] = b.add_places();
         let mutex = b.add_place();
         let [t_req1, t_enter1, t_exit1] = b.add_transitions();
         let [t_req2, t_enter2, t_exit2] = b.add_transitions();
@@ -240,17 +241,17 @@ mod tests {
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
         let net = b.build().unwrap();
-        let c = net.incidence_matrix();
+        let n = net.incidence_matrix();
 
-        // S-invariants = null space of N (|T|×|P| → vectors of length |P|)
-        let s_inv = integer_null_space(&c);
+        // S-invariants = null space of Nᵀ (|T|×|P| matrix → |P|-dimensional vectors)
+        let nt = n.transpose();
+        let s_inv = integer_null_space(&nt);
         assert_eq!(s_inv.len(), 3);
-        verify_null_space(&c, &s_inv);
+        verify_null_space(&nt, &s_inv);
 
-        // T-invariants = null space of N^T (|P|×|T| → vectors of length |T|)
-        let ct = c.transpose();
-        let t_inv = integer_null_space(&ct);
+        // T-invariants = null space of N (|P|×|T| matrix → |T|-dimensional vectors)
+        let t_inv = integer_null_space(&n);
         assert_eq!(t_inv.len(), 2);
-        verify_null_space(&ct, &t_inv);
+        verify_null_space(&n, &t_inv);
     }
 }

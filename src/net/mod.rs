@@ -245,11 +245,17 @@ impl Net {
 
     /// Computes the incidence matrix N of the net.
     ///
-    /// N is a |T| × |P| matrix where N\[t\]\[p\] = (number of arcs from t to p)
-    /// minus (number of arcs from p to t). For ordinary nets each entry is
+    /// `N` is a `|P|` × `|T|` matrix where `N\[p\]\[t\]` is the net token change
+    /// at place p when transition t fires: +1 if t produces to p, -1 if
+    /// t consumes from p, 0 otherwise. For ordinary nets each entry is
     /// -1, 0, or +1.
     ///
-    /// The matrix is stored in row-major order (indexed by transition, then place).
+    /// This convention allows the state equation to be written directly as
+    /// `M' = M₀ + N · x`, where `x` is the firing count vector (no transpose needed).
+    ///
+    /// References:
+    /// - Petri Net Primer (Best & Devillers), Definition 4.1
+    /// - Murata 1989, §IV-B (uses the transposed convention A^T · x = ΔM)
     #[must_use]
     pub fn incidence_matrix(&self) -> IncidenceMatrix {
         IncidenceMatrix::new(self)
@@ -338,9 +344,16 @@ impl fmt::Display for NetClass {
 
 /// The incidence matrix N of a Petri net.
 ///
-/// A |T| × |P| matrix stored in row-major order. Entry N\[t\]\[p\] is the net
-/// token change at place p when transition t fires: +1 if t produces to p,
-/// -1 if t consumes from p, 0 otherwise.
+/// A |P| × |T| matrix stored in row-major order (Primer convention).
+/// Entry N\[p\]\[t\] is the net token change at place p when transition t fires:
+/// +1 if t produces to p, -1 if t consumes from p, 0 otherwise.
+///
+/// With this convention the state equation reads M' = M₀ + N · x directly,
+/// where x is the |T|×1 firing count vector.
+///
+/// References:
+/// - Petri Net Primer (Best & Devillers), Definition 4.1
+/// - Murata 1989, §IV-B (uses the transposed convention; our N = Murata's Aᵀ)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncidenceMatrix {
     data: Vec<i32>,
@@ -349,18 +362,18 @@ pub struct IncidenceMatrix {
 }
 
 impl IncidenceMatrix {
-    /// Constructs the incidence matrix for a given net.
+    /// Constructs the |P| × |T| incidence matrix for a given net.
     #[must_use]
     pub fn new(net: &Net) -> Self {
-        let rows = net.n_transitions;
-        let cols = net.n_places;
+        let rows = net.n_places;
+        let cols = net.n_transitions;
         let mut data = vec![0; rows * cols];
         for t in net.transitions() {
             for &p in net.preset_t(t) {
-                data[t.idx * cols + p.idx] -= 1;
+                data[p.idx * cols + t.idx] -= 1;
             }
             for &p in net.postset_t(t) {
-                data[t.idx * cols + p.idx] += 1;
+                data[p.idx * cols + t.idx] += 1;
             }
         }
         IncidenceMatrix { data, rows, cols }
@@ -373,44 +386,44 @@ impl IncidenceMatrix {
         Self { data, rows, cols }
     }
 
-    /// Number of rows (transitions).
+    /// Number of rows (places).
     #[must_use]
     pub fn n_rows(&self) -> usize {
         self.rows
     }
 
-    /// Number of columns (places).
+    /// Number of columns (transitions).
     #[must_use]
     pub fn n_cols(&self) -> usize {
         self.cols
     }
 
-    /// Entry at (row, col) = N[transition][place].
+    /// Entry at (row, col) = N\[place\]\[transition\].
     #[must_use]
     pub fn get(&self, row: usize, col: usize) -> i32 {
         self.data[row * self.cols + col]
     }
 
-    /// Row slice for a given transition.
+    /// Row slice for a given place.
     #[must_use]
-    pub fn row(&self, t: usize) -> &[i32] {
-        let start = t * self.cols;
+    pub fn row(&self, p: usize) -> &[i32] {
+        let start = p * self.cols;
         &self.data[start..start + self.cols]
     }
 
-    /// Returns a column vector (extracting one place across all transitions).
+    /// Returns a column vector (extracting one transition across all places).
     #[must_use]
-    pub fn col(&self, p: usize) -> Vec<i32> {
-        (0..self.rows).map(|t| self.data[t * self.cols + p]).collect()
+    pub fn col(&self, t: usize) -> Vec<i32> {
+        (0..self.rows).map(|p| self.data[p * self.cols + t]).collect()
     }
 
-    /// Returns the transpose (|P| × |T| matrix).
+    /// Returns the transpose (|T| × |P| matrix).
     #[must_use]
     pub fn transpose(&self) -> Self {
         let mut data = vec![0; self.rows * self.cols];
-        for t in 0..self.rows {
-            for p in 0..self.cols {
-                data[p * self.rows + t] = self.data[t * self.cols + p];
+        for r in 0..self.rows {
+            for c in 0..self.cols {
+                data[c * self.rows + r] = self.data[r * self.cols + c];
             }
         }
         Self { data, rows: self.cols, cols: self.rows }
@@ -419,10 +432,10 @@ impl IncidenceMatrix {
 
 impl fmt::Display for IncidenceMatrix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for t in 0..self.rows {
+        for p in 0..self.rows {
             write!(f, "[")?;
-            for (p, val) in self.row(t).iter().enumerate() {
-                if p > 0 { write!(f, ", ")?; }
+            for (t, val) in self.row(p).iter().enumerate() {
+                if t > 0 { write!(f, ", ")?; }
                 write!(f, "{val:>3}")?;
             }
             writeln!(f, "]")?;
