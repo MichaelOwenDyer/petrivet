@@ -566,7 +566,7 @@ mod tests {
         b.add_arc((t_exit2, mutex));
 
         let net = b.build().expect("valid net");
-        assert_eq!(net.class(), NetClass::Unrestricted);
+        assert_eq!(net.class(), NetClass::AsymmetricChoice);
         let sys = System::new(net, [1, 0, 0, 1, 0, 0, 1]);
 
         let cg = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);

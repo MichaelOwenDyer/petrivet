@@ -33,15 +33,12 @@ pub struct NetBuilder {
 pub enum BuildError {
     /// A place or transition has no arcs connecting it.
     NotConnected,
-    /// An arc references a place or transition that doesn't exist.
-    InvalidArc,
 }
 
 impl fmt::Display for BuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BuildError::NotConnected => write!(f, "the net has disconnected nodes"),
-            BuildError::InvalidArc => write!(f, "an arc references a non-existent place or transition"),
         }
     }
 }
@@ -152,7 +149,6 @@ impl NetBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`BuildError::InvalidArc`] if an arc references a non-existent node.
     /// Returns [`BuildError::NotConnected`] if any place or transition has no arcs.
     pub fn build(self) -> Result<Net, BuildError> {
         let n_places = self.n_places();
@@ -257,14 +253,14 @@ mod tests {
     }
 
     #[test]
-    fn invalid_arc_rejected() {
+    #[should_panic(expected = "index out of bounds")]
+    fn invalid_arc_panics() {
         let mut b = NetBuilder::new();
         let p0 = b.add_place();
         let _ = b.add_transition();
         let mut other = NetBuilder::new();
         let [_, t_foreign] = other.add_transitions();
         b.add_arc((p0, t_foreign));
-        assert!(matches!(b.build(), Err(BuildError::InvalidArc)));
     }
 
     #[test]
@@ -330,15 +326,37 @@ mod tests {
     }
 
     #[test]
-    fn classify_unrestricted() {
+    fn classify_asymmetric_choice() {
+        // p0 feeds both t0 and t1; p1 feeds only t1.
+        // p0• = {t0, t1}, p1• = {t1}. p1• ⊆ p0•, so AC but not FC.
         let mut b = NetBuilder::new();
         let [p0, p1, p2, p3] = b.add_places();
         let [t0, t1] = b.add_transitions();
         b.add_arc((p0, t0));
-        b.add_arc((t0, p2));
         b.add_arc((p0, t1));
         b.add_arc((p1, t1));
+        b.add_arc((t0, p2));
         b.add_arc((t1, p3));
+        let net = b.build().unwrap();
+        assert_eq!(net.class(), NetClass::AsymmetricChoice);
+        assert!(net.is_asymmetric_choice());
+        assert!(!net.is_free_choice());
+    }
+
+    #[test]
+    fn classify_unrestricted() {
+        // Symmetric conflict: p0• = {t0, t1}, p1• = {t0, t2}.
+        // Intersection {t0} is non-empty but neither is a subset of the other.
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2, p3, p4] = b.add_places();
+        let [t0, t1, t2] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((p0, t1));
+        b.add_arc((p1, t0));
+        b.add_arc((p1, t2));
+        b.add_arc((t0, p2));
+        b.add_arc((t1, p3));
+        b.add_arc((t2, p4));
         assert_eq!(b.build().unwrap().class(), NetClass::Unrestricted);
     }
 

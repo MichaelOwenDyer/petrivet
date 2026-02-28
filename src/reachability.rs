@@ -791,7 +791,7 @@ mod tests {
         b.add_arc((t_exit2, mutex));
 
         let net = b.build().expect("valid net");
-        assert_eq!(net.class(), NetClass::Unrestricted);
+        assert_eq!(net.class(), NetClass::AsymmetricChoice);
         let sys = System::new(net, [1, 0, 0, 1, 0, 0, 1]);
 
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
@@ -859,7 +859,7 @@ mod tests {
         }
 
         let net = b.build().expect("valid net");
-        assert_eq!(net.class(), NetClass::Unrestricted);
+        assert_eq!(net.class(), NetClass::AsymmetricChoice);
         let mut initial = vec![0u32; 4 * n];
         for i in 0..n {
             initial[forks[i].index()] = 1;

@@ -759,7 +759,7 @@ mod tests {
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
         let net = b.build().unwrap();
-        assert_eq!(net.class(), NetClass::Unrestricted);
+        assert_eq!(net.class(), NetClass::AsymmetricChoice);
         let inv = compute_invariants(&net);
 
         // 3 S-invariants for mutex net (7 places, rank 4 → dim 3)

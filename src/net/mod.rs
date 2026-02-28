@@ -258,6 +258,17 @@ impl Net {
         matches!(self.class, Circuit | SNet | TNet | FreeChoice)
     }
 
+    /// A net is asymmetric-choice if for every two places s1, s2:
+    /// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
+    ///
+    /// This includes all free-choice nets (and their subclasses).
+    /// For strict comparison, see the `class()` method.
+    #[must_use]
+    pub fn is_asymmetric_choice(&self) -> bool {
+        use NetClass::*;
+        matches!(self.class, Circuit | SNet | TNet | FreeChoice | AsymmetricChoice)
+    }
+
     /// Returns the structural class of this net (cached at build time).
     #[must_use]
     pub fn class(&self) -> NetClass {
