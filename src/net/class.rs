@@ -1,5 +1,6 @@
-use std::{fmt, iter};
+use std::fmt;
 use crate::{Place, Transition};
+use super::sorted_set::SortedSet;
 
 /// Structural classification of a Petri net.
 ///
@@ -49,15 +50,16 @@ impl fmt::Display for NetClass {
     }
 }
 
-pub fn classify_net(
-    preset_t: &[Box<[Place]>],
-    postset_t: &[Box<[Place]>],
-    preset_p: &[Box<[Transition]>],
-    postset_p: &[Box<[Transition]>],
+#[must_use]
+pub fn classify(
+    preset_t: &[SortedSet<Place>],
+    postset_t: &[SortedSet<Place>],
+    preset_p: &[SortedSet<Transition>],
+    postset_p: &[SortedSet<Transition>],
 ) -> NetClass {
-    let is_s_net = is_s_net(preset_t, postset_t);
-    let is_t_net = is_t_net(preset_p, postset_p);
-    match (is_s_net, is_t_net) {
+    let is_s = is_s_net(preset_t, postset_t);
+    let is_t = is_t_net(preset_p, postset_p);
+    match (is_s, is_t) {
         (true, true) => NetClass::Circuit,
         (true, false) => NetClass::SNet,
         (false, true) => NetClass::TNet,
@@ -67,67 +69,35 @@ pub fn classify_net(
     }
 }
 
-pub fn is_s_net(preset_t: &[Box<[Place]>], postset_t: &[Box<[Place]>]) -> bool {
-    iter::zip(preset_t, postset_t).all(|(pre, post)| {
+/// S-net: |•t| = 1 and |t•| = 1 for every transition t.
+fn is_s_net(transition_presets: &[SortedSet<Place>], transition_postsets: &[SortedSet<Place>]) -> bool {
+    std::iter::zip(transition_presets, transition_postsets).all(|(pre, post)| {
         pre.len() == 1 && post.len() == 1
     })
 }
 
-pub fn is_t_net(preset_p: &[Box<[Transition]>], postset_p: &[Box<[Transition]>]) -> bool {
-    iter::zip(preset_p, postset_p).all(|(pre, post)| {
+/// T-net: |•p| = 1 and |p•| = 1 for every place p.
+fn is_t_net(place_presets: &[SortedSet<Transition>], place_postsets: &[SortedSet<Transition>]) -> bool {
+    std::iter::zip(place_presets, place_postsets).all(|(pre, post)| {
         pre.len() == 1 && post.len() == 1
     })
 }
 
-pub fn is_free_choice_net(postset_p: &[Box<[Transition]>], preset_t: &[Box<[Place]>]) -> bool {
-    postset_p.iter().all(|postset| {
-        postset.len() == 1 || postset.windows(2).all(|t| {
+/// Free-choice: ∀ p1, p2: p1• ∩ p2• ≠ ∅ ⟹ p1• = p2•.
+/// Equivalently: for every place p, all transitions in p• share the same preset.
+fn is_free_choice_net(place_postsets: &[SortedSet<Transition>], preset_t: &[SortedSet<Place>]) -> bool {
+    place_postsets.iter().all(|postset| {
+        postset.windows(2).all(|t| {
             preset_t[t[0].idx] == preset_t[t[1].idx]
         })
     })
 }
 
-/// A net is asymmetric-choice if for every two places s1, s2:
-/// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
-///
-/// Since postsets are sorted, subset checking uses a linear merge.
-pub fn is_asymmetric_choice_net(postset_p: &[Box<[Transition]>]) -> bool {
-    for i in 0..postset_p.len() {
-        for j in (i + 1)..postset_p.len() {
-            let a = &postset_p[i];
-            let b = &postset_p[j];
-            if !sorted_disjoint(a, b) && !sorted_subset(a, b) && !sorted_subset(b, a) {
-                return false;
-            }
-        }
-    }
-    true
-}
-
-/// Check if two sorted slices are disjoint.
-fn sorted_disjoint(a: &[Transition], b: &[Transition]) -> bool {
-    let (mut i, mut j) = (0, 0);
-    while i < a.len() && j < b.len() {
-        match a[i].idx.cmp(&b[j].idx) {
-            std::cmp::Ordering::Less => i += 1,
-            std::cmp::Ordering::Greater => j += 1,
-            std::cmp::Ordering::Equal => return false,
-        }
-    }
-    true
-}
-
-/// Check if sorted slice `a` is a subset of sorted slice `b`.
-fn sorted_subset(a: &[Transition], b: &[Transition]) -> bool {
-    let mut j = 0;
-    for &elem in a {
-        while j < b.len() && b[j].idx < elem.idx {
-            j += 1;
-        }
-        if j >= b.len() || b[j].idx != elem.idx {
-            return false;
-        }
-        j += 1;
-    }
-    true
+/// Asymmetric-choice: ∀ p1, p2: p1• ∩ p2• ≠ ∅ ⟹ p1• ⊆ p2• ∨ p2• ⊆ p1•.
+fn is_asymmetric_choice_net(place_postsets: &[SortedSet<Transition>]) -> bool {
+    place_postsets.iter().all(|a| {
+        place_postsets.iter().all(|b| {
+            !a.intersects(b) || a.is_subset_of(b) || b.is_subset_of(a)
+        })
+    })
 }

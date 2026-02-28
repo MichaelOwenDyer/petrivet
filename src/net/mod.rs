@@ -7,6 +7,9 @@
 
 pub mod builder;
 pub mod class;
+pub mod sorted_set;
+
+pub use sorted_set::SortedSet;
 
 use crate::analysis;
 use crate::class::NetClass;
@@ -111,22 +114,14 @@ impl From<Transition> for Node {
 pub struct Net {
     /// Structural class of the net, cached at build time for efficient queries.
     class: NetClass,
-    /// Transition presets indexed by transition index:
-    /// for each transition t, the list of places in •t.
-    /// Sorted by place index in ascending order.
-    preset_t: Box<[Box<[Place]>]>,
-    /// Transition postsets indexed by transition index:
-    /// for each transition t, the list of places in t•.
-    /// Sorted by place index in ascending order.
-    postset_t: Box<[Box<[Place]>]>,
-    /// Place presets indexed by place index:
-    /// for each place p, the list of transitions in •p.
-    /// Sorted by transition index in ascending order.
-    preset_p: Box<[Box<[Transition]>]>,
-    /// Place postsets indexed by place index:
-    /// for each place p, the list of transitions in p•.
-    /// Sorted by transition index in ascending order.
-    postset_p: Box<[Box<[Transition]>]>,
+    /// Transition presets: for each transition t, the sorted set of places in •t.
+    preset_t: Box<[SortedSet<Place>]>,
+    /// Transition postsets: for each transition t, the sorted set of places in t•.
+    postset_t: Box<[SortedSet<Place>]>,
+    /// Place presets: for each place p, the sorted set of transitions in •p.
+    preset_p: Box<[SortedSet<Transition>]>,
+    /// Place postsets: for each place p, the sorted set of transitions in p•.
+    postset_p: Box<[SortedSet<Transition>]>,
 }
 
 impl Net {
@@ -158,9 +153,9 @@ impl Net {
     #[must_use]
     pub fn n_arcs(&self) -> usize {
         // Either sum of all presets/postsets of transitions or places should give the same count.
-        self.preset_t.iter().map(|preset| preset.len()).sum::<usize>()
-            +
-        self.postset_t.iter().map(|postset| postset.len()).sum::<usize>()
+        std::iter::zip(self.preset_p.iter(), self.postset_p.iter())
+            .map(|(pre, post)| pre.len() + post.len())
+            .sum()
     }
 
     /// Iterator over all places.
@@ -191,31 +186,27 @@ impl Net {
     }
 
     /// Preset of a transition: input places (•t).
-    /// Sorted by place index in ascending order.
     #[must_use]
-    pub fn preset_t(&self, t: Transition) -> &[Place] {
-        self.preset_t[t.idx].as_ref()
+    pub fn preset_t(&self, t: Transition) -> &SortedSet<Place> {
+        &self.preset_t[t.idx]
     }
 
     /// Postset of a transition: output places (t•).
-    /// Sorted by place index in ascending order.
     #[must_use]
-    pub fn postset_t(&self, t: Transition) -> &[Place] {
-        self.postset_t[t.idx].as_ref()
+    pub fn postset_t(&self, t: Transition) -> &SortedSet<Place> {
+        &self.postset_t[t.idx]
     }
 
     /// Preset of a place: transitions that produce into this place (•p).
-    /// Sorted by transition index in ascending order.
     #[must_use]
-    pub fn preset_p(&self, p: Place) -> &[Transition] {
-        self.preset_p[p.idx].as_ref()
+    pub fn preset_p(&self, p: Place) -> &SortedSet<Transition> {
+        &self.preset_p[p.idx]
     }
 
     /// Postset of a place: transitions that consume from this place (p•).
-    /// Sorted by transition index in ascending order.
     #[must_use]
-    pub fn postset_p(&self, p: Place) -> &[Transition] {
-        self.postset_p[p.idx].as_ref()
+    pub fn postset_p(&self, p: Place) -> &SortedSet<Transition> {
+        &self.postset_p[p.idx]
     }
 
     /// A net is a circuit if it is both an S-net and a T-net.

@@ -1,9 +1,10 @@
 //! Builder for constructing Petri nets.
 
 use std::collections::VecDeque;
-use crate::net::{Arc, Net, Place, Transition};
+use crate::net::{Arc, Net, Place, SortedSet, Transition};
 use std::error::Error;
 use std::{fmt, iter};
+use crate::class::NetClass;
 use crate::Node;
 
 /// Builder for constructing an ordinary Petri net.
@@ -13,25 +14,27 @@ use crate::Node;
 /// ```
 /// use petrivet::net::builder::NetBuilder;
 ///
-/// let mut builder = NetBuilder::new();
-/// let [p0, p1] = builder.add_places();
-/// let [t0] = builder.add_transitions();
-/// builder.add_arc((p0, t0));
-/// builder.add_arc((t0, p1));
-/// let net = builder.build().unwrap();
+/// let mut net = NetBuilder::new();
+/// let [p0, p1] = net.add_places();
+/// let [t0] = net.add_transitions();
+/// net.add_arc((p0, t0));
+/// net.add_arc((t0, p1));
+/// let net = net.build().unwrap();
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct NetBuilder {
-    preset_t: Vec<Vec<Place>>,
-    postset_t: Vec<Vec<Place>>,
-    preset_p: Vec<Vec<Transition>>,
-    postset_p: Vec<Vec<Transition>>,
+    preset_t: Vec<SortedSet<Place>>,
+    postset_t: Vec<SortedSet<Place>>,
+    preset_p: Vec<SortedSet<Transition>>,
+    postset_p: Vec<SortedSet<Transition>>,
 }
 
 /// Errors that can occur during net construction.
 #[derive(Debug)]
 pub enum BuildError {
-    /// A place or transition has no arcs connecting it.
+    /// The net does not consist of a single connected component;
+    /// it has multiple contiguous subnets with no arcs between them.
+    /// Each subnet should be built separately.
     NotConnected,
 }
 
@@ -52,28 +55,30 @@ impl NetBuilder {
         Self::default()
     }
 
+    /// Creates a new builder with pre-allocated capacity for the given number of places and transitions.
+    #[must_use]
     pub fn with_capacity(n_places: usize, n_transitions: usize) -> Self {
         Self {
-            preset_t: vec![Vec::new(); n_transitions],
-            postset_t: vec![Vec::new(); n_transitions],
-            preset_p: vec![Vec::new(); n_places],
-            postset_p: vec![Vec::new(); n_places],
+            preset_t: vec![SortedSet::new(); n_transitions],
+            postset_t: vec![SortedSet::new(); n_transitions],
+            preset_p: vec![SortedSet::new(); n_places],
+            postset_p: vec![SortedSet::new(); n_places],
         }
     }
 
     /// Adds a single place, returning its handle.
     pub fn add_place(&mut self) -> Place {
         let p = Place { idx: self.n_places() };
-        self.preset_p.push(Vec::new());
-        self.postset_p.push(Vec::new());
+        self.preset_p.push(SortedSet::new());
+        self.postset_p.push(SortedSet::new());
         p
     }
 
     /// Adds a single transition, returning its handle.
     pub fn add_transition(&mut self) -> Transition {
         let t = Transition { idx: self.n_transitions() };
-        self.preset_t.push(Vec::new());
-        self.postset_t.push(Vec::new());
+        self.preset_t.push(SortedSet::new());
+        self.postset_t.push(SortedSet::new());
         t
     }
 
@@ -116,18 +121,23 @@ impl NetBuilder {
     ///
     /// Will panic if the arc references a place or transition with an out-of-bounds index,
     /// e.g. if you use a handle from a different builder or add an arc before adding the referenced nodes.
-    pub fn add_arc<A: Into<Arc>>(&mut self, arc: A) {
+    pub fn add_arc<A: Into<Arc>>(&mut self, arc: A) -> bool {
         let arc = arc.into();
         match arc {
             Arc::PlaceToTransition(p, t) => {
-                self.preset_t[t.idx].push(p);
-                self.postset_p[p.idx].push(t);
+                if !self.preset_t[t.idx].add(p) {
+                    return false; // arc already exists
+                }
+                self.postset_p[p.idx].add(t);
             }
             Arc::TransitionToPlace(t, p) => {
-                self.postset_t[t.idx].push(p);
-                self.preset_p[p.idx].push(t);
+                if !self.postset_t[t.idx].add(p) {
+                    return false; // arc already exists
+                }
+                self.preset_p[p.idx].add(t);
             }
         }
+        true
     }
 
     /// Number of places added so far.
@@ -142,6 +152,17 @@ impl NetBuilder {
         self.preset_t.len()
     }
 
+    /// Computes the structural class of the net being built in its current state.
+    #[must_use]
+    pub fn classify(&self) -> NetClass {
+        crate::net::class::classify(
+            &self.preset_t,
+            &self.postset_t,
+            &self.preset_p,
+            &self.postset_p
+        )
+    }
+
     /// Consumes the builder and produces a validated net.
     ///
     /// The structural class is computed once and cached on the returned [`Net`],
@@ -151,72 +172,78 @@ impl NetBuilder {
     ///
     /// Returns [`BuildError::NotConnected`] if any place or transition has no arcs.
     pub fn build(self) -> Result<Net, BuildError> {
-        let n_places = self.n_places();
-        let n_transitions = self.n_transitions();
-        let mut preset_t = self.preset_t;
-        let mut postset_t = self.postset_t;
-        let mut preset_p = self.preset_p;
-        let mut postset_p = self.postset_p;
+        let class = self.classify();
+        let preset_t = self.preset_t.into_boxed_slice();
+        let postset_t = self.postset_t.into_boxed_slice();
+        let preset_p = self.preset_p.into_boxed_slice();
+        let postset_p = self.postset_p.into_boxed_slice();
 
-        // Verify the net is weakly connected (BFS over the bipartite graph treated as undirected).
-        let n_nodes = n_places + n_transitions;
-        if n_nodes > 0 {
-            let mut visited_p = vec![false; n_places].into_boxed_slice();
-            let mut visited_t = vec![false; n_transitions].into_boxed_slice();
-            let mut queue = VecDeque::new();
-            if n_places > 0 {
-                visited_p[0] = true;
-                queue.push_back(Node::Place(Place { idx: 0 }));
-            } else {
-                visited_t[0] = true;
-                queue.push_back(Node::Transition(Transition { idx: 0 }));
-            }
-            while let Some(node) = queue.pop_front() {
-                match node {
-                    Node::Place(p) => {
-                        let idx = p.idx;
-                        for &t in iter::chain(&preset_p[idx], &postset_p[idx]) {
-                            if !visited_t[t.idx] {
-                                visited_t[t.idx] = true;
-                                queue.push_back(Node::Transition(t));
-                            }
+        // the net must consist of a single connected component;
+        // multiple components mean multiple independent nets, so they should be built separately
+        if !is_connected(&preset_t, &postset_t, &preset_p, &postset_p) {
+            return Err(BuildError::NotConnected);
+        }
+
+        Ok(Net {
+            class,
+            preset_t,
+            postset_t,
+            preset_p,
+            postset_p
+        })
+    }
+}
+
+/// Checks that the net is a single connected component,
+/// i.e. every place and transition is reachable from every other via some path of arcs,
+/// ignoring direction.
+/// A net with multiple connected components should be built as multiple separate nets.
+fn is_connected(
+    preset_t: &[SortedSet<Place>],
+    postset_t: &[SortedSet<Place>],
+    preset_p: &[SortedSet<Transition>],
+    postset_p: &[SortedSet<Transition>],
+) -> bool {
+    let n_places = preset_p.len();
+    let n_transitions = preset_t.len();
+    let n_nodes = n_places + n_transitions;
+    if n_nodes > 0 {
+        let mut visited_p = vec![false; n_places].into_boxed_slice();
+        let mut visited_t = vec![false; n_transitions].into_boxed_slice();
+        let mut queue = VecDeque::new();
+        if n_places > 0 {
+            visited_p[0] = true;
+            queue.push_back(Node::Place(Place { idx: 0 }));
+        } else {
+            visited_t[0] = true;
+            queue.push_back(Node::Transition(Transition { idx: 0 }));
+        }
+        while let Some(node) = queue.pop_front() {
+            match node {
+                Node::Place(p) => {
+                    let idx = p.idx;
+                    for &t in iter::chain(&preset_p[idx], &postset_p[idx]) {
+                        if !visited_t[t.idx] {
+                            visited_t[t.idx] = true;
+                            queue.push_back(Node::Transition(t));
                         }
                     }
-                    Node::Transition(t) => {
-                        for &p in iter::chain(&preset_t[t.idx], &postset_t[t.idx]) {
-                            if !visited_p[p.idx] {
-                                visited_p[p.idx] = true;
-                                queue.push_back(Node::Place(p));
-                            }
+                }
+                Node::Transition(t) => {
+                    for &p in iter::chain(&preset_t[t.idx], &postset_t[t.idx]) {
+                        if !visited_p[p.idx] {
+                            visited_p[p.idx] = true;
+                            queue.push_back(Node::Place(p));
                         }
                     }
                 }
             }
-            if iter::chain(visited_t, visited_p).any(|v| !v) {
-                return Err(BuildError::NotConnected);
-            }
         }
-
-        for v in &mut preset_t { v.sort_unstable_by_key(|p| p.idx); v.dedup(); }
-        for v in &mut postset_t { v.sort_unstable_by_key(|p| p.idx); v.dedup(); }
-        for v in &mut preset_p { v.sort_unstable_by_key(|t| t.idx); v.dedup(); }
-        for v in &mut postset_p { v.sort_unstable_by_key(|t| t.idx); v.dedup(); }
-
-        let preset_t: Box<[Box<[Place]>]> = preset_t.into_iter().map(Vec::into_boxed_slice).collect();
-        let postset_t: Box<[Box<[Place]>]> = postset_t.into_iter().map(Vec::into_boxed_slice).collect();
-        let preset_p: Box<[Box<[Transition]>]> = preset_p.into_iter().map(Vec::into_boxed_slice).collect();
-        let postset_p: Box<[Box<[Transition]>]> = postset_p.into_iter().map(Vec::into_boxed_slice).collect();
-
-        let class = crate::net::class::classify_net(&preset_t, &postset_t, &preset_p, &postset_p);
-
-        Ok(Net {
-            preset_t,
-            postset_t,
-            preset_p,
-            postset_p,
-            class
-        })
+        if iter::chain(visited_t, visited_p).any(|v| !v) {
+            return false;
+        }
     }
+    true
 }
 
 /// Consume a [`Net`] back into a builder, preserving all places, transitions,
@@ -224,10 +251,10 @@ impl NetBuilder {
 impl From<Net> for NetBuilder {
     fn from(net: Net) -> Self {
         Self {
-            preset_t: net.preset_t.into_iter().map(|v| v.into_vec()).collect(),
-            postset_t: net.postset_t.into_iter().map(|v| v.into_vec()).collect(),
-            preset_p: net.preset_p.into_iter().map(|v| v.into_vec()).collect(),
-            postset_p: net.postset_p.into_iter().map(|v| v.into_vec()).collect(),
+            preset_t: net.preset_t.into_vec(),
+            postset_t: net.postset_t.into_vec(),
+            preset_p: net.preset_p.into_vec(),
+            postset_p: net.postset_p.into_vec(),
         }
     }
 }
