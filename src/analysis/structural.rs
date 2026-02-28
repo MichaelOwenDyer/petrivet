@@ -288,8 +288,8 @@ impl Invariants {
 /// - Murata 1989, §VII (invariant analysis)
 /// - Petri Net Primer, §4.3 (S-invariants and T-invariants)
 #[must_use]
-pub fn compute_invariants(net: impl AsRef<Net>) -> Invariants {
-    let n = net.as_ref().incidence_matrix();
+pub fn compute_invariants(net: &Net) -> Invariants {
+    let n = net.incidence_matrix();
     // S-invariants: null space of Nᵀ (|T|×|P| matrix → |P|-dimensional vectors),
     let nt = n.transpose();
     let s_invariants = integer_null_space(&nt);
@@ -355,7 +355,7 @@ pub fn maximal_siphon_in(
 /// let [t0, t1] = b.add_transitions();
 /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
 /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-/// let net = b.build().unwrap().into_net();
+/// let net = b.build().unwrap();
 ///
 /// let siphons = minimal_siphons(&net);
 /// // In a cycle, {p0, p1} is the only minimal siphon
@@ -363,8 +363,7 @@ pub fn maximal_siphon_in(
 /// assert_eq!(siphons[0].len(), 2);
 /// ```
 #[must_use]
-pub fn minimal_siphons(net: impl AsRef<Net>) -> Vec<HashSet<Place>> {
-    let net = net.as_ref();
+pub fn minimal_siphons(net: &Net) -> Vec<HashSet<Place>> {
     let all_places: HashSet<Place> = net.places().collect();
     let mut results: Vec<HashSet<Place>> = Vec::new();
     let mut stack: Vec<HashSet<Place>> = vec![all_places];
@@ -668,7 +667,7 @@ pub fn minimal_traps_ilp(net: &Net) -> Vec<HashSet<Place>> {
 /// let [t0, t1] = b.add_transitions();
 /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
 /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-/// let net = b.build().unwrap().into_net();
+/// let net = b.build().unwrap();
 ///
 /// let siphons = minimal_siphons(&net);
 /// let m0 = Marking::from([1u32, 0]);
@@ -701,7 +700,7 @@ pub fn every_siphon_contains_marked_trap(
 mod tests {
     use super::*;
     use crate::net::builder::NetBuilder;
-    use crate::net::NetClass;
+    use crate::net::class::NetClass;
 
     fn two_place_cycle() -> Net {
         let mut b = NetBuilder::new();
@@ -711,8 +710,7 @@ mod tests {
         b.add_arc((t0, p1));
         b.add_arc((p1, t1));
         b.add_arc((t1, p0));
-        b.build().unwrap().into_net()
-    }
+        b.build().unwrap()    }
 
     #[test]
     fn cycle_invariants() {
@@ -760,10 +758,9 @@ mod tests {
         b.add_arc((mutex, t_enter1)); b.add_arc((t_exit1, mutex));
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
-        let classified = b.build().unwrap();
-        assert_eq!(classified.class(), NetClass::Unrestricted);
-        let net = classified.net();
-        let inv = compute_invariants(net);
+        let net = b.build().unwrap();
+        assert_eq!(net.class(), NetClass::Unrestricted);
+        let inv = compute_invariants(&net);
 
         // 3 S-invariants for mutex net (7 places, rank 4 → dim 3)
         assert_eq!(inv.s_invariants.len(), 3);
@@ -792,7 +789,7 @@ mod tests {
         b.add_arc((mutex, t_enter1)); b.add_arc((t_exit1, mutex));
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
-        let net = b.build().unwrap().into_net();
+        let net = b.build().unwrap();
         let marking = crate::marking::Marking::from([1u32, 0, 0, 1, 0, 0, 1]);
         let siphons = minimal_siphons(&net);
 
@@ -808,7 +805,7 @@ mod tests {
         b.add_arc((p0, t1));
         b.add_arc((t1, p1));
         b.add_arc((p1, t0));
-        let net = b.build().unwrap().into_net();
+        let net = b.build().unwrap();
         let inv = compute_invariants(&net);
         assert_eq!(inv.s_invariants.len(), 1);
     }
@@ -824,7 +821,7 @@ mod tests {
         let [t0, t1] = b.add_transitions();
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p0, t1)); b.add_arc((t1, p2));
-        let net = b.build().unwrap().into_net();
+        let net = b.build().unwrap();
 
         let all: HashSet<Place> = net.places().collect();
         let max = maximal_siphon_in(&net, &all);
@@ -851,7 +848,7 @@ mod tests {
         let [t0, t1] = b.add_transitions();
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p0, t1)); b.add_arc((t1, p2));
-        let net = b.build().unwrap().into_net();
+        let net = b.build().unwrap();
 
         let all: HashSet<Place> = net.places().collect();
         let max = maximal_trap_in(&net, &all);
@@ -901,7 +898,7 @@ mod tests {
         b.add_arc((mutex, t_enter1)); b.add_arc((t_exit1, mutex));
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
-        let net = b.build().unwrap().into_net();
+        let net = b.build().unwrap();
         let bt = minimal_siphons(&net);
         let ilp = minimal_siphons_ilp(&net);
         assert_eq!(bt.len(), ilp.len());
@@ -940,7 +937,7 @@ mod tests {
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p0, t1)); b.add_arc((t1, p2));
         b.add_arc((p2, t2)); b.add_arc((t2, p0));
-        let net = b.build().unwrap().into_net();
+        let net = b.build().unwrap();
         assert!(net.is_free_choice());
 
         let marking = crate::marking::Marking::from([1u32, 0, 0]);

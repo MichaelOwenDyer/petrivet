@@ -92,13 +92,13 @@ impl<'a> CoverabilityGraph<'a> {
 
     /// Change the exploration order for subsequent steps.
     pub fn set_exploration_order(&mut self, order: ExplorationOrder) {
-        self.core.set_order(order);
+        self.core.set_exploration_order(order);
     }
 
     /// Current exploration order.
     #[must_use]
     pub fn exploration_order(&self) -> ExplorationOrder {
-        self.core.order()
+        self.core.exploration_order()
     }
 
     /// Advance exploration by one step.
@@ -276,16 +276,14 @@ impl<'a> CoverabilityGraph<'a> {
 mod tests {
     use super::*;
     use crate::marking::Marking;
-    use crate::net::builder::NetBuilder;
-    use crate::net::class::ClassifiedNet;
-    use crate::net::{NetClass, Place};
+    use crate::net::{builder::NetBuilder, class::NetClass, Net, Place};
 
     fn m(val: impl Into<Marking>) -> Marking {
         val.into()
     }
 
     /// Two-place cycle: p0 → t0 → p1 → t1 → p0 (bounded)
-    fn two_place_cycle() -> System<ClassifiedNet> {
+    fn two_place_cycle() -> System<Net> {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
@@ -298,7 +296,7 @@ mod tests {
     }
 
     /// Unbounded: t0 consumes from p0 and produces to both p0 and p1
-    fn unbounded_producer() -> System<ClassifiedNet> {
+    fn unbounded_producer() -> System<Net> {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0] = b.add_transitions();
@@ -310,7 +308,7 @@ mod tests {
     }
 
     /// Self-loop with 0 tokens: immediate deadlock
-    fn deadlock_net() -> System<ClassifiedNet> {
+    fn deadlock_net() -> System<Net> {
         let mut b = NetBuilder::new();
         let p0 = b.add_place();
         let [t0] = b.add_transitions();

@@ -101,10 +101,14 @@ pub enum LivenessLevel {
 
 /// A Petri net system: a net N paired with a mutable marking.
 ///
+/// `N` can be any type that provides access to a [`&Net`] via [`AsRef<Net>`]:
+/// `Net` (owned), `&Net` (borrowed), `Rc<Net>`, `Arc<Net>`, etc.
+/// This lets callers choose the ownership strategy that fits their use case.
+///
 /// The initial marking is stored for reference and [`reset`](System::reset).
 /// The current marking evolves as transitions fire.
 #[derive(Debug, Clone)]
-pub struct System<N = Net> {
+pub struct System<N: AsRef<Net>> {
     net: N,
     initial_marking: Marking,
     marking: Marking,
@@ -473,9 +477,9 @@ impl<N: AsRef<Net>> System<N> {
             return true;
         }
 
-        CoverabilityGraph::new(self, ExplorationOrder::BreadthFirst)
+        !CoverabilityGraph::new(self, ExplorationOrder::BreadthFirst)
             .iter()
-            .all(|step| !step.is_new || step.marking <= threshold)
+            .any(|step| step.transition == t)
     }
 
     /// Checks if the system is quasi-live (L1): every transition can fire
@@ -620,13 +624,11 @@ mod tests {
     use super::*;
     use crate::marking::Marking;
     use crate::net::builder::NetBuilder;
-    use crate::net::class::ClassifiedNet;
-
     /// Shorthand for creating a `Marking<u32>` in tests.
     fn m(val: impl Into<Marking>) -> Marking { val.into() }
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
-    fn two_place_cycle() -> (ClassifiedNet, Transition, Transition) {
+    fn two_place_cycle() -> (Net, Transition, Transition) {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
@@ -697,7 +699,7 @@ mod tests {
     fn choose_and_fire_none_enabled() {
         let (net, _t0, _t1) = two_place_cycle();
         let mut sys = System::new(net, [0, 0]);
-        let fired = sys.choose_and_fire(|enabled| enabled.first());
+        let fired = sys.choose_and_fire(|enabled: EnabledSet<'_>| enabled.first());
         assert_eq!(fired, None);
     }
 
@@ -742,8 +744,8 @@ mod tests {
     #[test]
     fn cycle_is_structurally_bounded() {
         let (net, _, _) = two_place_cycle();
-        let sys = System::new(&net, [1, 0]);
         assert!(net.is_structurally_bounded());
+        let sys = System::new(net, [1, 0]);
         assert!(sys.is_bounded());
     }
 
@@ -801,8 +803,8 @@ mod tests {
         b.add_arc((t0, p0));
         b.add_arc((t0, p1));
         let net = b.build().expect("valid net");
-        let sys = System::new(&net, [1, 0]);
         assert!(!net.is_structurally_bounded());
+        let sys = System::new(net, [1, 0]);
         assert!(!sys.is_bounded());
     }
 

@@ -180,13 +180,13 @@ impl<'a> ReachabilityExplorer<'a> {
 
     /// Change the exploration order for subsequent steps.
     pub fn set_exploration_order(&mut self, order: ExplorationOrder) {
-        self.core.set_order(order);
+        self.core.set_exploration_order(order);
     }
 
     /// Current exploration order.
     #[must_use]
     pub fn exploration_order(&self) -> ExplorationOrder {
-        self.core.order()
+        self.core.exploration_order()
     }
 
     /// Whether the frontier is empty (no more states to explore).
@@ -573,15 +573,14 @@ mod tests {
     use super::*;
     use crate::marking::Marking;
     use crate::net::builder::NetBuilder;
-    use crate::net::class::ClassifiedNet;
-    use crate::net::NetClass;
+    use crate::net::class::NetClass;
 
     fn m(val: impl Into<Marking>) -> Marking {
         val.into()
     }
 
     /// Two-place cycle: p0 → t0 → p1 → t1 → p0
-    fn two_place_cycle() -> System<ClassifiedNet> {
+    fn two_place_cycle() -> System<Net> {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
@@ -594,7 +593,7 @@ mod tests {
     }
 
     /// Unbounded: t0 feeds back to p0 and also produces to p1
-    fn unbounded_producer() -> System<ClassifiedNet> {
+    fn unbounded_producer() -> System<Net> {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0] = b.add_transitions();
@@ -689,7 +688,7 @@ mod tests {
         b.add_arc((p2, t2));
         b.add_arc((t2, p3));
         let net = b.build().expect("valid net");
-        assert_eq!(net.classify(), NetClass::FreeChoice);
+        assert_eq!(net.class(), NetClass::FreeChoice);
         let sys = System::new(net, [2, 0, 0, 0]);
 
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
@@ -709,7 +708,7 @@ mod tests {
         b.add_arc((p0, t0));
         b.add_arc((t0, p0));
         let net = b.build().expect("valid net");
-        assert_eq!(net.classify(), NetClass::Circuit);
+        assert_eq!(net.class(), NetClass::Circuit);
         let sys = System::new(net, [1]);
 
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
@@ -731,7 +730,7 @@ mod tests {
         b.add_arc((p2, t2));
         b.add_arc((t2, p0));
         let net = b.build().expect("valid net");
-        assert_eq!(net.classify(), NetClass::Circuit);
+        assert_eq!(net.class(), NetClass::Circuit);
         let sys = System::new(net, [3, 0, 0]);
 
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
@@ -792,7 +791,7 @@ mod tests {
         b.add_arc((t_exit2, mutex));
 
         let net = b.build().expect("valid net");
-        assert_eq!(net.classify(), NetClass::Unrestricted);
+        assert_eq!(net.class(), NetClass::Unrestricted);
         let sys = System::new(net, [1, 0, 0, 1, 0, 0, 1]);
 
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
@@ -819,7 +818,7 @@ mod tests {
         b.add_arc((p2, t2));
         b.add_arc((t2, p0));
         let net = b.build().expect("valid net");
-        assert_eq!(net.classify(), NetClass::Circuit);
+        assert_eq!(net.class(), NetClass::Circuit);
         let sys = System::new(net, [1, 0, 0]);
 
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
@@ -860,7 +859,7 @@ mod tests {
         }
 
         let net = b.build().expect("valid net");
-        assert_eq!(net.classify(), NetClass::Unrestricted);
+        assert_eq!(net.class(), NetClass::Unrestricted);
         let mut initial = vec![0u32; 4 * n];
         for i in 0..n {
             initial[forks[i].index()] = 1;

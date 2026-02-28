@@ -1,128 +1,73 @@
-//! Structural classification types for Petri nets.
-//!
-//! The primary type is [`ClassifiedNet`], returned by the builder. It carries
-//! the structural class internally so analysis methods dispatch automatically.
-//!
-//! For power users who want compile-time guarantees, newtype wrappers
-//! ([`SNet`], [`TNet`], [`Circuit`], [`FreeChoiceNet`]) are available via
-//! [`TryFrom`] conversions.
+use std::{fmt, iter};
+use crate::{Place, Transition};
 
-use crate::net::{Net, NetClass};
-use std::ops::Deref;
-
-/// A net with its structural class determined at build time.
-///
-/// This is the default type returned by [`NetBuilder::build`](super::builder::NetBuilder::build).
-/// Analysis methods on [`System<ClassifiedNet>`](crate::system::System) dispatch
-/// to the best algorithm based on the stored class.
-///
-/// Users don't need to interact with the classification directly — just build
-/// the net and ask questions. The library picks the best algorithm silently.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClassifiedNet {
-    net: Net,
-    class: NetClass,
+/// Structural classification of a Petri net.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum NetClass {
+    /// The most restrictive class of Petri net:
+    /// a single directed cycle of alternating places and transitions.
+    /// Circuits model purely sequential processes with no choices or concurrency.
+    Circuit,
+    /// Every transition has exactly one input and one output place.
+    /// S-nets model sequential processes and choices, but not concurrency.
+    SNet,
+    /// Every place has exactly one input and one output transition.
+    /// T-nets model concurrency and synchronization, but not choices.
+    TNet,
+    /// If two transitions share any input place, they share all input places.
+    /// Free-choice nets model concurrency and choices, but eliminate complex
+    /// conflicts where two transitions share some but not all input places.
+    FreeChoice,
+    /// No structural restrictions.
+    /// Can model arbitrary concurrency, choices, and conflicts.
+    Unrestricted,
 }
 
-impl ClassifiedNet {
-    pub(crate) fn new(net: Net, class: NetClass) -> Self {
-        Self { net, class }
-    }
-
-    /// Returns the structural class detected at build time.
-    #[must_use]
-    pub fn class(&self) -> NetClass {
-        self.class
-    }
-
-    /// Returns a reference to the underlying [`Net`].
-    #[must_use]
-    pub fn net(&self) -> &Net {
-        &self.net
-    }
-
-    /// Consumes this wrapper and returns the inner [`Net`].
-    #[must_use]
-    pub fn into_net(self) -> Net {
-        self.net
+impl fmt::Display for NetClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NetClass::Circuit => write!(f, "Circuit"),
+            NetClass::SNet => write!(f, "S-net"),
+            NetClass::TNet => write!(f, "T-net"),
+            NetClass::FreeChoice => write!(f, "Free-choice"),
+            NetClass::Unrestricted => write!(f, "Unrestricted"),
+        }
     }
 }
 
-impl Deref for ClassifiedNet {
-    type Target = Net;
-    fn deref(&self) -> &Net {
-        &self.net
+pub fn classify_net(
+    preset_t: &[Box<[Place]>],
+    postset_t: &[Box<[Place]>],
+    preset_p: &[Box<[Transition]>],
+    postset_p: &[Box<[Transition]>],
+) -> NetClass {
+    let is_s_net = is_s_net(preset_t, postset_t);
+    let is_t_net = is_t_net(preset_p, postset_p);
+    match (is_s_net, is_t_net) {
+        (true, true) => NetClass::Circuit,
+        (true, false) => NetClass::SNet,
+        (false, true) => NetClass::TNet,
+        (false, false) if is_free_choice_net(postset_p, preset_t) => NetClass::FreeChoice,
+        _ => NetClass::Unrestricted,
     }
 }
 
-impl AsRef<Net> for ClassifiedNet {
-    fn as_ref(&self) -> &Net {
-        &self.net
-    }
+pub fn is_s_net(preset_t: &[Box<[Place]>], postset_t: &[Box<[Place]>]) -> bool {
+    iter::zip(preset_t, postset_t).all(|(pre, post)| {
+        pre.len() == 1 && post.len() == 1
+    })
 }
 
-macro_rules! net_subclass {
-    ($(#[$meta:meta])* $name:ident, $class:ident) => {
-        $(#[$meta])*
-        #[derive(Debug, Clone, PartialEq, Eq)]
-        pub struct $name(pub(crate) Net);
-
-        impl Deref for $name {
-            type Target = Net;
-            fn deref(&self) -> &Net { &self.0 }
-        }
-
-        impl AsRef<Net> for $name {
-            fn as_ref(&self) -> &Net { &self.0 }
-        }
-
-        impl TryFrom<Net> for $name {
-            type Error = Net;
-            fn try_from(net: Net) -> Result<Self, Net> {
-                if net.classify() == NetClass::$class {
-                    Ok($name(net))
-                } else {
-                    Err(net)
-                }
-            }
-        }
-
-        impl TryFrom<ClassifiedNet> for $name {
-            type Error = ClassifiedNet;
-            fn try_from(cn: ClassifiedNet) -> Result<Self, ClassifiedNet> {
-                if cn.class == NetClass::$class {
-                    Ok($name(cn.net))
-                } else {
-                    Err(cn)
-                }
-            }
-        }
-
-        impl From<$name> for Net {
-            fn from(n: $name) -> Net { n.0 }
-        }
-    };
+pub fn is_t_net(preset_p: &[Box<[Transition]>], postset_p: &[Box<[Transition]>]) -> bool {
+    iter::zip(preset_p, postset_p).all(|(pre, post)| {
+        pre.len() == 1 && post.len() == 1
+    })
 }
 
-net_subclass!(
-    /// An S-net: every transition has exactly one input and one output place.
-    /// Models sequential processes and choices, but not concurrency.
-    SNet, SNet
-);
-
-net_subclass!(
-    /// A T-net: every place has exactly one input and one output transition.
-    /// Models concurrency and synchronization, but not choices.
-    TNet, TNet
-);
-
-net_subclass!(
-    /// A circuit: both an S-net and a T-net.
-    Circuit, Circuit
-);
-
-net_subclass!(
-    /// A free-choice net: if two transitions share any input place, they share
-    /// all input places. Enables polynomial-time liveness and reachability analysis.
-    FreeChoiceNet, FreeChoice
-);
+pub fn is_free_choice_net(postset_p: &[Box<[Transition]>], preset_t: &[Box<[Place]>]) -> bool {
+    postset_p.iter().all(|postset| {
+        postset.len() == 1 || postset.windows(2).all(|t| {
+            preset_t[t[0].idx] == preset_t[t[1].idx]
+        })
+    })
+}

@@ -89,7 +89,7 @@ fn main() {
     let trans_names = ["solder", "inspect_pass", "ship", "rework", "inspect_fail"];
 
     println!("Net: {} places, {} transitions", net.n_places(), net.n_transitions());
-    println!("Structural class: {}", net.classify());
+    println!("Structural class: {}", net.class());
 
     println!("\n--- Structural Analysis ---\n");
 

@@ -26,7 +26,7 @@
 //! let [t0, t1] = b.add_transitions();
 //! b.add_arc((p0, t0)); b.add_arc((t0, p1));
 //! b.add_arc((p1, t1)); b.add_arc((t1, p0));
-//! let net = b.build().unwrap().into_net();
+//! let net = b.build().unwrap();
 //!
 //! let m0 = Marking::from([1u32, 0]);
 //!
@@ -100,7 +100,7 @@ impl<T> Feasibility<T> {
 /// let [t0, t1] = b.add_transitions();
 /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
 /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-/// let net = b.build().unwrap().into_net();
+/// let net = b.build().unwrap();
 ///
 /// let m0 = Marking::from([1u32, 0]);
 /// let result = is_marking_equation_feasible_rational(&net, &m0, &Marking::from([0u32, 1]));
@@ -118,11 +118,10 @@ impl<T> Feasibility<T> {
 /// - Petri Net Primer, Proposition 4.3 (state equation as necessary condition)
 #[must_use]
 pub fn is_marking_equation_feasible_rational(
-    net: impl AsRef<Net>,
+    net: &Net,
     initial: &Marking,
     target: &Marking,
 ) -> Feasibility<f64> {
-    let net = net.as_ref();
     let incidence = net.incidence_matrix();
 
     let mut variables = ProblemVariables::new();
@@ -177,12 +176,10 @@ pub fn is_marking_equation_feasible_rational(
 /// - Murata 1989, §IV-B: the firing count vector must be a non-negative integer
 #[must_use]
 pub fn is_marking_equation_feasible_integer(
-    net: impl AsRef<Net>,
+    net: &Net,
     initial: &Marking,
     target: &Marking,
 ) -> Feasibility<u32> {
-    let net = net.as_ref();
-
     let mut variables = ProblemVariables::new();
     let integer_firing_counts: Vec<Variable> = net
         .transitions()
@@ -229,12 +226,10 @@ pub fn is_marking_equation_feasible_integer(
 /// Still a necessary condition only (LP relaxation of the marking equation).
 #[must_use]
 pub fn check_covering_equation(
-    net: impl AsRef<Net>,
+    net: &Net,
     initial: &Marking,
     threshold: &Marking,
 ) -> Feasibility<f64> {
-    let net = net.as_ref();
-
     let mut variables = ProblemVariables::new();
     let parikh_vector: Vec<Variable> = net
         .transitions()
@@ -297,14 +292,14 @@ pub fn check_covering_equation(
 /// let [t0, t1] = b.add_transitions();
 /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
 /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-/// assert!(is_structurally_bounded(&b.build().unwrap().into_net()));
+/// assert!(is_structurally_bounded(&b.build().unwrap()));
 ///
 /// // A source transition (produces without consuming) is NOT bounded
 /// let mut b = NetBuilder::new();
 /// let p = b.add_place();
 /// let t = b.add_transition();
 /// b.add_arc((t, p));
-/// assert!(!is_structurally_bounded(&b.build().unwrap().into_net()));
+/// assert!(!is_structurally_bounded(&b.build().unwrap()));
 /// ```
 ///
 /// References:
@@ -395,8 +390,7 @@ mod tests {
         b.add_arc((t0, p1));
         b.add_arc((p1, t1));
         b.add_arc((t1, p0));
-        b.build().unwrap().into_net()
-    }
+        b.build().unwrap()    }
 
     #[test]
     fn reachable_marking_feasible() {
@@ -434,7 +428,7 @@ mod tests {
         b.add_arc((p0, t1));
         b.add_arc((t1, p1));
         b.add_arc((p1, t0));
-        let net = b.build().unwrap().into_net();
+        let net = b.build().unwrap();
         assert!(is_structurally_bounded(&net), "producer net should be proven bounded");
     }
 
@@ -445,7 +439,7 @@ mod tests {
         let p0 = b.add_place();
         let t0 = b.add_transition();
         b.add_arc((t0, p0));
-        let net = b.build().unwrap().into_net();
+        let net = b.build().unwrap();
         assert!(!is_structurally_bounded(&net));
         assert!(!is_place_structurally_bounded(&net, p0));
     }
@@ -466,7 +460,7 @@ mod tests {
         b.add_arc((p1, t1));
         b.add_arc((p2, t1));
         b.add_arc((t1, p0));
-        let net = b.build().unwrap().into_net();
+        let net = b.build().unwrap();
         assert!(is_structurally_bounded(&net));
     }
 

@@ -155,7 +155,7 @@ fn main() {
     println!("\n=== Done ===");
 }
 
-fn print_state<N: AsRef<petrivet::net::Net>>(sys: &System<N>, names: &[&str]) {
+fn print_state(sys: &System<impl AsRef<petrivet::net::Net>>, names: &[&str]) {
     print!("State: ");
     for (i, &name) in names.iter().enumerate() {
         let tokens = sys.marking()[petrivet::net::Place::from_index(i)];

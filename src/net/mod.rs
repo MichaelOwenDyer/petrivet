@@ -9,6 +9,7 @@ pub mod builder;
 pub mod class;
 
 use crate::analysis;
+use crate::class::NetClass;
 use std::fmt;
 
 /// A place in the net, identified by a dense index.
@@ -108,21 +109,23 @@ impl From<Transition> for Node {
 /// and the set x• = {y | (x, y) ∈ F} is called the postset of x.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Net {
-    /// Number of places in the net.
-    n_places: usize,
-    /// Number of transitions in the net.
-    n_transitions: usize,
+    /// Structural class of the net, cached at build time for efficient queries.
+    class: NetClass,
     /// Transition presets indexed by transition index:
     /// for each transition t, the list of places in •t.
+    /// Sorted by place index in ascending order.
     preset_t: Box<[Box<[Place]>]>,
     /// Transition postsets indexed by transition index:
     /// for each transition t, the list of places in t•.
+    /// Sorted by place index in ascending order.
     postset_t: Box<[Box<[Place]>]>,
     /// Place presets indexed by place index:
     /// for each place p, the list of transitions in •p.
+    /// Sorted by transition index in ascending order.
     preset_p: Box<[Box<[Transition]>]>,
     /// Place postsets indexed by place index:
     /// for each place p, the list of transitions in p•.
+    /// Sorted by transition index in ascending order.
     postset_p: Box<[Box<[Transition]>]>,
 }
 
@@ -136,19 +139,19 @@ impl Net {
     /// Number of places in the net.
     #[must_use]
     pub fn n_places(&self) -> usize {
-        self.n_places
+        self.preset_p.len()
     }
 
     /// Number of transitions in the net.
     #[must_use]
     pub fn n_transitions(&self) -> usize {
-        self.n_transitions
+        self.preset_t.len()
     }
 
     /// Number of nodes in the net (places + transitions).
     #[must_use]
     pub fn n_nodes(&self) -> usize {
-        self.n_places + self.n_transitions
+        self.n_places() + self.n_transitions()
     }
 
     /// Number of arcs in the net.
@@ -162,12 +165,12 @@ impl Net {
 
     /// Iterator over all places.
     pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
-        (0..self.n_places).map(|idx| Place { idx })
+        (0..self.n_places()).map(|idx| Place { idx })
     }
 
     /// Iterator over all transitions.
     pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
-        (0..self.n_transitions).map(|idx| Transition { idx })
+        (0..self.n_transitions()).map(|idx| Transition { idx })
     }
 
     /// Iterator over all nodes (places then transitions).
@@ -215,24 +218,29 @@ impl Net {
         self.postset_p[p.idx].as_ref()
     }
 
-    /// A net is an S-net if every transition has exactly one input and one output place.
-    /// Returns true for any S-net, including Circuits, and false otherwise.
-    #[must_use]
-    pub fn is_s_net(&self) -> bool {
-        self.transitions().all(|t| self.preset_t(t).len() == 1 && self.postset_t(t).len() == 1)
-    }
-
-    /// A net is a T-net if every place has exactly one input and one output transition.
-    /// Returns true for any T-net, including Circuits, and false otherwise.
-    #[must_use]
-    pub fn is_t_net(&self) -> bool {
-        self.places().all(|p| self.preset_p(p).len() == 1 && self.postset_p(p).len() == 1)
-    }
-
     /// A net is a circuit if it is both an S-net and a T-net.
     #[must_use]
     pub fn is_circuit(&self) -> bool {
-        self.is_s_net() && self.is_t_net()
+        use NetClass::*;
+        matches!(self.class, Circuit)
+    }
+
+    /// A net is an S-net if every transition has exactly one input and one output place.
+    /// Returns true for S-nets and Circuits, and false otherwise.
+    /// For strict comparison, see the `class()` method.
+    #[must_use]
+    pub fn is_s_net(&self) -> bool {
+        use NetClass::*;
+        matches!(self.class, Circuit | SNet)
+    }
+
+    /// A net is a T-net if every place has exactly one input and one output transition.
+    /// Returns true for T-nets and Circuits, and false otherwise.
+    /// For strict comparison, see the `class()` method.
+    #[must_use]
+    pub fn is_t_net(&self) -> bool {
+        use NetClass::*;
+        matches!(self.class, Circuit | TNet)
     }
 
     /// A net is free-choice if for every two transitions t1, t2:
@@ -241,29 +249,19 @@ impl Net {
     /// if p1• ∩ p2• ≠ ∅ then p1• = p2•.
     /// Intuitively, if two transitions share any input place, they share all input places;
     /// if any two places share an output transition, they share all output transitions.
+    ///
+    /// This method returns true for any free-choice net, including S-nets, T-nets, and Circuits,
+    /// and false otherwise. For strict comparison, see the `class()` method.
     #[must_use]
     pub fn is_free_choice(&self) -> bool {
-        self.places().all(|p| {
-            let consumers = self.postset_p(p);
-            if consumers.len() <= 1 {
-                return true;
-            }
-            consumers.windows(2).all(|t| {
-                self.preset_t(t[0]) == self.preset_t(t[1])
-            })
-        })
+        use NetClass::*;
+        matches!(self.class, Circuit | SNet | TNet | FreeChoice)
     }
 
-    /// Returns the structural class of this net.
+    /// Returns the structural class of this net (cached at build time).
     #[must_use]
-    pub fn classify(&self) -> NetClass {
-        match (self.is_s_net(), self.is_t_net()) {
-            (true, true) => NetClass::Circuit,
-            (true, false) => NetClass::SNet,
-            (false, true) => NetClass::TNet,
-            (false, false) if self.is_free_choice() => NetClass::FreeChoice,
-            _ => NetClass::Unrestricted,
-        }
+    pub fn class(&self) -> NetClass {
+        self.class
     }
 
     /// Computes the incidence matrix N of the net.
@@ -322,43 +320,9 @@ impl Net {
     }
 }
 
-/// Structural classification of a Petri net.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum NetClass {
-    /// The most restrictive class of Petri net:
-    /// a single directed cycle of alternating places and transitions.
-    /// Circuits model purely sequential processes with no choices or concurrency.
-    Circuit,
-    /// Every transition has exactly one input and one output place.
-    /// S-nets model sequential processes and choices, but not concurrency.
-    SNet,
-    /// Every place has exactly one input and one output transition.
-    /// T-nets model concurrency and synchronization, but not choices.
-    TNet,
-    /// If two transitions share any input place, they share all input places.
-    /// Free-choice nets model concurrency and choices, but eliminate complex
-    /// conflicts where two transitions share some but not all input places.
-    FreeChoice,
-    /// No structural restrictions.
-    /// Can model arbitrary concurrency, choices, and conflicts.
-    Unrestricted,
-}
-
 impl AsRef<Net> for Net {
     fn as_ref(&self) -> &Net {
         self
-    }
-}
-
-impl fmt::Display for NetClass {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            NetClass::Circuit => write!(f, "Circuit"),
-            NetClass::SNet => write!(f, "S-net"),
-            NetClass::TNet => write!(f, "T-net"),
-            NetClass::FreeChoice => write!(f, "Free-choice"),
-            NetClass::Unrestricted => write!(f, "Unrestricted"),
-        }
     }
 }
 
@@ -374,7 +338,7 @@ mod tests {
         net.add_arc((t0, p1));
         net.add_arc((p1, t1));
         net.add_arc((t1, p0));
-        net.build().expect("valid net").into_net()
+        net.build().expect("valid net")
     }
 
     #[test]

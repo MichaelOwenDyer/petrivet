@@ -107,11 +107,11 @@ impl<'a, T: TokenOps> ExplorerCore<'a, T> {
     }
 
     /// Change the exploration order for subsequent steps.
-    pub fn set_order(&mut self, order: ExplorationOrder) {
+    pub fn set_exploration_order(&mut self, order: ExplorationOrder) {
         self.order = order;
     }
 
-    pub fn order(&self) -> ExplorationOrder {
+    pub fn exploration_order(&self) -> ExplorationOrder {
         self.order
     }
 
