@@ -482,6 +482,23 @@ impl<N: AsRef<Net>> System<N> {
             .any(|step| step.transition == t)
     }
 
+    /// Checks if the system is deadlock-free: no reachable marking is a
+    /// deadlock (no enabled transitions).
+    ///
+    /// This is checked structurally via the siphon-trap condition:
+    /// every siphon must contain a marked trap. If this condition holds, the
+    /// system can never reach a marking where all transitions are disabled.
+    ///
+    /// This is more commonly known as a liveness condition for free-choice nets,
+    /// but it also implies deadlock-freedom for general nets.
+    pub fn is_deadlock_free(&self) -> bool {
+        analysis::structural::every_siphon_contains_marked_trap(
+            self.net.as_ref(),
+            &self.marking,
+            &analysis::structural::minimal_siphons(self.net.as_ref()),
+        )
+    }
+
     /// Checks if the system is quasi-live (L1): every transition can fire
     /// in at least one reachable marking.
     ///
@@ -580,6 +597,83 @@ impl<N: AsRef<Net>> System<N> {
         let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
         let Ok(rg) = cg.into_reachability_graph() else { return false };
         rg.is_live()
+    }
+
+    /// Checks whether `target` is reachable from the initial marking.
+    ///
+    /// Automatically dispatches to the best available algorithm based on
+    /// the net's structural class:
+    ///
+    /// - **S-nets** (incl. circuits): token conservation makes the marking
+    ///   equation both necessary and sufficient — reachability reduces to a
+    ///   single LP solve (polynomial time).
+    /// - **T-nets**: every non-negative integer solution to
+    ///   the marking equation corresponds to a realizable firing sequence —
+    ///   reachability reduces to ILP feasibility.
+    /// - **General nets**: uses the marking equation as a fast necessary
+    ///   condition filter (LP, then ILP), falling back to coverability or
+    ///   reachability graph exploration if the equation is feasible.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use petrivet::net::builder::NetBuilder;
+    /// use petrivet::system::System;
+    /// use petrivet::marking::Marking;
+    ///
+    /// // S-net cycle: reachability decided in polynomial time
+    /// let mut b = NetBuilder::new();
+    /// let [p0, p1] = b.add_places();
+    /// let [t0, t1] = b.add_transitions();
+    /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
+    /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
+    /// let net = b.build().unwrap();
+    /// let sys = System::new(net, [1, 0]);
+    ///
+    /// assert!(sys.is_reachable(&Marking::from([0u32, 1])));
+    /// assert!(!sys.is_reachable(&Marking::from([2u32, 0])));
+    /// ```
+    ///
+    /// References:
+    /// - Murata 1989, Theorem 21 (S-net reachability)
+    /// - Murata 1989, Theorem 22 (T-net reachability)
+    #[must_use]
+    pub fn is_reachable(&self, target: &Marking) -> bool {
+        let net = self.net.as_ref();
+
+        if net.is_s_net() {
+            if net.is_strongly_connected() {
+                return target.iter().sum::<u32>() == self.initial_marking.iter().sum::<u32>();
+            }
+            return analysis::semi_decision::is_reachable_s_net(
+                net, &self.initial_marking, target,
+            );
+        }
+
+        if net.is_t_net() {
+            return analysis::semi_decision::is_reachable_t_net(
+                net, &self.initial_marking, target,
+            );
+        }
+
+        if analysis::semi_decision::find_marking_equation_rational_solution(
+            net, &self.initial_marking, target,
+        ).is_infeasible() {
+            return false;
+        }
+
+        if analysis::semi_decision::find_marking_equation_integer_solution(
+            net, &self.initial_marking, target,
+        ).is_infeasible() {
+            return false;
+        }
+
+        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
+        if let Ok(rg) = cg.into_reachability_graph() {
+            rg.is_reachable(target)
+        } else {
+            unimplemented!("reachability for unbounded general nets")
+        }
     }
 
     /// Computes liveness levels for all transitions.
@@ -806,6 +900,51 @@ mod tests {
         assert!(!net.is_structurally_bounded());
         let sys = System::new(net, [1, 0]);
         assert!(!sys.is_bounded());
+    }
+
+    #[test]
+    fn s_net_reachability_dispatches() {
+        let (net, _, _) = two_place_cycle();
+        assert!(net.is_s_net());
+        let sys = System::new(net, [1, 0]);
+        assert!(sys.is_reachable(&m([0, 1])));
+        assert!(sys.is_reachable(&m([1, 0])));
+        assert!(!sys.is_reachable(&m([2, 0])));
+        assert!(!sys.is_reachable(&m([0, 0])));
+    }
+
+    #[test]
+    fn t_net_reachability_dispatches() {
+        // T-net: {p0, p1} → t0 → p2 → t1 → {p0, p1}
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arc((p0, t0)); b.add_arc((p1, t0)); b.add_arc((t0, p2));
+        b.add_arc((p2, t1)); b.add_arc((t1, p0)); b.add_arc((t1, p1));
+        let net = b.build().unwrap();
+        assert!(net.is_t_net());
+        let sys = System::new(net, [1, 1, 0]);
+        assert!(sys.is_reachable(&m([0, 0, 1])));
+        assert!(sys.is_reachable(&m([1, 1, 0])));
+        assert!(!sys.is_reachable(&m([1, 0, 0])));
+    }
+
+    #[test]
+    fn general_net_reachability_fallback() {
+        // Free-choice net (not S-net, not T-net): falls back to exploration
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1, t2] = b.add_transitions();
+        b.add_arc((p0, t0)); b.add_arc((t0, p1));
+        b.add_arc((p0, t1)); b.add_arc((t1, p2));
+        b.add_arc((p1, t2)); b.add_arc((t2, p0));
+        b.add_arc((p2, t2)); b.add_arc((t2, p0));
+        let net = b.build().unwrap();
+        assert!(!net.is_s_net());
+        assert!(!net.is_t_net());
+        let sys = System::new(net, [1, 0, 0]);
+        assert!(sys.is_reachable(&m([0, 1, 0])));
+        assert!(sys.is_reachable(&m([1, 0, 0])));
     }
 
     #[test]

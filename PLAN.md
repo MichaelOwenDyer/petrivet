@@ -439,30 +439,54 @@ Corrections from literature verification, new features, and closing optimization
   `C·y ≤ 0`, `y > 0`) is a weaker but more direct check. Both belong in the library
   for different use cases. Add doc comments clarifying this hierarchy.
 
-**C. Deferred Items (noted for future phases)**
+**C. Sprint 3: Class-Specific Reachability Shortcuts**
 
-These were planned in earlier phases but are out of scope for Sprint 2. They are
-recorded here so nothing is lost:
+These use the structural class of the net to give *exact* reachability answers
+where the general marking equation only gives necessary conditions.
 
-- S-component and T-component detection
+- [x] **C1. S-net reachability via token conservation.**
+  For S-nets, every transition moves exactly one token. The marking equation is
+  both necessary and sufficient: `M'` is reachable from `M₀` iff the LP is
+  feasible (i.e., all S-invariants are preserved). Polynomial time.
+  Implemented as `is_reachable_s_net()` in `semi_decision.rs`.
+  (Murata 1989, Theorem 21; Lautenbach & Thiagarajan 1979)
+
+- [x] **C2. T-net reachability via exact marking equation.**
+  For T-nets, every non-negative integer solution to `M' = M₀ + N·x`
+  corresponds to a realizable firing sequence. The ILP is both necessary and
+  sufficient. Implemented as `is_reachable_t_net()` in `semi_decision.rs`.
+  (Murata 1989, Theorem 22)
+
+- [x] **C3. `System::is_reachable()` high-level dispatcher.**
+  Automatically selects the best algorithm based on net class:
+  - S-nets → `is_reachable_s_net` (polynomial, exact)
+  - T-nets → `is_reachable_t_net` (ILP, exact)
+  - General → LP filter → ILP filter → state space exploration fallback
+
+**D. Deferred Items (noted for future phases)**
+
+These were planned in earlier phases but are out of scope for the current sprint.
+They are recorded here so nothing is lost:
+
+- S-component and T-component detection (shelved — compiles and passes tests,
+  but lower priority than class-specific shortcuts)
 - Circuit (cycle) enumeration for T-net liveness
-- Free-choice boundedness via Heck's theorem (every place in an S-component)
-- S-net reachability via token sum conservation
-- T-net reachability via marking equation over integers (partially addressed by B1)
 - Firing sequence bounds for bounded free-choice and T-nets
 - Liveness-to-reachability reduction (wrapping a net to test liveness via reachability)
 - L2 vs L3 distinction for unbounded nets (requires CG-based approximation)
 - `analyze_*` richer API returning reasoning/witnesses beyond `bool`
 
-**D. Testing and Quality**
+**E. Testing and Quality**
 
 - [x] Comprehensive tests for all corrections (A1–A4)
 - [x] Tests for ILP marking equation (B1)
 - [x] Tests for liveness levels on known nets (B2)
+- [x] Tests for S-net and T-net reachability (C1–C2)
+- [x] Tests for `System::is_reachable` dispatch (C3)
 - [x] Run clippy and address all warnings
 - [x] Update PLAN.md to reflect completed items
 
-**E. Closing Optimizations**
+**F. Closing Optimizations**
 
 - [x] **E1. `ReachabilityExplorer` / `ReachabilityGraph` type split.**
   Split the monolithic `ReachabilityGraph` into two types:
@@ -492,7 +516,7 @@ recorded here so nothing is lost:
   bounds (was inadvertently restricted to `>= 0`; must be unrestricted for
   correctness with arbitrary integer basis vectors).
 
-**Execution order**: A1 → A2 → A4 → A3+B2 → B1 → B3 → D → E1–E4
+**Execution order**: A1 → A2 → A4 → A3+B2 → B1 → B3 → E → F1–F4 → C1–C3
 
 **Exit criteria**: All structural analysis and semi-decision procedures are verified
 against the literature. `system.is_live()`, `system.is_bounded()`, and

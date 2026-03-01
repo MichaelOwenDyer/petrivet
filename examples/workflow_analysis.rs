@@ -175,13 +175,13 @@ fn main() {
 
     // Can all 3 boards reach "done"?
     let target_all_done = Marking::from([0u32, 1, 0, 0, 0, 3]);
-    let me = semi_decision::is_marking_equation_feasible_rational(&net, &initial, &target_all_done);
+    let me = semi_decision::find_marking_equation_rational_solution(&net, &initial, &target_all_done);
     println!(
         "All 3 boards done? LP says: {}",
         if me.is_feasible() { "possibly reachable" } else { "definitely unreachable" }
     );
 
-    let me_ilp = semi_decision::is_marking_equation_feasible_integer(&net, &initial, &target_all_done);
+    let me_ilp = semi_decision::find_marking_equation_integer_solution(&net, &initial, &target_all_done);
     println!(
         "All 3 boards done? ILP says: {}",
         if me_ilp.is_feasible() { "possibly reachable (integer solution exists)" } else { "definitely unreachable" }
@@ -189,7 +189,7 @@ fn main() {
 
     // Can we magically get 4 boards done from 3?
     let impossible = Marking::from([0u32, 1, 0, 0, 0, 4]);
-    let me2 = semi_decision::is_marking_equation_feasible_rational(&net, &initial, &impossible);
+    let me2 = semi_decision::find_marking_equation_rational_solution(&net, &initial, &impossible);
     println!(
         "4 boards done from 3? LP says: {}",
         if me2.is_feasible() { "possibly reachable" } else { "definitely unreachable" }

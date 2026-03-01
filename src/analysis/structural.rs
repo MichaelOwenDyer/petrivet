@@ -696,6 +696,324 @@ pub fn every_siphon_contains_marked_trap(
     })
 }
 
+/// An S-component of a Petri net: a strongly connected subnet where every
+/// transition has exactly one input place and one output place within the
+/// component. S-components represent sequential cycles of token flow.
+///
+/// Key theorems involving S-components:
+/// - If every place belongs to an S-component, the net is **conservative**
+///   (and therefore structurally bounded).
+/// - For live free-choice nets, boundedness ⟺ S-component coverage
+///   (Heck's theorem).
+///
+/// References:
+/// - Murata 1989, §VI-C (S-components and conservativeness)
+/// - Petri Net Primer, Definition 5.9 and Theorem 5.22
+#[derive(Debug, Clone)]
+pub struct SComponent {
+    pub places: HashSet<Place>,
+    pub transitions: HashSet<Transition>,
+}
+
+/// A T-component of a Petri net: a strongly connected subnet where every
+/// place has exactly one input transition and one output transition within
+/// the component. T-components represent minimal cycles of concurrent firing.
+///
+/// Key theorem: if every transition belongs to a T-component, the net is
+/// **repetitive** (every transition can participate in some T-invariant).
+///
+/// References:
+/// - Murata 1989, §VI-C (T-components and repetitiveness)
+/// - Petri Net Primer, Definition 5.9 and Theorem 5.23
+#[derive(Debug, Clone)]
+pub struct TComponent {
+    pub places: HashSet<Place>,
+    pub transitions: HashSet<Transition>,
+}
+
+/// Finds all S-components of a net.
+///
+/// An S-component is a strongly connected subnet where every transition has
+/// exactly one input and one output place within the subnet. Found by
+/// examining the support of each S-invariant basis vector: the places with
+/// non-zero weight, plus the transitions connecting them, form a candidate.
+///
+/// For well-structured nets (especially free-choice), the S-invariant basis
+/// directly yields the S-components. For general nets, this finds all
+/// S-components that correspond to S-invariant supports.
+///
+/// # Examples
+///
+/// ```
+/// use petrivet::net::builder::NetBuilder;
+/// use petrivet::analysis::structural;
+///
+/// // Mutex net: 3 S-components (one per process cycle + mutex cycle)
+/// let mut b = NetBuilder::new();
+/// let [idle1, wait1, crit1] = b.add_places();
+/// let [idle2, wait2, crit2] = b.add_places();
+/// let mutex = b.add_place();
+/// let [req1, enter1, exit1] = b.add_transitions();
+/// let [req2, enter2, exit2] = b.add_transitions();
+/// b.add_arc((idle1, req1)); b.add_arc((req1, wait1));
+/// b.add_arc((wait1, enter1)); b.add_arc((enter1, crit1));
+/// b.add_arc((crit1, exit1)); b.add_arc((exit1, idle1));
+/// b.add_arc((idle2, req2)); b.add_arc((req2, wait2));
+/// b.add_arc((wait2, enter2)); b.add_arc((enter2, crit2));
+/// b.add_arc((crit2, exit2)); b.add_arc((exit2, idle2));
+/// b.add_arc((mutex, enter1)); b.add_arc((exit1, mutex));
+/// b.add_arc((mutex, enter2)); b.add_arc((exit2, mutex));
+/// let net = b.build().unwrap();
+///
+/// let components = structural::s_components(&net);
+/// assert_eq!(components.len(), 3);
+///
+/// // Every place is covered by at least one S-component
+/// assert!(structural::is_covered_by_s_components(&net, &components));
+/// ```
+#[must_use]
+pub fn s_components(net: &Net) -> Vec<SComponent> {
+    let inv = compute_invariants(net);
+    if inv.s_invariants.is_empty() {
+        return Vec::new();
+    }
+
+    let mut components = Vec::new();
+    let mut found_supports: HashSet<Vec<usize>> = HashSet::new();
+
+    // A place can belong to multiple S-components (e.g. crit1 in both the
+    // process cycle and the mutex cycle). Query every place to find all
+    // distinct components.
+    for p in net.places() {
+        let Some(support) = find_nonneg_invariant_support(&inv.s_invariants, p.index(), net.n_places())
+        else {
+            continue;
+        };
+
+        let mut key: Vec<usize> = support.iter().copied().collect();
+        key.sort_unstable();
+        if !found_supports.insert(key) {
+            continue;
+        }
+
+        let places: HashSet<Place> = support.into_iter().map(Place::from_index).collect();
+
+        let transitions: HashSet<Transition> = net
+            .transitions()
+            .filter(|&t| {
+                let pre_count = net.preset_t(t).iter().filter(|p| places.contains(p)).count();
+                let post_count = net.postset_t(t).iter().filter(|p| places.contains(p)).count();
+                pre_count == 1 && post_count == 1
+            })
+            .collect();
+
+        if transitions.is_empty() {
+            continue;
+        }
+
+        if is_subnet_strongly_connected(net, &places, &transitions) {
+            components.push(SComponent { places, transitions });
+        }
+    }
+
+    components
+}
+
+/// Finds a non-negative linear combination of `basis` vectors that is
+/// strictly positive at `target_idx` with minimal total weight (encouraging
+/// small support). Returns the support as a set of indices, or `None` if
+/// no non-negative combination covers the target.
+fn find_nonneg_invariant_support(
+    basis: &[Box<[i32]>],
+    target_idx: usize,
+    dimension: usize,
+) -> Option<HashSet<usize>> {
+    use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
+
+    let mut vars = ProblemVariables::new();
+    let lambda: Vec<_> = (0..basis.len())
+        .map(|_| vars.add(variable()))
+        .collect();
+
+    let mut constraints = Vec::new();
+
+    let y_exprs: Vec<Expression> = (0..dimension)
+        .map(|i| {
+            lambda
+                .iter()
+                .enumerate()
+                .map(|(j, &l)| f64::from(basis[j][i]) * l)
+                .sum()
+        })
+        .collect();
+
+    for (i, y_i) in y_exprs.iter().enumerate() {
+        constraints.push(constraint!(y_i.clone() >= 0.0));
+        if i == target_idx {
+            constraints.push(constraint!(y_i.clone() >= 1.0));
+        }
+    }
+
+    let objective: Expression = y_exprs.iter().cloned().sum();
+
+    let solution = vars
+        .minimise(objective)
+        .using(good_lp::microlp)
+        .with_all(constraints)
+        .solve()
+        .ok()?;
+
+    let lambda_vals: Vec<f64> = lambda.iter().map(|&l| solution.value(l)).collect();
+    let support: HashSet<usize> = (0..dimension)
+        .filter(|&i| {
+            let y_i: f64 = lambda_vals
+                .iter()
+                .enumerate()
+                .map(|(j, &lj)| lj * f64::from(basis[j][i]))
+                .sum();
+            y_i > 0.5
+        })
+        .collect();
+
+    if support.is_empty() { None } else { Some(support) }
+}
+
+/// Finds all T-components of a net.
+///
+/// A T-component is a strongly connected subnet where every place has exactly
+/// one input and one output transition within the subnet. Found by examining
+/// the support of each T-invariant basis vector.
+///
+/// # Examples
+///
+/// ```
+/// use petrivet::net::builder::NetBuilder;
+/// use petrivet::analysis::structural;
+///
+/// // Simple cycle: the whole net is one T-component
+/// let mut b = NetBuilder::new();
+/// let [p0, p1] = b.add_places();
+/// let [t0, t1] = b.add_transitions();
+/// b.add_arc((p0, t0)); b.add_arc((t0, p1));
+/// b.add_arc((p1, t1)); b.add_arc((t1, p0));
+/// let net = b.build().unwrap();
+///
+/// let components = structural::t_components(&net);
+/// assert_eq!(components.len(), 1);
+/// assert!(structural::is_covered_by_t_components(&net, &components));
+/// ```
+#[must_use]
+pub fn t_components(net: &Net) -> Vec<TComponent> {
+    let inv = compute_invariants(net);
+    if inv.t_invariants.is_empty() {
+        return Vec::new();
+    }
+
+    let mut components = Vec::new();
+
+    for t in net.transitions() {
+        let Some(support) = find_nonneg_invariant_support(
+            &inv.t_invariants,
+            t.index(),
+            net.n_transitions(),
+        ) else {
+            continue;
+        };
+
+        let transitions: HashSet<Transition> = support.into_iter().map(Transition::from_index).collect();
+
+        if components.iter().any(|c: &TComponent| c.transitions == transitions) {
+            continue;
+        }
+
+        let places: HashSet<Place> = net
+            .places()
+            .filter(|&p| {
+                let pre_count = net.preset_p(p).iter().filter(|t| transitions.contains(t)).count();
+                let post_count = net.postset_p(p).iter().filter(|t| transitions.contains(t)).count();
+                pre_count == 1 && post_count == 1
+            })
+            .collect();
+
+        if places.is_empty() {
+            continue;
+        }
+
+        if is_subnet_strongly_connected(net, &places, &transitions) {
+            components.push(TComponent { places, transitions });
+        }
+    }
+
+    components
+}
+
+/// Whether every place in the net belongs to at least one S-component.
+///
+/// S-component coverage implies conservativeness (and thus structural
+/// boundedness). For live free-choice nets, this is also a necessary
+/// condition for boundedness (Heck's theorem).
+///
+/// References:
+/// - Murata 1989, Theorem 14
+/// - Petri Net Primer, Theorem 5.22
+#[must_use]
+pub fn is_covered_by_s_components(net: &Net, components: &[SComponent]) -> bool {
+    net.places().all(|p| components.iter().any(|c| c.places.contains(&p)))
+}
+
+/// Whether every transition in the net belongs to at least one T-component.
+///
+/// T-component coverage implies repetitiveness: for every transition, there
+/// exists a T-invariant whose support includes that transition.
+///
+/// References:
+/// - Murata 1989, Theorem 15
+/// - Petri Net Primer, Theorem 5.23
+#[must_use]
+pub fn is_covered_by_t_components(net: &Net, components: &[TComponent]) -> bool {
+    net.transitions().all(|t| components.iter().any(|c| c.transitions.contains(&t)))
+}
+
+/// Checks strong connectivity of a subnet induced by a set of places and transitions.
+fn is_subnet_strongly_connected(
+    net: &Net,
+    places: &HashSet<Place>,
+    transitions: &HashSet<Transition>,
+) -> bool {
+    use petgraph::graph::NodeIndex;
+
+    let n_nodes = places.len() + transitions.len();
+    if n_nodes <= 1 {
+        return true;
+    }
+
+    let mut graph = petgraph::Graph::<(), ()>::with_capacity(n_nodes, n_nodes * 2);
+    let mut p_map: std::collections::HashMap<Place, NodeIndex> = std::collections::HashMap::new();
+    let mut t_map: std::collections::HashMap<Transition, NodeIndex> = std::collections::HashMap::new();
+
+    for &p in places {
+        p_map.insert(p, graph.add_node(()));
+    }
+    for &t in transitions {
+        t_map.insert(t, graph.add_node(()));
+    }
+
+    for &t in transitions {
+        for &p in net.preset_t(t) {
+            if let Some(&p_idx) = p_map.get(&p) {
+                graph.add_edge(p_idx, t_map[&t], ());
+            }
+        }
+        for &p in net.postset_t(t) {
+            if let Some(&p_idx) = p_map.get(&p) {
+                graph.add_edge(t_map[&t], p_idx, ());
+            }
+        }
+    }
+
+    petgraph::algo::kosaraju_scc(&graph).len() == 1
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -790,7 +1108,7 @@ mod tests {
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
         let net = b.build().unwrap();
-        let marking = crate::marking::Marking::from([1u32, 0, 0, 1, 0, 0, 1]);
+        let marking = Marking::from([1u32, 0, 0, 1, 0, 0, 1]);
         let siphons = minimal_siphons(&net);
 
         assert!(every_siphon_contains_marked_trap(&net, &marking, &siphons));
@@ -911,11 +1229,109 @@ mod tests {
     fn commoner_fails_for_dead_net() {
         // Two-place cycle with zero initial marking — not live.
         let net = two_place_cycle();
-        let marking = crate::marking::Marking::from([0u32, 0]);
+        let marking = Marking::from([0u32, 0]);
         let siphons = minimal_siphons(&net);
         // The only siphon is {p0, p1}; its maximal trap is also {p0, p1},
         // but the trap is unmarked (both places have 0 tokens).
         assert!(!every_siphon_contains_marked_trap(&net, &marking, &siphons));
+    }
+
+    #[test]
+    fn cycle_s_and_t_components() {
+        let net = two_place_cycle();
+        let s_comps = s_components(&net);
+        let t_comps = t_components(&net);
+        // A circuit is both one S-component and one T-component
+        assert_eq!(s_comps.len(), 1);
+        assert_eq!(t_comps.len(), 1);
+        assert_eq!(s_comps[0].places.len(), 2);
+        assert_eq!(s_comps[0].transitions.len(), 2);
+        assert_eq!(t_comps[0].places.len(), 2);
+        assert_eq!(t_comps[0].transitions.len(), 2);
+        assert!(is_covered_by_s_components(&net, &s_comps));
+        assert!(is_covered_by_t_components(&net, &t_comps));
+    }
+
+    #[test]
+    fn mutex_s_components() {
+        let mut b = NetBuilder::new();
+        let [idle1, wait1, crit1] = b.add_places();
+        let [idle2, wait2, crit2] = b.add_places();
+        let mutex = b.add_place();
+        let [t_req1, t_enter1, t_exit1] = b.add_transitions();
+        let [t_req2, t_enter2, t_exit2] = b.add_transitions();
+
+        b.add_arc((idle1, t_req1)); b.add_arc((t_req1, wait1));
+        b.add_arc((wait1, t_enter1)); b.add_arc((t_enter1, crit1));
+        b.add_arc((crit1, t_exit1)); b.add_arc((t_exit1, idle1));
+        b.add_arc((idle2, t_req2)); b.add_arc((t_req2, wait2));
+        b.add_arc((wait2, t_enter2)); b.add_arc((t_enter2, crit2));
+        b.add_arc((crit2, t_exit2)); b.add_arc((t_exit2, idle2));
+        b.add_arc((mutex, t_enter1)); b.add_arc((t_exit1, mutex));
+        b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
+
+        let net = b.build().unwrap();
+        let s_comps = s_components(&net);
+
+        // 3 S-components: process 1 cycle, process 2 cycle, mutex cycle
+        assert_eq!(s_comps.len(), 3);
+        assert!(is_covered_by_s_components(&net, &s_comps));
+
+        // Each process cycle should contain 3 places
+        let proc1: HashSet<Place> = [idle1, wait1, crit1].into_iter().collect();
+        let proc2: HashSet<Place> = [idle2, wait2, crit2].into_iter().collect();
+        assert!(s_comps.iter().any(|c| c.places == proc1));
+        assert!(s_comps.iter().any(|c| c.places == proc2));
+        // Mutex cycle contains mutex + crit1 + crit2
+        assert!(s_comps.iter().any(|c| c.places.contains(&mutex)));
+    }
+
+    #[test]
+    fn mutex_t_components() {
+        let mut b = NetBuilder::new();
+        let [idle1, wait1, crit1] = b.add_places();
+        let [idle2, wait2, crit2] = b.add_places();
+        let mutex = b.add_place();
+        let [t_req1, t_enter1, t_exit1] = b.add_transitions();
+        let [t_req2, t_enter2, t_exit2] = b.add_transitions();
+
+        b.add_arc((idle1, t_req1)); b.add_arc((t_req1, wait1));
+        b.add_arc((wait1, t_enter1)); b.add_arc((t_enter1, crit1));
+        b.add_arc((crit1, t_exit1)); b.add_arc((t_exit1, idle1));
+        b.add_arc((idle2, t_req2)); b.add_arc((t_req2, wait2));
+        b.add_arc((wait2, t_enter2)); b.add_arc((t_enter2, crit2));
+        b.add_arc((crit2, t_exit2)); b.add_arc((t_exit2, idle2));
+        b.add_arc((mutex, t_enter1)); b.add_arc((t_exit1, mutex));
+        b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
+
+        let net = b.build().unwrap();
+        let t_comps = t_components(&net);
+
+        // 2 T-components: one per process (req, enter, exit)
+        assert_eq!(t_comps.len(), 2);
+        assert!(is_covered_by_t_components(&net, &t_comps));
+
+        let proc1_t: HashSet<Transition> = [t_req1, t_enter1, t_exit1].into_iter().collect();
+        let proc2_t: HashSet<Transition> = [t_req2, t_enter2, t_exit2].into_iter().collect();
+        assert!(t_comps.iter().any(|c| c.transitions == proc1_t));
+        assert!(t_comps.iter().any(|c| c.transitions == proc2_t));
+    }
+
+    #[test]
+    fn choice_net_no_s_component_coverage() {
+        // p0 -> t0 -> p1, p0 -> t1 -> p2 (choice, not a cycle)
+        // S-invariant support includes both branches but they don't form
+        // a strongly connected S-component covering all places.
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arc((p0, t0)); b.add_arc((t0, p1));
+        b.add_arc((p0, t1)); b.add_arc((t1, p2));
+        let net = b.build().unwrap();
+
+        let s_comps = s_components(&net);
+        // No S-components: the net has no cycles
+        assert!(!is_covered_by_s_components(&net, &s_comps));
     }
 
     #[test]
@@ -940,7 +1356,7 @@ mod tests {
         let net = b.build().unwrap();
         assert!(net.is_free_choice());
 
-        let marking = crate::marking::Marking::from([1u32, 0, 0]);
+        let marking = Marking::from([1u32, 0, 0]);
         let siphons = minimal_siphons(&net);
 
         let emptiable: HashSet<Place> = [p0, p2].into_iter().collect();
