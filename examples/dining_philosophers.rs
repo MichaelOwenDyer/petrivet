@@ -19,10 +19,10 @@
 //! Run: `cargo run --example dining_philosophers`
 
 use petrivet::analysis::structural;
-use petrivet::explorer::ExplorationOrder;
 use petrivet::marking::Marking;
 use petrivet::net::builder::NetBuilder;
-use petrivet::reachability::ReachabilityGraph;
+use petrivet::state_space::ExplorationOrder;
+use petrivet::state_space::ReachabilityGraph;
 use petrivet::system::System;
 
 const N: usize = 4;

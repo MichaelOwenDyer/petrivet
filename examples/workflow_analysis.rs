@@ -36,11 +36,11 @@
 
 use petrivet::analysis::semi_decision;
 use petrivet::analysis::structural;
-use petrivet::coverability::CoverabilityGraph;
-use petrivet::explorer::ExplorationOrder;
 use petrivet::marking::Marking;
 use petrivet::net::builder::NetBuilder;
-use petrivet::reachability::{ReachabilityExplorer, ReachabilityGraph};
+use petrivet::state_space::CoverabilityGraph;
+use petrivet::state_space::ExplorationOrder;
+use petrivet::state_space::{ReachabilityExplorer, ReachabilityGraph};
 use petrivet::system::System;
 
 fn main() {

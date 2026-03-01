@@ -1,6 +1,6 @@
-use petrivet::explorer::ExplorationOrder;
 use petrivet::net::Net;
-use petrivet::reachability::ReachabilityExplorer;
+use petrivet::state_space::ExplorationOrder;
+use petrivet::state_space::ReachabilityExplorer;
 use petrivet::system::System;
 
 fn main() {

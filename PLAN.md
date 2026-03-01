@@ -468,6 +468,10 @@ where the general marking equation only gives necessary conditions.
 These were planned in earlier phases but are out of scope for the current sprint.
 They are recorded here so nothing is lost:
 
+- Cache structural properties at build time (strong connectivity, possibly
+  structural boundedness, S-invariant coverage) so they can be queried in O(1)
+  instead of recomputed. Currently `NetClass` is cached but other properties
+  like `is_strongly_connected()` rebuild a petgraph on every call.
 - S-component and T-component detection (shelved — compiles and passes tests,
   but lower priority than class-specific shortcuts)
 - Circuit (cycle) enumeration for T-net liveness

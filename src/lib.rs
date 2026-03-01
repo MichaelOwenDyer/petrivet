@@ -33,14 +33,12 @@
 pub mod net;
 pub mod marking;
 pub mod system;
-pub mod explorer;
-pub mod coverability;
-pub mod reachability;
+pub mod state_space;
 pub mod analysis;
 
 pub use net::*;
 pub use marking::*;
 pub use system::{System, LivenessLevel};
-pub use coverability::CoverabilityGraph;
-pub use reachability::{ReachabilityExplorer, ReachabilityGraph};
-pub use explorer::ExplorationOrder;
+pub use state_space::coverability::CoverabilityGraph;
+pub use state_space::reachability::{ReachabilityExplorer, ReachabilityGraph};
+pub use state_space::explorer::ExplorationOrder;

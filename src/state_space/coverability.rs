@@ -25,10 +25,10 @@
 //! assert!(!cg.is_bounded());
 //! ```
 
-use crate::explorer::{ExplorationOrder, ExplorerCore};
+use crate::state_space::{ExplorationOrder, explorer::ExplorerCore};
 use crate::marking::{Marking, Omega, OmegaMarking};
 use crate::net::{Net, Transition};
-use crate::reachability::ReachabilityGraph;
+use crate::state_space::ReachabilityGraph;
 use crate::system::System;
 use petgraph::graph::NodeIndex;
 

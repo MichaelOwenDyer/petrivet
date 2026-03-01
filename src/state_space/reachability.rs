@@ -45,10 +45,10 @@
 //! [`ReachabilityGraph::build`] directly. For unbounded nets or when you
 //! need fine-grained control, use [`ReachabilityExplorer`].
 
-use crate::coverability::CoverabilityGraph;
-use crate::explorer::{ExplorationOrder, ExplorerCore};
 use crate::marking::{Marking, Omega};
 use crate::net::{Net, Transition};
+use crate::state_space::CoverabilityGraph;
+use crate::state_space::{explorer::ExplorerCore, ExplorationOrder};
 use crate::system::{LivenessLevel, System};
 use petgraph::graph::NodeIndex;
 use petgraph::Graph;

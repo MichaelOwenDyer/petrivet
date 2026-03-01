@@ -59,10 +59,10 @@
 //! ```
 
 use crate::analysis;
-use crate::coverability::CoverabilityGraph;
-use crate::explorer::ExplorationOrder;
 use crate::marking::Marking;
 use crate::net::{Net, Transition};
+use crate::state_space::CoverabilityGraph;
+use crate::state_space::ExplorationOrder;
 use std::collections::HashSet;
 use std::fmt;
 use std::marker::PhantomData;
