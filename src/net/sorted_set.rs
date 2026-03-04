@@ -1,6 +1,6 @@
-/// An owned, sorted, deduplicated set backed by a boxed slice.
+/// An owned, sorted, deduplicated set backed by a vec.
 ///
-/// Constructed once from a `Vec<T>` — the constructor sorts and deduplicates
+/// Constructed once from a `Vec<T>`: the constructor sorts and deduplicates
 /// in place, then freezes the result into a `Box<[T]>`. The invariant
 /// (strictly ascending order, no duplicates) is established at construction
 /// and cannot be violated afterward since there is no mutable access.
@@ -25,7 +25,7 @@ impl<T: Ord> SortedSet<T> {
     }
 
     /// Binary search insert. O(log n) for search, O(n) for insert.
-    pub fn add(&mut self, item: T) -> bool {
+    pub(crate) fn add(&mut self, item: T) -> bool {
         match self.0.binary_search(&item) {
             Ok(_) => false, // already present
             Err(pos) => {

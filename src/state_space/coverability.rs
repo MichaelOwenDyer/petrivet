@@ -2,15 +2,14 @@
 //!
 //! The coverability graph (Karp-Miller tree) always terminates, even for
 //! unbounded nets. Places that can grow without bound are represented by
-//! [`Omega::Unbounded`](Omega::Unbounded).
+//! [`Omega::Unbounded`].
 //!
 //! # Usage
 //!
 //! ```
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::system::System;
-//! use petrivet::coverability::CoverabilityGraph;
-//! use petrivet::explorer::ExplorationOrder;
+//! use petrivet::{CoverabilityGraph, ExplorationOrder};
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();

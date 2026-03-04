@@ -1,7 +1,8 @@
 //! Shared exploration core for reachability and coverability graph construction.
 //!
-//! This module is crate-private. Users interact with [`CoverabilityGraph`](crate::coverability)
-//! and [`ReachabilityGraph`](crate::reachability) instead.
+//! This module is crate-private. Users interact with
+//! [`CoverabilityGraph`](crate::CoverabilityGraph) and
+//! [`ReachabilityGraph`](crate::ReachabilityGraph) instead.
 
 use crate::marking::{Marking, Omega};
 use crate::net::{Net, Transition};
@@ -55,7 +56,7 @@ pub enum ExplorationOrder {
 /// Manages the petgraph, seen-set, and frontier. Both `CoverabilityGraph` and
 /// `ReachabilityGraph` own one of these and drive it via the helper methods.
 ///
-/// Borrows the [`Net`] for its lifetime — the graph cannot outlive the net
+/// Borrows the [`Net`] for its lifetime - the graph cannot outlive the net
 /// it explores.
 #[derive(Debug, Clone)]
 pub(crate) struct ExplorerCore<'a, T: TokenOps> {
@@ -65,7 +66,7 @@ pub(crate) struct ExplorerCore<'a, T: TokenOps> {
     pub net: &'a Net,
     pub initial: NodeIndex,
     pub(crate) order: ExplorationOrder,
-    /// Transitions with empty presets — always enabled, must be seeded
+    /// Transitions with empty presets - always enabled, must be seeded
     /// for every new node since the frontier optimization would miss them.
     pub(crate) source_transitions: Box<[Transition]>,
 }

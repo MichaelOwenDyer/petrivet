@@ -141,7 +141,7 @@ mod tests {
         let n_rows = rows.len();
         let n_cols = if n_rows > 0 { rows[0].len() } else { 0 };
         let data: Vec<i32> = rows.iter().flat_map(|r| r.iter().copied()).collect();
-        // Use the public constructor indirectly — build a net and get its matrix,
+        // Use the public constructor indirectly: build a net and get its matrix,
         // or construct directly for testing.
         IncidenceMatrix::from_raw(data, n_rows, n_cols)
     }

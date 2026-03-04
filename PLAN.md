@@ -26,10 +26,10 @@ These are interesting but deferred to avoid the breadth-first trap:
 - Const generic nets and `petrinet!` macro
 - WASM support
 - Visualization / graph layout
-- Import/export (PNML, DOT) — useful but not foundational
+- Import/export (PNML, DOT) - useful but not foundational
 - Algorithmic Petri Nets
 - Parallel state space exploration
-- Generic unsigned token types (u8/u16/u64 — just u32 or i32 for now)
+- Generic unsigned token types (u8/u16/u64 - just u32 or i32 for now)
 
 These can be revisited once the foundation is solid.
 
@@ -77,7 +77,7 @@ petrivet/
 ```rust
 /// An ordinary Petri net N = (S, T, F).
 /// All arc weights are implicitly 1. No capacities.
-/// This is the foundational type — all other net classes build on or wrap it.
+/// This is the foundational type - all other net classes build on or wrap it.
 pub struct Net {
     n_places: usize,
     n_transitions: usize,
@@ -104,7 +104,7 @@ pub struct Place(pub(crate) usize);
 pub struct Transition(pub(crate) usize);
 ```
 
-Newtype wrappers around `usize`. The inner field is `pub(crate)` — users create them via the builder, not by hand. Display impls show `p0`, `p1`, `t0`, `t1`, etc.
+Newtype wrappers around `usize`. The inner field is `pub(crate)` - users create them via the builder, not by hand. Display impls show `p0`, `p1`, `t0`, `t1`, etc.
 
 #### Marking (the state)
 
@@ -116,7 +116,7 @@ pub struct Marking(Box<[u32]>);
 
 Key change: **use `u32` for token counts**, not `Tokens(i32)`. Token counts are non-negative. Signed arithmetic is only needed internally when applying incidence vectors, and that can use `i64` intermediaries with checked subtraction. This eliminates the confusing `Tokens(i32)` type that made negative token counts representable in user-facing markings.
 
-The `Omega<T>` enum for coverability markings remains as-is — it's well-designed.
+The `Omega<T>` enum for coverability markings remains as-is - it's well-designed.
 
 #### System (net + marking, entry point for analysis)
 
@@ -287,7 +287,7 @@ What to **remove**:
 - `StructureClass` enum (classification available as method on `Net`)
 - `ClassifiedSystem` enum and its boilerplate dispatch impls
 - `PetriNet<'net>` struct and `Findings` struct
-- `StateSpaces` enum (Bounded/Unbounded) — premature
+- `StateSpaces` enum (Bounded/Unbounded) - premature
 - The `Liveness` enum in `behavior/mod.rs` (duplicates analysis module)
 - Duplicate type definitions between `dipn` and core
 
@@ -295,7 +295,7 @@ What to **remove**:
 
 ## 4. Phased Implementation Plan
 
-### Phase 0: Cleanup & Unification (Foundation) — COMPLETE
+### Phase 0: Cleanup & Unification (Foundation) - COMPLETE
 
 **Goal**: One coherent codebase with no dead code, no `todo!()` panics, stable Rust.
 
@@ -313,7 +313,7 @@ Completed:
 - [x] All 30 tests pass on stable, clippy clean, no `todo!()` in any public method
 - [x] Mutex example demonstrating new simulation API
 
-### Phase 1: State Space Exploration — COMPLETE
+### Phase 1: State Space Exploration - COMPLETE
 
 **Goal**: Fully working reachability and coverability graph construction with useful queries.
 
@@ -325,13 +325,13 @@ Completed:
 - [x] Frontier optimization: only seed transitions whose input places gained tokens, plus precomputed source transitions
 - [x] `ExplorerCore` borrows `&'a Net` (no cloning); lifetime threads through CG and RG
 - [x] Query methods: `is_reachable`, `path_to`, `is_coverable`, `is_bounded`, `place_bound`, `is_deadlock_free`, `deadlocks`, `contains`, `markings`, `state_count`, `edge_count`
-- [x] `CoverabilityGraph::into_reachability_graph()` — near-zero-cost promotion for bounded nets
-- [x] `ReachabilityGraph::from_coverability()` — O(n) conversion unwrapping `Omega::Finite(k)` → `k`
+- [x] `CoverabilityGraph::into_reachability_graph()` - near-zero-cost promotion for bounded nets
+- [x] `ReachabilityGraph::from_coverability()` - O(n) conversion unwrapping `Omega::Finite(k)` → `k`
 - [x] All 47 tests pass, clippy clean
 
 Design decisions:
-- No `ExplorationLimits` struct — the user controls termination externally via `explore_next()` or iterator combinators like `.take(n)`
-- No `Inconclusive` result type — queries answer based on what has been explored so far; `is_fully_explored()` tells the user if the answer is definitive
+- No `ExplorationLimits` struct - the user controls termination externally via `explore_next()` or iterator combinators like `.take(n)`
+- No `Inconclusive` result type - queries answer based on what has been explored so far; `is_fully_explored()` tells the user if the answer is definitive
 - Graph stores `Marking<T>` directly as node weights (no wrapper struct)
 
 ### Phase 2: Structural Analysis & Behavioral Shortcuts
@@ -343,7 +343,7 @@ serve as computational shortcuts for answering behavioral questions. High-level
 Phase 2 is split into two sprints. Sprint 1 laid the foundation; Sprint 2 corrects
 issues found during a literature verification pass and adds remaining features.
 
-#### Sprint 1 — COMPLETE
+#### Sprint 1 - COMPLETE
 
 Initial implementations of structural analysis and behavioral API. All code
 compiles and passes tests, but a subsequent verification against the literature
@@ -356,10 +356,10 @@ Completed:
 - [x] `Invariants` struct with S-invariant and T-invariant basis vectors
 - [x] `compute_invariants(net)` using null space of incidence matrix
 - [x] LP-based coverage check: `is_covered_by_s_invariants` / `is_covered_by_t_invariants`
-- [x] `minimal_siphons(net)` and `minimal_traps(net)` (initial growing algorithm — buggy, replaced in Sprint 2)
+- [x] `minimal_siphons(net)` and `minimal_traps(net)` (initial growing algorithm - buggy, replaced in Sprint 2)
 - [x] `every_siphon_contains_marked_trap()` for Commoner's theorem
-- [x] `check_marking_equation()` — LP relaxation of the state equation
-- [x] `is_structurally_bounded(net)` and `is_place_structurally_bounded(net, place)` — LP formulations
+- [x] `check_marking_equation()` - LP relaxation of the state equation
+- [x] `is_structurally_bounded(net)` and `is_place_structurally_bounded(net, place)` - LP formulations
 - [x] `From<Net> for NetBuilder` and `From<ClassifiedNet> for NetBuilder`
 - [x] High-level `System` methods: `is_bounded`, `is_dead`, `is_quasi_live`, `is_live`
 - [x] `is_live` dispatches to Commoner's theorem for free-choice/S-net/T-net, otherwise exploration
@@ -367,7 +367,7 @@ Completed:
 - [x] `pub(crate) core()` accessors on `CoverabilityGraph` and `ReachabilityGraph`
 - [x] `pub graph()` accessor on `ExplorerCore`
 
-#### Sprint 2 — COMPLETE
+#### Sprint 2 - COMPLETE
 
 Corrections from literature verification, new features, and closing optimizations.
 
@@ -399,7 +399,7 @@ Corrections from literature verification, new features, and closing optimization
   single O(V+E) pass. `System::is_live_by_exploration` delegates to `rg.is_live()`.
 
 - [x] **A4. Fix `is_dead` marking equation usage.**
-  Added `check_covering_equation` to `semi_decision.rs` — uses `>=` constraints instead
+  Added `check_covering_equation` to `semi_decision.rs` - uses `>=` constraints instead
   of `==` to check if any marking covering a threshold is reachable. Updated `is_dead`
   in `system.rs` to use this for the semi-decision step, correctly checking whether
   any enabling marking for the transition is LP-reachable.
@@ -472,7 +472,7 @@ They are recorded here so nothing is lost:
   structural boundedness, S-invariant coverage) so they can be queried in O(1)
   instead of recomputed. Currently `NetClass` is cached but other properties
   like `is_strongly_connected()` rebuild a petgraph on every call.
-- S-component and T-component detection (shelved — compiles and passes tests,
+- S-component and T-component detection (shelved - compiles and passes tests,
   but lower priority than class-specific shortcuts)
 - Circuit (cycle) enumeration for T-net liveness
 - Firing sequence bounds for bounded free-choice and T-nets
@@ -494,9 +494,9 @@ They are recorded here so nothing is lost:
 
 - [x] **E1. `ReachabilityExplorer` / `ReachabilityGraph` type split.**
   Split the monolithic `ReachabilityGraph` into two types:
-  - `ReachabilityExplorer<'a>` — incremental exploration handle for any net (bounded
+  - `ReachabilityExplorer<'a>` - incremental exploration handle for any net (bounded
     or not). Exposes `explore_next()`, `iter()`, `explore_all()`, basic queries.
-  - `ReachabilityGraph<'a>` — fully explored, bounded graph (type-level proof of
+  - `ReachabilityGraph<'a>` - fully explored, bounded graph (type-level proof of
     boundedness). Carries liveness and deadlock analysis methods.
   Construction: `ReachabilityGraph::build()` (convenience, non-terminating for
   unbounded nets), `TryFrom<ReachabilityExplorer>` (checks `is_fully_explored()`),
@@ -608,7 +608,7 @@ simple question.
 
 The new design hides classification behind an opaque type:
 ```rust
-let net = builder.build()?;  // ClassifiedNet — user doesn't need to care
+let net = builder.build()?;  // ClassifiedNet - user doesn't need to care
 let system = System::new(net, (1, 0, 0));
 system.is_live()  // internally dispatches to best algorithm
 ```
@@ -623,7 +623,7 @@ system.is_live()  // statically dispatches to Circuit impl
 ```
 
 The 5-arm match boilerplate moves inside `ClassifiedNet`'s trait impls,
-where it belongs — library internals, not user-facing API.
+where it belongs - library internals, not user-facing API.
 
 ### 5.5 EnabledTransition: Avoiding Redundant Enablement Checks
 
@@ -638,7 +638,7 @@ if let Some(&t) = enabled.first() {
 }
 ```
 
-`fire()` must re-check enablement because it accepts a bare `Transition` — the
+`fire()` must re-check enablement because it accepts a bare `Transition` - the
 caller could pass any transition, enabled or not. This means every fire
 operation does the work twice.
 
@@ -658,7 +658,7 @@ outlive the state they were checked against, they become stale and unsafe.
 The entire check-choose-fire cycle happens inside a closure called by the
 system. A proof token type (`EnabledTransition<'a>`) ensures only transitions
 from the enabled set can be fired. A higher-ranked lifetime bound (`for<'a>`)
-prevents the token from escaping the closure. This is compile-time enforced —
+prevents the token from escaping the closure. This is compile-time enforced -
 not a runtime check.
 
 ```rust
@@ -739,7 +739,7 @@ system.choose_and_fire(|set| {
 ```
 
 And since `EnabledTransition` is not `Copy` or `Clone`, the user can't
-duplicate it — they must pick exactly one and return it:
+duplicate it - they must pick exactly one and return it:
 
 ```rust
 system.choose_and_fire(|set| {
@@ -786,7 +786,7 @@ enabled set before choosing. For simpler cases, provide direct methods:
 ```rust
 impl System {
     /// Check-and-fire in one step. Best when you already know which transition
-    /// you want to fire. No redundant check — single pass.
+    /// you want to fire. No redundant check - single pass.
     pub fn try_fire(&mut self, transition: Transition) -> Result<(), FireError>;
 
     /// Fire any single enabled transition (useful for simulation loops).
@@ -802,10 +802,10 @@ impl System {
 The full API covers all patterns:
 
 ```rust
-// Pattern 1: I know which transition I want — just try it
+// Pattern 1: I know which transition I want - just try it
 system.try_fire(t0)?;
 
-// Pattern 2: I need to choose from the enabled set — no double-checking
+// Pattern 2: I need to choose from the enabled set - no double-checking
 system.choose_and_fire(|enabled| enabled.first());
 
 // Pattern 3: Just fire something, I don't care which

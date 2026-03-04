@@ -27,6 +27,8 @@ use std::ops::{Index, IndexMut};
 /// let m = Marking::from([1, 0, 3]);
 /// let m: Marking = vec![1, 0, 3].into();
 /// ```
+///
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Marking<T = u32>(Box<[T]>);
 
@@ -196,7 +198,11 @@ impl Marking<u32> {
 
 /// A token count that is either finite or ω (unbounded).
 ///
-/// Used in coverability graph construction where places can grow without bound.
+/// "Omega" as the name of this enum is a slight misnomer,
+/// since ω represents unboundedness but this enum
+/// represents either boundedness or unboundedness.
+/// However, it is the most concise name that is immediately
+/// recognizable to Petri net researchers that the au
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Omega {
     /// A concrete finite token count.
@@ -265,25 +271,6 @@ impl Marking<Omega> {
     #[must_use]
     pub fn is_finite(&self) -> bool {
         self.0.iter().all(|o| o.is_finite())
-    }
-
-    /// Applies a signed incidence delta. ω values absorb any finite change.
-    /// Returns `None` if any finite place would go below zero.
-    #[must_use]
-    pub fn apply_delta(&self, delta: &[i64]) -> Option<OmegaMarking> {
-        debug_assert_eq!(self.len(), delta.len());
-        let mut result = Vec::with_capacity(self.len());
-        for (&omega, &d) in self.0.iter().zip(delta.iter()) {
-            match omega {
-                Omega::Unbounded => result.push(Omega::Unbounded),
-                Omega::Finite(n) => {
-                    let new_val = i64::from(n) + d;
-                    let casted = u32::try_from(new_val).ok()?;
-                    result.push(Omega::Finite(casted));
-                }
-            }
-        }
-        Some(Marking(result.into_boxed_slice()))
     }
 }
 
@@ -400,14 +387,6 @@ mod tests {
         let om: OmegaMarking = [Omega::Finite(1), Omega::Unbounded, Omega::Finite(3)].into();
         assert!(m < om);
         assert!(om > m);
-    }
-
-    #[test]
-    fn omega_apply_delta() {
-        let om: OmegaMarking = [Omega::Finite(2), Omega::Unbounded].into();
-        let result = om.apply_delta(&[-1, 5]).unwrap();
-        assert_eq!(result[Place { idx: 0 }], Omega::Finite(1));
-        assert_eq!(result[Place { idx: 1 }], Omega::Unbounded);
     }
 
     #[test]

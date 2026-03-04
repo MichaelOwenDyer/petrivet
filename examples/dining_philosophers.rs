@@ -161,9 +161,9 @@ fn main() {
     println!("\nMinimal siphons: {}", siphons.len());
 
     let m0 = Marking::from(initial.clone());
-    let chc = structural::every_siphon_contains_marked_trap(&net, &m0, &siphons);
-    println!("Every siphon contains a marked trap: {}", chc);
-    if !chc {
+    let chc = structural::commoner_hack_criterion(&net, &m0);
+    println!("Every siphon contains a marked trap: {}", chc.is_satisfied());
+    if !chc.is_satisfied() {
         println!("→ Commoner criterion violated: system is not live (confirmed).");
     }
 

@@ -31,10 +31,10 @@
 //! let m0 = Marking::from([1u32, 0]);
 //!
 //! // Can we reach (0, 1)? LP says: feasible (and it truly is)
-//! assert!(find_marking_equation_rational_solution(&net, &m0, &Marking::from([0u32, 1])).is_feasible());
+//! assert!(find_marking_equation_rational_solution(&net, &m0, &Marking::from([0u32, 1])).is_some());
 //!
 //! // Can we reach (2, 0)? LP says: infeasible (conservation law violated)
-//! assert!(find_marking_equation_rational_solution(&net, &m0, &Marking::from([2u32, 0])).is_infeasible());
+//! assert!(find_marking_equation_rational_solution(&net, &m0, &Marking::from([2u32, 0])).is_none());
 //! ```
 
 use crate::marking::Marking;
@@ -43,39 +43,6 @@ use good_lp::{
     constraint, variable, Expression, ProblemVariables, Solution,
     SolverModel, Variable,
 };
-
-/// Result of a marking-equation feasibility check.
-#[derive(Debug, Clone)]
-pub enum Feasibility<T> {
-    /// No solution exists — the target marking is definitely unreachable.
-    Infeasible,
-    /// A non-negative solution exists. The firing count vector is returned.
-    /// This is necessary but not sufficient for reachability.
-    Feasible(Vec<T>),
-}
-
-impl<T> From<good_lp::ResolutionError> for Feasibility<T> {
-    fn from(err: good_lp::ResolutionError) -> Self {
-        match err {
-            good_lp::ResolutionError::Infeasible => Self::Infeasible,
-            _ => panic!("unexpected LP error: {err}"),
-        }
-    }
-}
-
-impl<T> Feasibility<T> {
-    /// Whether any feasible solution was found.
-    #[must_use]
-    pub fn is_feasible(&self) -> bool {
-        !matches!(self, Self::Infeasible)
-    }
-
-    /// Whether the target is definitely unreachable.
-    #[must_use]
-    pub fn is_infeasible(&self) -> bool {
-        matches!(self, Self::Infeasible)
-    }
-}
 
 /// Checks the marking equation M = M₀ + N · x for a non-negative rational solution x,
 /// where N: |P|×|T| is the incidence matrix of the net.
@@ -88,40 +55,17 @@ impl<T> Feasibility<T> {
 /// that are not actually realizable (e.g. firing a transition 0.5 times).
 /// For a stronger check, see [`find_marking_equation_integer_solution`].
 ///
-/// # Examples
-///
-/// ```
-/// use petrivet::net::builder::NetBuilder;
-/// use petrivet::marking::Marking;
-/// use petrivet::analysis::semi_decision::{find_marking_equation_rational_solution, Feasibility};
-///
-/// let mut b = NetBuilder::new();
-/// let [p0, p1] = b.add_places();
-/// let [t0, t1] = b.add_transitions();
-/// b.add_arc((p0, t0)); b.add_arc((t0, p1));
-/// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-/// let net = b.build().unwrap();
-///
-/// let m0 = Marking::from([1u32, 0]);
-/// let result = find_marking_equation_rational_solution(&net, &m0, &Marking::from([0u32, 1]));
-/// assert!(result.is_feasible());
-///
-/// // Inspect the firing count vector
-/// if let Feasibility::Feasible(rational_solution) = result {
-///     assert!(rational_solution.iter().all(|&v| v >= -1e-9)); // non-negative
-/// }
-/// ```
-///
 /// References:
-/// - Murata 1989, §IV-B: "a nonnegative integer solution x must exist"
-///   is a necessary reachability condition.
-/// - Petri Net Primer, Proposition 4.3 (state equation as necessary condition)
+/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation):
+///   "a nonnegative integer solution x must exist" is a necessary reachability condition.
+/// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation)
+///   (state equation as necessary condition)
 #[must_use]
 pub fn find_marking_equation_rational_solution(
     net: &Net,
     initial: &Marking,
     target: &Marking,
-) -> Feasibility<f64> {
+) -> Option<Box<[f64]>> {
     let incidence = net.incidence_matrix();
 
     let mut variables = ProblemVariables::new();
@@ -150,12 +94,12 @@ pub fn find_marking_equation_rational_solution(
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
-        .map_or_else(Feasibility::from, |solution| {
-            let rational_solution: Vec<f64> = rational_firing_counts
+        .map_or(None, |solution| {
+            let rational_solution: Box<[f64]> = rational_firing_counts
                 .into_iter()
                 .map(|v| solution.value(v))
                 .collect();
-            Feasibility::Feasible(rational_solution)
+            Some(rational_solution)
         })
 }
 
@@ -173,13 +117,13 @@ pub fn find_marking_equation_rational_solution(
 /// - If the ILP solver returns an error other than infeasibility (e.g. unboundedness, numerical issues).
 ///
 /// References:
-/// - Murata 1989, §IV-B: the firing count vector must be a non-negative integer
+/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation): the firing count vector must be a non-negative integer
 #[must_use]
 pub fn find_marking_equation_integer_solution(
     net: &Net,
     initial: &Marking,
     target: &Marking,
-) -> Feasibility<u32> {
+) -> Option<Box<[u32]>> {
     let mut variables = ProblemVariables::new();
     let integer_firing_counts: Vec<Variable> = net
         .transitions()
@@ -205,16 +149,16 @@ pub fn find_marking_equation_integer_solution(
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
-        .map_or_else(Feasibility::from, |solution| {
-            let integer_solution: Vec<u32> = integer_firing_counts.iter()
+        .map_or(None, |solution| {
+            let integer_solution: Box<[u32]> = integer_firing_counts.iter()
                 .map(|&v| solution.value(v).round() as u32)
                 .collect();
-            Feasibility::Feasible(integer_solution)
+            Some(integer_solution)
         })
 }
 
 /// Checks a *covering* variant of the marking equation: is there a
-/// reachable marking m' such that m'[p] >= threshold[p] for each place?
+/// reachable marking m' such that m'\[p\] >= threshold\[p\] for each place?
 ///
 /// Unlike [`find_marking_equation_rational_solution`], this uses inequality constraints
 /// (`>=`) rather than equality, so it asks whether *any* marking at least
@@ -225,11 +169,11 @@ pub fn find_marking_equation_integer_solution(
 ///
 /// Still a necessary condition only (LP relaxation of the marking equation).
 #[must_use]
-pub fn check_covering_equation(
+pub fn find_covering_equation_rational_solution(
     net: &Net,
     initial: &Marking,
     threshold: &Marking,
-) -> Feasibility<f64> {
+) -> Option<Box<[f64]>> {
     let mut variables = ProblemVariables::new();
     let parikh_vector: Vec<Variable> = net
         .transitions()
@@ -256,12 +200,12 @@ pub fn check_covering_equation(
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
-        .map_or_else(Feasibility::from, |solution| {
-            let firing_counts: Vec<f64> = parikh_vector
+        .map_or(None, |solution| {
+            let firing_counts: Box<[f64]> = parikh_vector
                 .iter()
                 .map(|&v| solution.value(v))
                 .collect();
-            Feasibility::Feasible(firing_counts)
+            Some(firing_counts)
         })
 }
 
@@ -280,33 +224,21 @@ pub fn check_covering_equation(
 /// 1. S-invariant coverage → conservativeness (see [`Invariants::is_covered_by_s_invariants`](super::structural::Invariants::is_covered_by_s_invariants))
 /// 2. Structural boundedness (this check) → bounded for every M₀
 ///
-/// # Examples
-///
-/// ```
-/// use petrivet::net::builder::NetBuilder;
-/// use petrivet::analysis::semi_decision::is_structurally_bounded;
-///
-/// // A cycle is structurally bounded
-/// let mut b = NetBuilder::new();
-/// let [p0, p1] = b.add_places();
-/// let [t0, t1] = b.add_transitions();
-/// b.add_arc((p0, t0)); b.add_arc((t0, p1));
-/// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-/// assert!(is_structurally_bounded(&b.build().unwrap()));
-///
-/// // A source transition (produces without consuming) is NOT bounded
-/// let mut b = NetBuilder::new();
-/// let p = b.add_place();
-/// let t = b.add_transition();
-/// b.add_arc((t, p));
-/// assert!(!is_structurally_bounded(&b.build().unwrap()));
-/// ```
-///
 /// References:
-/// - Murata 1989, Table 5: structural boundedness ⟺ ∃y > 0, Ay ≤ 0
-/// - Petri Net Primer, Proposition 4.12
+/// - [Murata 1989, Table 5](crate::literature#table-5--structural-boundedness): structural boundedness ⟺ ∃y > 0, Ay ≤ 0
+/// - [Primer, Proposition 4.12](crate::literature#proposition-412--structural-boundedness-via-lp)
+///
+/// Checks structural boundedness and returns the weight vector if feasible.
+///
+/// Finds y > 0 such that yᵀ · N ≤ 0 (each component ≥ 1). If feasible,
+/// returns the weight vector y. Given a specific initial marking M₀,
+/// per-place upper bounds can be derived: M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋.
 #[must_use]
-pub fn is_structurally_bounded(net: &Net) -> bool {
+pub fn find_positive_place_subvariant(net: &Net) -> Option<Box<[f64]>> {
+    if net.n_places() == 0 {
+        return Some(Box::new([]));
+    }
+
     let mut variables = ProblemVariables::new();
     let place_weights: Vec<Variable> = net
         .places()
@@ -323,12 +255,24 @@ pub fn is_structurally_bounded(net: &Net) -> bool {
             constraint!(token_delta <= 0.0)
         });
 
-    variables // objective doesn't matter; we only care about feasibility
+    variables
         .minimise(Expression::from(0))
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
-        .is_ok()
+        .ok()
+        .map(|solution| {
+            place_weights
+                .iter()
+                .map(|&v| solution.value(v))
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        })
+}
+
+#[must_use]
+pub fn is_structurally_bounded(net: &Net) -> bool {
+    find_positive_place_subvariant(net).is_some()
 }
 
 /// Checks whether a single place is structurally bounded (bounded under
@@ -344,7 +288,7 @@ pub fn is_structurally_bounded(net: &Net) -> bool {
 /// Feasible → place is structurally bounded; Infeasible → structurally
 /// unbounded (there exists an initial marking under which it is unbounded).
 #[must_use]
-pub fn is_place_structurally_bounded(net: &Net, place: Place) -> bool {
+pub fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<Box<[f64]>> {
     let mut variables = ProblemVariables::new();
     let place_weights: Vec<Variable> = net.places()
         .map(|p| {
@@ -374,7 +318,13 @@ pub fn is_place_structurally_bounded(net: &Net, place: Place) -> bool {
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
-        .is_ok()
+        .map_or(None, |solution| {
+            let weights: Box<[f64]> = place_weights
+                .iter()
+                .map(|&v| solution.value(v))
+                .collect();
+            Some(weights)
+        })
 }
 
 /// Exact reachability decision for S-nets (every transition has exactly
@@ -389,48 +339,21 @@ pub fn is_place_structurally_bounded(net: &Net, place: Place) -> bool {
 /// preserved (`y · M' = y · M₀` for all S-invariants `y`). This is
 /// equivalent to the LP marking equation being feasible.
 ///
-/// This turns reachability — normally undecidable for general nets —
+/// This turns reachability, normally Ackermann-complete for general nets,
 /// into a polynomial-time check for S-nets.
 ///
 /// # Panics
 ///
 /// Debug-asserts that the net is actually an S-net.
 ///
-/// # Examples
-///
-/// ```
-/// use petrivet::net::builder::NetBuilder;
-/// use petrivet::marking::Marking;
-/// use petrivet::analysis::semi_decision::is_reachable_s_net;
-///
-/// // Simple S-net: p0 → t0 → p1 → t1 → p0
-/// let mut b = NetBuilder::new();
-/// let [p0, p1] = b.add_places();
-/// let [t0, t1] = b.add_transitions();
-/// b.add_arc((p0, t0)); b.add_arc((t0, p1));
-/// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-/// let net = b.build().unwrap();
-///
-/// let m0 = Marking::from([1u32, 0]);
-///
-/// // (0, 1) is reachable: same token count, just moved
-/// assert!(is_reachable_s_net(&net, &m0, &Marking::from([0u32, 1])));
-///
-/// // (2, 0) is NOT reachable: different token count
-/// assert!(!is_reachable_s_net(&net, &m0, &Marking::from([2u32, 0])));
-///
-/// // (0, 0) is NOT reachable: token sum changed from 1 to 0
-/// assert!(!is_reachable_s_net(&net, &m0, &Marking::from([0u32, 0])));
-/// ```
-///
 /// References:
-/// - Murata 1989, Theorem 21: for S-nets, the marking equation is
+/// - [Murata 1989, Theorem 21](crate::literature#theorem-21--reachability-in-s-nets): for S-nets, the marking equation is
 ///   necessary and sufficient for reachability.
 /// - Lautenbach & Thiagarajan 1979 (original result)
 #[must_use]
 pub fn is_reachable_s_net(net: &Net, initial: &Marking, target: &Marking) -> bool {
     debug_assert!(net.is_s_net(), "is_reachable_s_net called on non-S-net");
-    find_marking_equation_rational_solution(net, initial, target).is_feasible()
+    find_marking_equation_rational_solution(net, initial, target).is_some()
 }
 
 /// Exact reachability decision for T-nets (every place has exactly one
@@ -450,12 +373,12 @@ pub fn is_reachable_s_net(net: &Net, initial: &Marking, target: &Marking) -> boo
 /// Debug-asserts that the net is actually a T-net.
 ///
 /// References:
-/// - Murata 1989, Theorem 22: for T-nets, a non-negative integer solution
+/// - [Murata 1989, Theorem 22](crate::literature#theorem-22--reachability-in-t-nets): for T-nets, a non-negative integer solution
 ///   to the marking equation is necessary and sufficient for reachability.
 #[must_use]
 pub fn is_reachable_t_net(net: &Net, initial: &Marking, target: &Marking) -> bool {
     debug_assert!(net.is_t_net(), "is_reachable_t_net called on non-T-net");
-    find_marking_equation_integer_solution(net, initial, target).is_feasible()
+    find_marking_equation_integer_solution(net, initial, target).is_some()
 }
 
 #[cfg(test)]
@@ -479,17 +402,17 @@ mod tests {
         let m0 = Marking::from([1u32, 0]);
         let m1 = Marking::from([0u32, 1]);
         let result = find_marking_equation_rational_solution(&net, &m0, &m1);
-        assert!(result.is_feasible());
+        assert!(result.is_some());
     }
 
     #[test]
     fn unreachable_marking_infeasible() {
         let net = two_place_cycle();
         let m0 = Marking::from([1u32, 0]);
-        // [2, 0] requires creating a token — not possible in a conservative net
+        // [2, 0] requires creating a token - not possible in a conservative net
         let m1 = Marking::from([2u32, 0]);
         let result = find_marking_equation_rational_solution(&net, &m0, &m1);
-        assert!(result.is_infeasible());
+        assert!(result.is_none());
     }
 
     #[test]
@@ -515,14 +438,14 @@ mod tests {
 
     #[test]
     fn source_transition_not_structurally_bounded() {
-        // t0 produces into p0 with no input — a true source transition.
+        // t0 produces into p0 with no input - a true source transition.
         let mut b = NetBuilder::new();
         let p0 = b.add_place();
         let t0 = b.add_transition();
         b.add_arc((t0, p0));
         let net = b.build().unwrap();
         assert!(!is_structurally_bounded(&net));
-        assert!(!is_place_structurally_bounded(&net, p0));
+        assert!(find_place_subvariant_covering(&net, p0).is_none());
     }
 
     #[test]
@@ -550,7 +473,7 @@ mod tests {
         let net = two_place_cycle();
         let m0 = Marking::from([1u32, 0]);
         let result = find_marking_equation_rational_solution(&net, &m0, &m0);
-        assert!(result.is_feasible());
+        assert!(result.is_some());
     }
 
     #[test]
@@ -558,8 +481,8 @@ mod tests {
         let net = two_place_cycle();
         let m0 = Marking::from([1u32, 0]);
         let result = find_marking_equation_rational_solution(&net, &m0, &m0);
-        assert!(result.is_feasible());
-        if let Feasibility::Feasible(x) = &result {
+        assert!(result.is_some());
+        if let Some(x) = &result {
             assert!(x.iter().all(|&v| v >= -1e-9));
         }
     }
@@ -570,8 +493,7 @@ mod tests {
         let m0 = Marking::from([1u32, 0]);
         let target = Marking::from([0u32, 1]);
         let result = find_marking_equation_integer_solution(&net, &m0, &target);
-        assert!(result.is_feasible());
-        assert!(matches!(result, Feasibility::Feasible(_)));
+        assert!(result.is_some());
     }
 
     #[test]
@@ -580,7 +502,7 @@ mod tests {
         let m0 = Marking::from([1u32, 0]);
         let target = Marking::from([2u32, 0]);
         let result = find_marking_equation_integer_solution(&net, &m0, &target);
-        assert!(result.is_infeasible());
+        assert!(result.is_none());
     }
 
     #[test]
@@ -588,7 +510,7 @@ mod tests {
         let net = two_place_cycle();
         let m0 = Marking::from([1u32, 0]);
         let result = find_marking_equation_integer_solution(&net, &m0, &m0);
-        assert!(result.is_feasible());
+        assert!(result.is_some());
     }
 
     #[test]
@@ -596,8 +518,8 @@ mod tests {
         let net = two_place_cycle();
         let m0 = Marking::from([1u32, 0]);
         let threshold = Marking::from([0u32, 1]);
-        let result = check_covering_equation(&net, &m0, &threshold);
-        assert!(result.is_feasible());
+        let result = find_covering_equation_rational_solution(&net, &m0, &threshold);
+        assert!(result.is_some());
     }
 
     #[test]
@@ -605,8 +527,8 @@ mod tests {
         let net = two_place_cycle();
         let m0 = Marking::from([1u32, 0]);
         let threshold = Marking::from([2u32, 0]);
-        let result = check_covering_equation(&net, &m0, &threshold);
-        assert!(result.is_infeasible());
+        let result = find_covering_equation_rational_solution(&net, &m0, &threshold);
+        assert!(result.is_none());
     }
 
     #[test]

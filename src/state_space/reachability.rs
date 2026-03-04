@@ -2,11 +2,11 @@
 //!
 //! Two types model the lifecycle of a reachability graph:
 //!
-//! - [`ReachabilityExplorer`] — an incremental exploration handle. Works for
+//! - [`ReachabilityExplorer`]: an incremental exploration handle. Works for
 //!   any net (bounded or not). The user drives exploration step by step and is
 //!   responsible for termination.
 //!
-//! - [`ReachabilityGraph`] — a fully explored, finite reachability graph. This
+//! - [`ReachabilityGraph`]: a fully explored, finite reachability graph. This
 //!   type is a proof that exploration terminated, which implies boundedness.
 //!   Exact analysis methods (liveness, deadlock-freedom) live here.
 //!
@@ -17,9 +17,7 @@
 //! ```
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::system::System;
-//! use petrivet::coverability::CoverabilityGraph;
-//! use petrivet::reachability::ReachabilityGraph;
-//! use petrivet::explorer::ExplorationOrder;
+//! use petrivet::{CoverabilityGraph, ReachabilityGraph, ExplorationOrder};
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -45,11 +43,12 @@
 //! [`ReachabilityGraph::build`] directly. For unbounded nets or when you
 //! need fine-grained control, use [`ReachabilityExplorer`].
 
+use crate::analysis::model::LivenessLevel;
 use crate::marking::{Marking, Omega};
 use crate::net::{Net, Transition};
 use crate::state_space::CoverabilityGraph;
 use crate::state_space::{explorer::ExplorerCore, ExplorationOrder};
-use crate::system::{LivenessLevel, System};
+use crate::system::System;
 use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use std::collections::HashMap;
@@ -68,7 +67,7 @@ pub struct ReachabilityStep {
 /// An incremental exploration handle for a Petri net's reachability graph.
 ///
 /// Works for any net (bounded or unbounded). For unbounded nets, the frontier
-/// never empties — the caller must impose their own termination condition.
+/// never empties - the caller must impose their own termination condition.
 ///
 /// Once exploration is complete (`is_fully_explored()` returns `true`), convert
 /// to a [`ReachabilityGraph`] for exact analysis.
@@ -78,8 +77,7 @@ pub struct ReachabilityStep {
 /// ```
 /// use petrivet::net::builder::NetBuilder;
 /// use petrivet::system::System;
-/// use petrivet::reachability::{ReachabilityExplorer, ReachabilityGraph};
-/// use petrivet::explorer::ExplorationOrder;
+/// use petrivet::{ReachabilityExplorer, ReachabilityGraph, ExplorationOrder};
 ///
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
@@ -145,11 +143,12 @@ impl<'a> ReachabilityExplorer<'a> {
     /// Each call to `next()` fires one transition and returns the step.
     /// The iterator ends when the frontier is exhausted.
     ///
+    /// **Warning: infinite** for unbounded nets.
+    ///
     /// ```
     /// use petrivet::net::builder::NetBuilder;
     /// use petrivet::system::System;
-    /// use petrivet::reachability::ReachabilityExplorer;
-    /// use petrivet::explorer::ExplorationOrder;
+    /// use petrivet::{ReachabilityExplorer, ExplorationOrder};
     /// use petrivet::marking::Marking;
     ///
     /// let mut b = NetBuilder::new();
@@ -248,8 +247,8 @@ impl<'a> ReachabilityExplorer<'a> {
 /// A fully explored, finite reachability graph.
 ///
 /// This type is a proof that exploration terminated (the net is bounded under
-/// this initial marking). Exact analysis methods — liveness levels, deadlock
-/// detection — are available here. Methods like [`liveness_levels`](Self::liveness_levels)
+/// this initial marking). Exact analysis methods - liveness levels, deadlock
+/// detection - are available here. Methods like [`liveness_levels`](Self::liveness_levels)
 /// return owned results; callers should store them if repeated access is needed.
 ///
 /// The reachability graph is infinite for unbounded systems. For unknown systems,
@@ -266,9 +265,9 @@ impl<'a> ReachabilityExplorer<'a> {
 ///
 /// ```
 /// use petrivet::net::builder::NetBuilder;
-/// use petrivet::system::{System, LivenessLevel};
-/// use petrivet::reachability::ReachabilityGraph;
-/// use petrivet::explorer::ExplorationOrder;
+/// use petrivet::system::System;
+/// use petrivet::LivenessLevel;
+/// use petrivet::{ReachabilityGraph, ExplorationOrder};
 /// use petrivet::marking::Marking;
 ///
 /// let mut b = NetBuilder::new();
@@ -297,7 +296,7 @@ pub struct ReachabilityGraph<'a> {
 impl<'a> ReachabilityGraph<'a> {
     /// Build a fully explored reachability graph from a system.
     ///
-    /// **Does not terminate** for unbounded nets — `explore_all()` runs
+    /// **Does not terminate** for unbounded nets - `explore_all()` runs
     /// until the frontier is exhausted, which never happens if the state
     /// space is infinite. For unknown nets, prefer the coverability graph
     /// path or use [`ReachabilityExplorer`] with manual termination.
@@ -338,9 +337,9 @@ impl<'a> ReachabilityGraph<'a> {
     ///
     /// When built with BFS, this is a shortest firing sequence.
     #[must_use]
-    pub fn path_to(&self, target: &Marking) -> Option<Vec<Transition>> {
+    pub fn path_to(&self, target: &Marking) -> Option<Box<[Transition]>> {
         let &target_idx = self.core.seen.get(target)?;
-        self.core.path_to(target_idx)
+        self.core.path_to(target_idx).map(Vec::into_boxed_slice)
     }
 
     /// Whether a marking exists in the graph.
@@ -378,7 +377,7 @@ impl<'a> ReachabilityGraph<'a> {
 
     /// Computes liveness levels for all transitions in a single pass.
     ///
-    /// SCC-based decision procedure for bounded nets (Murata 1989 §V-C):
+    /// SCC-based decision procedure for bounded nets ([Murata 1989 §V-C](crate::literature#v-c--liveness-via-reachability-graph-sccs)):
     /// - L0 (dead): `t` does not label any edge.
     /// - L1: `t` labels at least one edge.
     /// - L3 (≡L2 for bounded): `t` labels an edge within some non-trivial SCC.
@@ -386,32 +385,6 @@ impl<'a> ReachabilityGraph<'a> {
     ///
     /// Returns an owned `Box<[LivenessLevel]>` indexed by transition index.
     /// Store the result if you need to query it multiple times.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use petrivet::net::builder::NetBuilder;
-    /// use petrivet::system::{System, LivenessLevel};
-    /// use petrivet::reachability::ReachabilityGraph;
-    /// use petrivet::explorer::ExplorationOrder;
-    ///
-    /// // Net with an absorbing branch: t0 fires once, t1/t2 cycle
-    /// let mut b = NetBuilder::new();
-    /// let [p0, p1, p2] = b.add_places();
-    /// let [t0, t1, t2] = b.add_transitions();
-    /// b.add_arc((p0, t0)); b.add_arc((t0, p1)); // absorbing
-    /// b.add_arc((p0, t1)); b.add_arc((t1, p2)); // cycle
-    /// b.add_arc((p2, t2)); b.add_arc((t2, p0));
-    /// let net = b.build().unwrap();
-    /// let sys = System::new(net, [1u32, 0, 0]);
-    ///
-    /// let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-    /// let levels = rg.liveness_levels();
-    ///
-    /// assert_eq!(levels[t0.index()], LivenessLevel::L1); // fires once, never again
-    /// assert_eq!(levels[t1.index()], LivenessLevel::L3); // in a cycle, not all terminal SCCs
-    /// assert_eq!(levels[t2.index()], LivenessLevel::L3);
-    /// ```
     #[must_use]
     pub fn liveness_levels(&self) -> Box<[LivenessLevel]> {
         use petgraph::visit::EdgeRef;
@@ -421,7 +394,7 @@ impl<'a> ReachabilityGraph<'a> {
         let sccs = petgraph::algo::kosaraju_scc(graph);
 
         if sccs.is_empty() || n_transitions == 0 {
-            return vec![LivenessLevel::Dead; n_transitions].into_boxed_slice();
+            return vec![LivenessLevel::L0; n_transitions].into_boxed_slice();
         }
 
         let mut node_to_scc = vec![0usize; graph.node_count()];
@@ -456,7 +429,7 @@ impl<'a> ReachabilityGraph<'a> {
             .filter(|&i| !has_external_edge[i])
             .collect();
 
-        let mut levels = vec![LivenessLevel::Dead; n_transitions];
+        let mut levels = vec![LivenessLevel::L0; n_transitions];
         for t_idx in 0..n_transitions {
             if !t_fires_anywhere[t_idx] {
                 continue;
@@ -895,7 +868,7 @@ mod tests {
         let sys = System::new(two_place_cycle().into_parts().0, [0u32, 0]);
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
         let levels = rg.liveness_levels();
-        assert!(levels.iter().all(|&l| l == LivenessLevel::Dead));
+        assert!(levels.iter().all(|&l| l == LivenessLevel::L0));
         assert!(!rg.is_live());
     }
 

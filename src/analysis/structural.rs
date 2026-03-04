@@ -38,6 +38,7 @@
 //! ```
 
 use crate::analysis::math::integer_null_space;
+use crate::analysis::model::CommonerHackCriterionResult;
 use crate::marking::Marking;
 use crate::net::{Net, Place, Transition};
 use std::collections::HashSet;
@@ -53,8 +54,8 @@ use std::fmt;
 /// where x is the |T|×1 firing count vector.
 ///
 /// References:
-/// - Petri Net Primer (Best & Devillers), Definition 4.1
-/// - Murata 1989, §IV-B (uses the transposed convention; our N = Murata's Aᵀ)
+/// - [Primer, Definition 4.1](crate::literature#definition-41--incidence-matrix)
+/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (uses the transposed convention; our N = Murata's Aᵀ)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncidenceMatrix {
     data: Vec<i32>,
@@ -181,20 +182,26 @@ impl Invariants {
     /// The structural boundedness LP in
     /// [`is_structurally_bounded`](super::semi_decision::is_structurally_bounded)
     /// checks condition 2 directly (finds y > 0 with yᵀ · N ≤ 0, which
-    /// allows *non-strict* inequality — a weaker requirement). A net can
+    /// allows *non-strict* inequality - a weaker requirement). A net can
     /// be structurally bounded without being conservative if some places
     /// have no positive S-invariant but are still bounded due to the net
     /// topology constraining token flow.
     ///
     /// References:
-    /// - Murata 1989, §VII: S-invariant coverage and conservativeness
-    /// - Petri Net Primer, Proposition 4.12 (structural boundedness via LP)
+    /// - [Murata 1989, Theorem 30](crate::literature#theorem-30--conservativeness): conservativeness ⟺ ∃y > 0, Ay = 0
+    /// - [Murata 1989, §VII](crate::literature#vii--invariant-analysis): S-invariant coverage and conservativeness
+    /// - [Primer, Proposition 4.12](crate::literature#proposition-412--structural-boundedness-via-lp) (structural boundedness via LP)
     #[must_use]
     pub fn is_covered_by_s_invariants(&self, n_places: usize) -> bool {
         Self::is_covered(&self.s_invariants, n_places)
     }
 
     /// Whether every transition is covered by a non-negative T-invariant.
+    ///
+    /// If true, the net is **consistent**: there exists a firing sequence from
+    /// some marking back to itself in which every transition fires at least once.
+    ///
+    /// Reference: [Murata 1989, Theorem 32](crate::literature#theorem-32--consistency).
     #[must_use]
     pub fn is_covered_by_t_invariants(&self, n_transitions: usize) -> bool {
         Self::is_covered(&self.t_invariants, n_transitions)
@@ -285,7 +292,9 @@ impl Invariants {
 /// ```
 ///
 /// References:
-/// - Murata 1989, §VII (invariant analysis)
+/// - [Murata 1989, §VII](crate::literature#vii--invariant-analysis) (invariant analysis)
+/// - [Murata 1989, Theorem 30](crate::literature#theorem-30--conservativeness) (S-invariant coverage ⟺ conservativeness)
+/// - [Murata 1989, Theorem 32](crate::literature#theorem-32--consistency) (T-invariant coverage ⟺ consistency)
 /// - Petri Net Primer, §4.3 (S-invariants and T-invariants)
 #[must_use]
 pub fn compute_invariants(net: &Net) -> Invariants {
@@ -303,7 +312,7 @@ pub fn compute_invariants(net: &Net) -> Invariants {
 /// A siphon is a set of places D such that •D ⊆ D•: every transition that
 /// produces into D also consumes from D. Once empty, it stays empty forever.
 ///
-/// Uses the shrinking algorithm from the Petri Net Primer (Algorithm 6.19):
+/// Uses the shrinking algorithm from the [Petri Net Primer, Algorithm 6.19](crate::literature#algorithm-619--maximal-siphontrap-in-a-subset):
 /// iteratively remove any place p where some transition t ∈ •p has no
 /// input place in the current set. Runs in O(|S|² · |T|²).
 #[must_use]
@@ -338,32 +347,13 @@ pub fn maximal_siphon_in(
 ///
 /// A siphon is a set of places D where •D ⊆ D•: every transition that
 /// outputs into D also has an input from D. Once all places in a siphon
-/// become empty, they stay empty forever — a potential deadlock cause.
+/// become empty, they stay empty forever - a potential deadlock cause.
 ///
 /// Starts by computing the maximal siphon (all places), then recursively
 /// tries excluding each place to find smaller siphons. Results are filtered
 /// to keep only minimal ones.
-///
-/// # Examples
-///
-/// ```
-/// use petrivet::net::builder::NetBuilder;
-/// use petrivet::analysis::structural::minimal_siphons;
-///
-/// let mut b = NetBuilder::new();
-/// let [p0, p1] = b.add_places();
-/// let [t0, t1] = b.add_transitions();
-/// b.add_arc((p0, t0)); b.add_arc((t0, p1));
-/// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-/// let net = b.build().unwrap();
-///
-/// let siphons = minimal_siphons(&net);
-/// // In a cycle, {p0, p1} is the only minimal siphon
-/// assert_eq!(siphons.len(), 1);
-/// assert_eq!(siphons[0].len(), 2);
-/// ```
 #[must_use]
-pub fn minimal_siphons(net: &Net) -> Vec<HashSet<Place>> {
+pub fn minimal_siphons(net: &Net) -> Box<[HashSet<Place>]> {
     let all_places: HashSet<Place> = net.places().collect();
     let mut results: Vec<HashSet<Place>> = Vec::new();
     let mut stack: Vec<HashSet<Place>> = vec![all_places];
@@ -405,7 +395,7 @@ pub fn minimal_siphons(net: &Net) -> Vec<HashSet<Place>> {
         }
     }
 
-    results
+    results.into_boxed_slice()
 }
 
 /// Computes the maximal trap contained in a given set of places.
@@ -450,7 +440,7 @@ pub fn maximal_trap_in(
 
 /// Finds all minimal traps of a net using backtracking.
 #[must_use]
-pub fn minimal_traps(net: &Net) -> Vec<HashSet<Place>> {
+pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
     let all_places: HashSet<Place> = net.places().collect();
     let mut results: Vec<HashSet<Place>> = Vec::new();
     let mut stack: Vec<HashSet<Place>> = vec![all_places];
@@ -491,7 +481,7 @@ pub fn minimal_traps(net: &Net) -> Vec<HashSet<Place>> {
         }
     }
 
-    results
+    results.into_boxed_slice()
 }
 
 /// Finds all minimal siphons using ILP enumeration.
@@ -501,11 +491,11 @@ pub fn minimal_traps(net: &Net) -> Vec<HashSet<Place>> {
 /// exclude previously found solutions. Slower than the backtracking
 /// approach for small nets but more systematic.
 #[must_use]
-pub fn minimal_siphons_ilp(net: &Net) -> Vec<HashSet<Place>> {
+pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
     if net.n_places() == 0 {
-        return Vec::new();
+        return Box::new([]);
     }
 
     let mut results: Vec<HashSet<Place>> = Vec::new();
@@ -565,21 +555,21 @@ pub fn minimal_siphons_ilp(net: &Net) -> Vec<HashSet<Place>> {
         constraints.push(constraint!(prev_sum <= siphon.len() as f64 - 1.0));
     }
 
-    results
+    results.into_boxed_slice()
 }
 
 /// Finds all minimal traps using ILP enumeration.
 #[must_use]
-pub fn minimal_traps_ilp(net: &Net) -> Vec<HashSet<Place>> {
+pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
     let n_p = net.n_places();
     if n_p == 0 {
-        return Vec::new();
+        return Box::new([]);
     }
 
     let mut results: Vec<HashSet<Place>> = Vec::new();
-    let mut nogood_sets: Vec<HashSet<Place>> = Vec::new();
+    let mut no_good_sets: Vec<HashSet<Place>> = Vec::new();
 
     loop {
         let mut vars = ProblemVariables::new();
@@ -605,7 +595,7 @@ pub fn minimal_traps_ilp(net: &Net) -> Vec<HashSet<Place>> {
             }
         }
 
-        for prev in &nogood_sets {
+        for prev in &no_good_sets {
             let prev_sum: Expression = prev.iter().map(|&p| x[p.idx]).sum();
             constraints.push(constraint!(prev_sum <= (prev.len() as f64 - 1.0)));
         }
@@ -630,18 +620,19 @@ pub fn minimal_traps_ilp(net: &Net) -> Vec<HashSet<Place>> {
             results.retain(|existing| !trap.is_subset(existing));
             results.push(trap.clone());
         }
-        nogood_sets.push(trap);
+        no_good_sets.push(trap);
     }
 
-    results
+    results.into_boxed_slice()
 }
 
 /// Checks the Commoner/Hack Criterion (CHC): every proper siphon contains
 /// a trap that is marked under the given marking.
 ///
 /// For free-choice nets, this is a necessary and sufficient condition for
-/// liveness (Commoner's theorem / Theorem 12 in Murata 1989). For
-/// asymmetric-choice nets it is sufficient but not necessary.
+/// liveness — [Murata, Theorem 12](crate::literature#theorem-12--commonerhack-criterion).
+/// For asymmetric-choice nets it is sufficient but not necessary
+/// — [Murata, Theorem 15](crate::literature#theorem-15--liveness-of-asymmetric-choice-nets).
 ///
 /// This is the key structural shortcut for proving liveness in free-choice nets
 /// without exploring the full state space. This is significant because it runs
@@ -660,7 +651,7 @@ pub fn minimal_traps_ilp(net: &Net) -> Vec<HashSet<Place>> {
 /// ```
 /// use petrivet::net::builder::NetBuilder;
 /// use petrivet::marking::Marking;
-/// use petrivet::analysis::structural::{minimal_siphons, every_siphon_contains_marked_trap};
+/// use petrivet::analysis::structural::{minimal_siphons, commoner_hack_criterion};
 ///
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
@@ -669,31 +660,36 @@ pub fn minimal_traps_ilp(net: &Net) -> Vec<HashSet<Place>> {
 /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
 /// let net = b.build().unwrap();
 ///
-/// let siphons = minimal_siphons(&net);
 /// let m0 = Marking::from([1u32, 0]);
 /// // With a token, the siphon {p0, p1} contains a marked trap → live
-/// assert!(every_siphon_contains_marked_trap(&net, &m0, &siphons));
+/// assert!(commoner_hack_criterion(&net, &m0).is_satisfied());
 ///
 /// // Without tokens, the trap is unmarked → not live
 /// let m_empty = Marking::from([0u32, 0]);
-/// assert!(!every_siphon_contains_marked_trap(&net, &m_empty, &siphons));
+/// assert!(!commoner_hack_criterion(&net, &m_empty).is_satisfied());
 /// ```
 ///
 /// References:
-/// - Murata 1989, Theorem 12: "A free-choice net (N, M₀) is live iff
+/// - [Murata 1989, Theorem 12](crate::literature#theorem-12--commonerhack-criterion): "A free-choice net (N, M₀) is live iff
 ///   every siphon in N contains a marked trap."
-/// - Petri Net Primer, Theorem 5.17 (Commoner/Hack Criterion)
-/// - Petri Net Primer, Algorithm 6.19 (maximal siphon/trap in a subset)
+/// - [Primer, Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc) (Commoner/Hack Criterion)
+/// - [Primer, Algorithm 6.19](crate::literature#algorithm-619--maximal-siphontrap-in-a-subset) (maximal siphon/trap in a subset)
 #[must_use]
-pub fn every_siphon_contains_marked_trap(
+pub fn commoner_hack_criterion(
     net: &Net,
     marking: &Marking,
-    siphons: &[HashSet<Place>],
-) -> bool {
-    siphons.iter().all(|siphon| {
-        let maximal_trap = maximal_trap_in(net, siphon);
-        !maximal_trap.is_empty() && maximal_trap.iter().any(|&p| marking[p] > 0)
-    })
+) -> CommonerHackCriterionResult {
+    use super::model::SiphonTrapPair;
+    let siphon_trap_pairs: Box<[SiphonTrapPair]> = minimal_siphons(net).into_iter().map(|siphon| {
+        let trap = maximal_trap_in(net, &siphon);
+        let trap_is_marked = !trap.is_empty() && trap.iter().any(|&p| marking[p] > 0);
+        SiphonTrapPair {
+            siphon,
+            trap,
+            trap_is_marked,
+        }
+    }).collect();
+    CommonerHackCriterionResult { siphon_trap_pairs }
 }
 
 /// An S-component of a Petri net: a strongly connected subnet where every
@@ -702,13 +698,18 @@ pub fn every_siphon_contains_marked_trap(
 ///
 /// Key theorems involving S-components:
 /// - If every place belongs to an S-component, the net is **conservative**
-///   (and therefore structurally bounded).
-/// - For live free-choice nets, boundedness ⟺ S-component coverage
-///   (Heck's theorem).
+///   (and therefore structurally bounded)
+///   — [Primer, Theorem 5.22](crate::literature#theorem-522--s-component-coverage-implies-conservativeness).
+/// - A live FC net is safe iff covered by SC S-components with exactly one
+///   token each — [Murata, Theorem 13](crate::literature#theorem-13--safety-of-live-free-choice-nets).
+/// - In a live safe FC net, every place belongs to an S-component
+///   — [Murata, Theorem 14](crate::literature#theorem-14--s-component-coverage-of-live-safe-free-choice-nets).
+/// - Exact per-place bounds for live FC nets via S-component token sums
+///   — [Primer, Theorem 5.34](crate::literature#theorem-534--boundedness-criterion-for-live-free-choice-systems).
 ///
 /// References:
-/// - Murata 1989, §VI-C (S-components and conservativeness)
-/// - Petri Net Primer, Definition 5.9 and Theorem 5.22
+/// - [Murata 1989, §VI-C](crate::literature#vi-c--s-components-and-t-components) (S-components and conservativeness)
+/// - [Primer, Definition 5.9](crate::literature#definition-59--s-components-and-t-components)
 #[derive(Debug, Clone)]
 pub struct SComponent {
     pub places: HashSet<Place>,
@@ -720,11 +721,13 @@ pub struct SComponent {
 /// the component. T-components represent minimal cycles of concurrent firing.
 ///
 /// Key theorem: if every transition belongs to a T-component, the net is
-/// **repetitive** (every transition can participate in some T-invariant).
+/// **consistent** (and therefore **repetitive**): there exists a firing sequence
+/// returning to the initial marking in which every transition fires
+/// — [Primer, Theorem 5.23](crate::literature#theorem-523--t-component-coverage-implies-consistency).
 ///
 /// References:
-/// - Murata 1989, §VI-C (T-components and repetitiveness)
-/// - Petri Net Primer, Definition 5.9 and Theorem 5.23
+/// - [Murata 1989, §VI-C](crate::literature#vi-c--s-components-and-t-components) (T-components and repetitiveness)
+/// - [Primer, Definition 5.9](crate::literature#definition-59--s-components-and-t-components)
 #[derive(Debug, Clone)]
 pub struct TComponent {
     pub places: HashSet<Place>,
@@ -741,36 +744,6 @@ pub struct TComponent {
 /// For well-structured nets (especially free-choice), the S-invariant basis
 /// directly yields the S-components. For general nets, this finds all
 /// S-components that correspond to S-invariant supports.
-///
-/// # Examples
-///
-/// ```
-/// use petrivet::net::builder::NetBuilder;
-/// use petrivet::analysis::structural;
-///
-/// // Mutex net: 3 S-components (one per process cycle + mutex cycle)
-/// let mut b = NetBuilder::new();
-/// let [idle1, wait1, crit1] = b.add_places();
-/// let [idle2, wait2, crit2] = b.add_places();
-/// let mutex = b.add_place();
-/// let [req1, enter1, exit1] = b.add_transitions();
-/// let [req2, enter2, exit2] = b.add_transitions();
-/// b.add_arc((idle1, req1)); b.add_arc((req1, wait1));
-/// b.add_arc((wait1, enter1)); b.add_arc((enter1, crit1));
-/// b.add_arc((crit1, exit1)); b.add_arc((exit1, idle1));
-/// b.add_arc((idle2, req2)); b.add_arc((req2, wait2));
-/// b.add_arc((wait2, enter2)); b.add_arc((enter2, crit2));
-/// b.add_arc((crit2, exit2)); b.add_arc((exit2, idle2));
-/// b.add_arc((mutex, enter1)); b.add_arc((exit1, mutex));
-/// b.add_arc((mutex, enter2)); b.add_arc((exit2, mutex));
-/// let net = b.build().unwrap();
-///
-/// let components = structural::s_components(&net);
-/// assert_eq!(components.len(), 3);
-///
-/// // Every place is covered by at least one S-component
-/// assert!(structural::is_covered_by_s_components(&net, &components));
-/// ```
 #[must_use]
 pub fn s_components(net: &Net) -> Vec<SComponent> {
     let inv = compute_invariants(net);
@@ -883,25 +856,6 @@ fn find_nonneg_invariant_support(
 /// A T-component is a strongly connected subnet where every place has exactly
 /// one input and one output transition within the subnet. Found by examining
 /// the support of each T-invariant basis vector.
-///
-/// # Examples
-///
-/// ```
-/// use petrivet::net::builder::NetBuilder;
-/// use petrivet::analysis::structural;
-///
-/// // Simple cycle: the whole net is one T-component
-/// let mut b = NetBuilder::new();
-/// let [p0, p1] = b.add_places();
-/// let [t0, t1] = b.add_transitions();
-/// b.add_arc((p0, t0)); b.add_arc((t0, p1));
-/// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-/// let net = b.build().unwrap();
-///
-/// let components = structural::t_components(&net);
-/// assert_eq!(components.len(), 1);
-/// assert!(structural::is_covered_by_t_components(&net, &components));
-/// ```
 #[must_use]
 pub fn t_components(net: &Net) -> Vec<TComponent> {
     let inv = compute_invariants(net);
@@ -951,11 +905,12 @@ pub fn t_components(net: &Net) -> Vec<TComponent> {
 ///
 /// S-component coverage implies conservativeness (and thus structural
 /// boundedness). For live free-choice nets, this is also a necessary
-/// condition for boundedness (Heck's theorem).
+/// condition for boundedness.
 ///
 /// References:
-/// - Murata 1989, Theorem 14
-/// - Petri Net Primer, Theorem 5.22
+/// - [Primer, Theorem 5.22](crate::literature#theorem-522--s-component-coverage-implies-conservativeness) (coverage → conservativeness)
+/// - [Murata 1989, Theorem 14](crate::literature#theorem-14--s-component-coverage-of-live-safe-free-choice-nets) (live safe FC → full coverage)
+/// - [Primer, Theorem 5.34](crate::literature#theorem-534--boundedness-criterion-for-live-free-choice-systems) (live FC boundedness via S-components)
 #[must_use]
 pub fn is_covered_by_s_components(net: &Net, components: &[SComponent]) -> bool {
     net.places().all(|p| components.iter().any(|c| c.places.contains(&p)))
@@ -963,12 +918,13 @@ pub fn is_covered_by_s_components(net: &Net, components: &[SComponent]) -> bool 
 
 /// Whether every transition in the net belongs to at least one T-component.
 ///
-/// T-component coverage implies repetitiveness: for every transition, there
-/// exists a T-invariant whose support includes that transition.
+/// T-component coverage implies consistency: there exists a firing sequence
+/// from some marking back to itself in which every transition fires at least
+/// once, which also implies repetitiveness.
 ///
 /// References:
-/// - Murata 1989, Theorem 15
-/// - Petri Net Primer, Theorem 5.23
+/// - [Primer, Theorem 5.23](crate::literature#theorem-523--t-component-coverage-implies-consistency) (coverage → consistency)
+/// - [Murata 1989, §VI-C](crate::literature#vi-c--s-components-and-t-components)
 #[must_use]
 pub fn is_covered_by_t_components(net: &Net, components: &[TComponent]) -> bool {
     net.transitions().all(|t| components.iter().any(|c| c.transitions.contains(&t)))
@@ -1028,7 +984,8 @@ mod tests {
         b.add_arc((t0, p1));
         b.add_arc((p1, t1));
         b.add_arc((t1, p0));
-        b.build().unwrap()    }
+        b.build().unwrap()
+    }
 
     #[test]
     fn cycle_invariants() {
@@ -1109,9 +1066,8 @@ mod tests {
 
         let net = b.build().unwrap();
         let marking = Marking::from([1u32, 0, 0, 1, 0, 0, 1]);
-        let siphons = minimal_siphons(&net);
 
-        assert!(every_siphon_contains_marked_trap(&net, &marking, &siphons));
+        assert!(commoner_hack_criterion(&net, &marking).is_satisfied());
     }
 
     #[test]
@@ -1227,13 +1183,12 @@ mod tests {
 
     #[test]
     fn commoner_fails_for_dead_net() {
-        // Two-place cycle with zero initial marking — not live.
+        // Two-place cycle with zero initial marking - not live.
         let net = two_place_cycle();
         let marking = Marking::from([0u32, 0]);
-        let siphons = minimal_siphons(&net);
         // The only siphon is {p0, p1}; its maximal trap is also {p0, p1},
         // but the trap is unmarked (both places have 0 tokens).
-        assert!(!every_siphon_contains_marked_trap(&net, &marking, &siphons));
+        assert!(!commoner_hack_criterion(&net, &marking).is_satisfied());
     }
 
     #[test]
@@ -1362,6 +1317,6 @@ mod tests {
         let emptiable: HashSet<Place> = [p0, p2].into_iter().collect();
         assert!(siphons.contains(&emptiable), "should find siphon {{p0, p2}}");
 
-        assert!(!every_siphon_contains_marked_trap(&net, &marking, &siphons));
+        assert!(!commoner_hack_criterion(&net, &marking).is_satisfied());
     }
 }

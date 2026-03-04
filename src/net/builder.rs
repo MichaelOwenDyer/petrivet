@@ -32,6 +32,14 @@ pub struct NetBuilder {
 /// Errors that can occur during net construction.
 #[derive(Debug)]
 pub enum BuildError {
+    /// The net has no places or no transitions.
+    ///
+    /// A Petri net requires at least one place and at least one transition
+    /// for meaningful analysis. Linear algebra on the incidence matrix and
+    /// most structural/behavioral theorems assume this.
+    ///
+    /// Reference: [Primer, Provision 4.5](crate::literature#provision-45--no-empty-petri-nets).
+    Empty,
     /// The net does not consist of a single connected component;
     /// it has multiple contiguous subnets with no arcs between them.
     /// Each subnet should be built separately.
@@ -41,6 +49,7 @@ pub enum BuildError {
 impl fmt::Display for BuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            BuildError::Empty => write!(f, "the net must have at least one place and one transition"),
             BuildError::NotConnected => write!(f, "the net has disconnected nodes"),
         }
     }
@@ -170,16 +179,19 @@ impl NetBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`BuildError::NotConnected`] if any place or transition has no arcs.
+    /// - [`BuildError::Empty`] if the builder has zero places or zero transitions.
+    /// - [`BuildError::NotConnected`] if any place or transition has no arcs.
     pub fn build(self) -> Result<Net, BuildError> {
+        if self.n_places() == 0 || self.n_transitions() == 0 {
+            return Err(BuildError::Empty);
+        }
+
         let class = self.classify();
         let preset_t = self.preset_t.into_boxed_slice();
         let postset_t = self.postset_t.into_boxed_slice();
         let preset_p = self.preset_p.into_boxed_slice();
         let postset_p = self.postset_p.into_boxed_slice();
 
-        // the net must consist of a single connected component;
-        // multiple components mean multiple independent nets, so they should be built separately
         if !is_connected(&preset_t, &postset_t, &preset_p, &postset_p) {
             return Err(BuildError::NotConnected);
         }
@@ -288,6 +300,26 @@ mod tests {
         let mut other = NetBuilder::new();
         let [_, t_foreign] = other.add_transitions();
         b.add_arc((p0, t_foreign));
+    }
+
+    #[test]
+    fn empty_builder_rejected() {
+        let b = NetBuilder::new();
+        assert!(matches!(b.build(), Err(BuildError::Empty)));
+    }
+
+    #[test]
+    fn no_transitions_rejected() {
+        let mut b = NetBuilder::new();
+        let _p = b.add_place();
+        assert!(matches!(b.build(), Err(BuildError::Empty)));
+    }
+
+    #[test]
+    fn no_places_rejected() {
+        let mut b = NetBuilder::new();
+        let _t = b.add_transition();
+        assert!(matches!(b.build(), Err(BuildError::Empty)));
     }
 
     #[test]
@@ -414,7 +446,7 @@ mod tests {
         assert_eq!(net.n_transitions(), 1);
     }
 
-    /// Source transition (no input places) — builder should accept this.
+    /// Source transition (no input places) - builder should accept this.
     #[test]
     fn source_transition_accepted() {
         let mut b = NetBuilder::new();
@@ -426,7 +458,7 @@ mod tests {
         assert_eq!(net.postset_t(t), &[p]);
     }
 
-    /// Sink transition (no output places) — builder should accept this.
+    /// Sink transition (no output places) - builder should accept this.
     #[test]
     fn sink_transition_accepted() {
         let mut b = NetBuilder::new();

@@ -19,14 +19,14 @@
 //!   semaphore so only one board is soldered at a time.
 //!
 //! We analyze this workflow for:
-//! 1. **Structural class** — What kind of Petri net is this?
-//! 2. **Boundedness** — Can tokens accumulate without limit?
-//! 3. **Liveness** — Can every operation eventually happen?
-//! 4. **Deadlock-freedom** — Is the system guaranteed to make progress?
-//! 5. **Invariants** — What conservation laws hold?
-//! 6. **Siphons and traps** — Structural causes of potential deadlocks?
-//! 7. **Reachability** — Can a specific state be reached?
-//! 8. **Marking equation** — Quick necessary-condition check for reachability
+//! 1. **Structural class**: What kind of Petri net is this?
+//! 2. **Boundedness**: Can tokens accumulate without limit?
+//! 3. **Liveness**: Can every operation eventually happen?
+//! 4. **Deadlock-freedom**: Is the system guaranteed to make progress?
+//! 5. **Invariants**: What conservation laws hold?
+//! 6. **Siphons and traps**: Structural causes of potential deadlocks?
+//! 7. **Reachability**: Can a specific state be reached?
+//! 8. **Marking equation**: Quick necessary-condition check for reachability
 //!
 //! These techniques apply broadly to any system with concurrent, discrete
 //! events: network protocols, business process engines, hardware pipelines,
@@ -147,26 +147,18 @@ fn main() {
     println!("\n--- Behavioral Analysis (3 boards, 1 station) ---\n");
 
     // 3 raw boards, 1 station slot, everything else empty
-    let sys = System::new(net.clone(), [3u32, 1, 0, 0, 0, 0]);
+    let sys = System::new(&net, Marking::from([3, 1, 0, 0, 0, 0]));
+    let liveness = sys.analyze_liveness();
+    let boundedness = sys.analyze_boundedness();
 
-    println!("Bounded: {}", sys.is_bounded());
-    println!("Quasi-live (every transition can fire): {}", sys.is_quasi_live());
+    println!("Bounded: {}", boundedness.of_system());
     println!("Live (every transition always eventually firable): {}", sys.is_live());
 
+    println!("\nPer-transition liveness levels:");
     for (i, name) in trans_names.iter().enumerate() {
         let t = petrivet::net::Transition::from_index(i);
-        println!(
-            "  {} dead? {}",
-            name,
-            sys.is_dead(t)
-        );
-    }
-
-    if let Some(levels) = sys.liveness_levels() {
-        println!("\nPer-transition liveness levels:");
-        for (i, level) in levels.iter().enumerate() {
-            println!("  {}: {:?}", trans_names[i], level);
-        }
+        let level = liveness.transition_level(t);
+        println!("  {}: {:?} (dead: {})", name, level, level.is_dead());
     }
 
     println!("\n--- Semi-Decision Procedures ---\n");
@@ -178,13 +170,13 @@ fn main() {
     let me = semi_decision::find_marking_equation_rational_solution(&net, &initial, &target_all_done);
     println!(
         "All 3 boards done? LP says: {}",
-        if me.is_feasible() { "possibly reachable" } else { "definitely unreachable" }
+        if me.is_some() { "possibly reachable" } else { "definitely unreachable" }
     );
 
     let me_ilp = semi_decision::find_marking_equation_integer_solution(&net, &initial, &target_all_done);
     println!(
         "All 3 boards done? ILP says: {}",
-        if me_ilp.is_feasible() { "possibly reachable (integer solution exists)" } else { "definitely unreachable" }
+        if me_ilp.is_some() { "possibly reachable (integer solution exists)" } else { "definitely unreachable" }
     );
 
     // Can we magically get 4 boards done from 3?
@@ -192,7 +184,7 @@ fn main() {
     let me2 = semi_decision::find_marking_equation_rational_solution(&net, &initial, &impossible);
     println!(
         "4 boards done from 3? LP says: {}",
-        if me2.is_feasible() { "possibly reachable" } else { "definitely unreachable" }
+        if me2.is_some() { "possibly reachable" } else { "definitely unreachable" }
     );
 
     println!("\n--- Coverability Graph ---\n");
@@ -268,13 +260,13 @@ fn main() {
 
     // Promote to ReachabilityGraph for analysis
     let rg2 = ReachabilityGraph::try_from(explorer).expect("fully explored");
-    println!("Promoted to ReachabilityGraph — live: {}", rg2.is_live());
+    println!("Promoted to ReachabilityGraph: live: {}", rg2.is_live());
 
     println!("\n--- Commoner's Theorem (Free-Choice Liveness) ---\n");
 
     let m0 = Marking::from([3u32, 1, 0, 0, 0, 0]);
     if net.is_free_choice() {
-        let live = structural::every_siphon_contains_marked_trap(&net, &m0, &siphons);
+        let live = structural::commoner_hack_criterion(&net, &m0).is_satisfied();
         println!(
             "Net is free-choice. Commoner criterion: every siphon contains a marked trap? {live}",
         );

@@ -277,8 +277,8 @@ impl Net {
     /// `M' = M₀ + N · x`, where `x` is the firing count vector (no transpose needed).
     ///
     /// References:
-    /// - Petri Net Primer (Best & Devillers), Definition 4.1
-    /// - Murata 1989, §IV-B (uses the transposed convention A^T · x = ΔM)
+    /// - [Primer, Definition 4.1](crate::literature#definition-41--incidence-matrix)
+    /// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (uses the transposed convention A^T · x = ΔM)
     #[must_use]
     pub fn incidence_matrix(&self) -> analysis::structural::IncidenceMatrix {
         analysis::structural::IncidenceMatrix::new(self)
@@ -310,7 +310,7 @@ impl Net {
     /// This is a purely structural property (independent of the marking).
     #[must_use]
     pub fn is_structurally_bounded(&self) -> bool {
-        analysis::semi_decision::is_structurally_bounded(self)
+        analysis::semi_decision::find_positive_place_subvariant(self).is_some()
     }
 
     /// Checks if a single place is structurally bounded: bounded under *every*
@@ -318,7 +318,7 @@ impl Net {
     /// net subvariant (the structure does not allow unbounded growth at this place).
     #[must_use]
     pub fn is_place_structurally_bounded(&self, place: Place) -> bool {
-        analysis::semi_decision::is_place_structurally_bounded(self, place)
+        analysis::semi_decision::find_place_subvariant_covering(self, place).is_some()
     }
 }
 
