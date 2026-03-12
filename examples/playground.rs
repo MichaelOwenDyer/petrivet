@@ -1,24 +1,18 @@
 use petrivet::net::Net;
-use petrivet::state_space::ExplorationOrder;
-use petrivet::state_space::ReachabilityExplorer;
 use petrivet::system::System;
+use petrivet::ExplorationOrder::BreadthFirst;
 
 fn main() {
-    let mut net = Net::builder();
-    let [p1, p2, p3] = net.add_places();
-    let [t1, t2] = net.add_transitions();
-    net.add_arc((p1, t1));
-    net.add_arc((t1, p1));
-    net.add_arc((t1, p2));
-    net.add_arc((p1, t2));
-    net.add_arc((t2, p2));
-    net.add_arc((p2, t2));
-    net.add_arc((t2, p3));
-    let net = net.build().expect("valid net");
-    let sys = System::new(net, [2, 0, 0]);
-    let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
+    let mut b = Net::builder();
+    let [p1, p2, p3, p4, p5] = b.add_places();
+    let [t1, t2, t3, t4] = b.add_transitions();
+    b.add_arcs((t1, p1, t2, p3, t4));
+    b.add_arcs((t1, p2, t3, p4, t4));
+    b.add_arcs((t4, p5, t1));
+    let net = b.build().unwrap();
+    let system = System::new(net, [0, 0, 0, 0, 1]);
 
-    for s in explorer.iter().take(1000) {
+    for s in system.explore_reachability(BreadthFirst).iter() {
         println!("{s:#?}");
     }
 }

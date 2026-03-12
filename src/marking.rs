@@ -32,28 +32,24 @@ use std::ops::{Index, IndexMut};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Marking<T = u32>(Box<[T]>);
 
-/// Alias for coverability markings that may contain ω.
+/// An ω-marking: a marking where token counts can be finite or "infinity" (ω).
+/// Used to construct the Karp-Miller coverability tree, where ω represents unbounded growth of tokens.
 pub type OmegaMarking = Marking<Omega>;
 
 impl<T> Marking<T> {
     /// Number of places in this marking.
     #[must_use]
+    #[expect(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    /// Whether this marking has zero places.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    /// Iterator over values.
+    /// Iterator over token counts.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.0.iter()
     }
 
-    /// Mutable iterator over values.
+    /// Mutable iterator over token counts.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.0.iter_mut()
     }
@@ -212,6 +208,24 @@ pub enum Omega {
 }
 
 impl Omega {
+    /// Returns `true` if this is a finite value.
+    #[must_use]
+    pub fn is_finite(self) -> bool {
+        matches!(self, Omega::Finite(_))
+    }
+
+    /// Returns `true` if this value is unbounded (omega).
+    #[must_use]
+    pub fn is_unbounded(self) -> bool {
+        matches!(self, Omega::Unbounded)
+    }
+
+    /// Returns true if this is a finite value less than or equal to `b`.
+    #[must_use]
+    pub fn is_b_bounded(self, b: u32) -> bool {
+        matches!(self, Omega::Finite(bound) if bound <= b)
+    }
+
     /// Returns the finite value, or `None` if unbounded.
     #[must_use]
     pub fn finite(self) -> Option<u32> {
@@ -219,12 +233,6 @@ impl Omega {
             Omega::Finite(n) => Some(n),
             Omega::Unbounded => None,
         }
-    }
-
-    /// Returns `true` if this is a finite value.
-    #[must_use]
-    pub fn is_finite(self) -> bool {
-        matches!(self, Omega::Finite(_))
     }
 }
 
@@ -409,7 +417,6 @@ mod tests {
     #[test]
     fn zero_length_marking() {
         let m: Marking = Marking::from(Vec::<u32>::new());
-        assert!(m.is_empty());
         assert_eq!(m.len(), 0);
         assert!(m.is_zero());
         assert_eq!(m.total_tokens(), 0);

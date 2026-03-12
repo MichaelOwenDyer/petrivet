@@ -83,14 +83,6 @@ impl NetBuilder {
         p
     }
 
-    /// Adds a single transition, returning its handle.
-    pub fn add_transition(&mut self) -> Transition {
-        let t = Transition { idx: self.n_transitions() };
-        self.preset_t.push(SortedSet::new());
-        self.postset_t.push(SortedSet::new());
-        t
-    }
-
     /// Adds N places, returning an array of handles.
     ///
     /// ```
@@ -100,6 +92,14 @@ impl NetBuilder {
     /// ```
     pub fn add_places<const N: usize>(&mut self) -> [Place; N] {
         std::array::from_fn(|_| self.add_place())
+    }
+
+    /// Adds a single transition, returning its handle.
+    pub fn add_transition(&mut self) -> Transition {
+        let t = Transition { idx: self.n_transitions() };
+        self.preset_t.push(SortedSet::new());
+        self.postset_t.push(SortedSet::new());
+        t
     }
 
     /// Adds N transitions, returning an array of handles.
@@ -113,9 +113,13 @@ impl NetBuilder {
         std::array::from_fn(|_| self.add_transition())
     }
 
-    /// Adds an arc to the net.
+    /// Adds an arc to the net, if it is not already present.
     ///
     /// Accepts `(Place, Transition)` or `(Transition, Place)` tuples.
+    ///
+    /// # Returns
+    ///
+    /// True if the arc was added; false if it was already present.
     ///
     /// ```
     /// # use petrivet::net::builder::NetBuilder;
@@ -147,6 +151,32 @@ impl NetBuilder {
             }
         }
         true
+    }
+
+    /// Adds several arcs to the net at once, if they are not already present.
+    ///
+    /// Accepts tuples of alternating places and transitions, e.g.
+    /// `(Place, Transition, Place)` or `(Transition, Place, Transition, Place, Transition)`.
+    ///
+    /// # Returns
+    ///
+    /// True if all arcs were added; false if any was already present.
+    ///
+    /// ```
+    /// # use petrivet::net::builder::NetBuilder;
+    /// let mut b = NetBuilder::new();
+    /// let [p0, p1] = b.add_places();
+    /// let [t0, t1] = b.add_transitions();
+    /// b.add_arcs((p0, t0, p1));
+    /// b.add_arcs((p0, t1, p1));
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Will panic if the arc references a place or transition with an out-of-bounds index,
+    /// e.g. if you use a handle from a different builder or add an arc before adding the referenced nodes.
+    pub fn add_arcs<A: IntoArcs>(&mut self, arcs: A) -> bool {
+        arcs.into_arcs().map(|arc| self.add_arc(arc)).all(|b| b)
     }
 
     /// Number of places added so far.
@@ -257,6 +287,60 @@ fn is_connected(
     }
     true
 }
+
+pub trait IntoArcs {
+    fn into_arcs(self) -> impl Iterator<Item = Arc>;
+}
+
+/// Generates [`IntoArcs`] implementations for alternating `Place`/`Transition` tuples.
+///
+/// Provide a pool of N identifiers to generate impls for all tuple lengths from 3 to N,
+/// for both Place-first `(Place, Transition, Place, ...)` and Transition-first
+/// `(Transition, Place, Transition, ...)` sequences.
+///
+/// Each tuple element is converted to a [`Node`], and adjacent pairs are matched into
+/// [`Arc`]s — the same idea as [`slice::windows`] but over a heterogeneous tuple that
+/// has been projected into a homogeneous `[Node; N]` array.
+macro_rules! impl_into_arcs_for_tuples {
+    // Entry: bootstrap both Place-first and Transition-first staircases.
+    ($n0:ident $n1:ident $($rest:ident)*) => {
+        impl_into_arcs_for_tuples!(@staircase_place [$n0 Place, $n1 Transition] $($rest)*);
+        impl_into_arcs_for_tuples!(@staircase_trans [$n0 Transition, $n1 Place] $($rest)*);
+    };
+
+    // Extend accumulator by one Place, emit impl, recurse.
+    (@staircase_place [$($acc:ident $acc_ty:ty),+] $next:ident $($rest:ident)*) => {
+        impl_into_arcs_for_tuples!(@gen $($acc $acc_ty,)+ $next Place);
+        impl_into_arcs_for_tuples!(@staircase_trans [$($acc $acc_ty,)+ $next Place] $($rest)*);
+    };
+
+    // Extend accumulator by one Transition, emit impl, recurse.
+    (@staircase_trans [$($acc:ident $acc_ty:ty),+] $next:ident $($rest:ident)*) => {
+        impl_into_arcs_for_tuples!(@gen $($acc $acc_ty,)+ $next Transition);
+        impl_into_arcs_for_tuples!(@staircase_place [$($acc $acc_ty,)+ $next Transition] $($rest)*);
+    };
+
+    // Base: identifier pool exhausted.
+    (@staircase_place [$($acc:ident $acc_ty:ty),+]) => {};
+    (@staircase_trans [$($acc:ident $acc_ty:ty),+]) => {};
+
+    // Core: emit a single `IntoArcs` impl from a typed identifier list.
+    (@gen $($name:ident $ty:ty),+) => {
+        impl IntoArcs for ($($ty),+) {
+            fn into_arcs(self) -> impl Iterator<Item = Arc> {
+                let ($($name),+) = self;
+                let nodes = [$(Node::from($name)),+];
+                (0..nodes.len() - 1).map(move |i| match (nodes[i], nodes[i + 1]) {
+                    (Node::Place(p), Node::Transition(t)) => Arc::PlaceToTransition(p, t),
+                    (Node::Transition(t), Node::Place(p)) => Arc::TransitionToPlace(t, p),
+                    _ => unreachable!(),
+                })
+            }
+        }
+    };
+}
+
+impl_into_arcs_for_tuples!(a b c d e f g h i j k l);
 
 /// Consume a [`Net`] back into a builder, preserving all places, transitions,
 /// and arcs. The resulting builder can be extended with new nodes and arcs before building a new net.
@@ -398,8 +482,8 @@ mod tests {
         b.add_arc((t1, p3));
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::AsymmetricChoice);
-        assert!(net.is_asymmetric_choice());
-        assert!(!net.is_free_choice());
+        assert!(net.is_asymmetric_choice_net());
+        assert!(!net.is_free_choice_net());
     }
 
     #[test]

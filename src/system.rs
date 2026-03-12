@@ -25,7 +25,7 @@
 //! // Simulation
 //! assert!(sys.is_enabled(start));
 //! sys.try_fire(start).unwrap();
-//! assert_eq!(sys.marking().iter().collect::<Vec<_>>(), vec![&0, &1]);
+//! assert_eq!(sys.current_marking().iter().collect::<Vec<_>>(), vec![&0, &1]);
 //!
 //! // Behavioral analysis
 //! sys.reset();
@@ -58,7 +58,8 @@
 //! ```
 
 use crate::marking::Marking;
-use crate::net::{Net, Transition};
+use crate::net::Net;
+use crate::{CoverabilityGraph, ExplorationOrder, ReachabilityExplorer};
 
 /// A Petri net system: a net N paired with a mutable marking.
 ///
@@ -112,7 +113,7 @@ impl<N: AsRef<Net>> System<N> {
 
     /// Returns the current marking.
     #[must_use]
-    pub fn marking(&self) -> &Marking {
+    pub fn current_marking(&self) -> &Marking {
         &self.marking
     }
 
@@ -127,6 +128,41 @@ impl<N: AsRef<Net>> System<N> {
     pub fn into_parts(self) -> (N, Marking, Marking) {
         (self.net, self.initial_marking, self.marking)
     }
+    
+    /// Returns true if the underlying net is a circuit.
+    pub fn is_circuit(&self) -> bool {
+        self.net.as_ref().is_circuit()
+    }
+
+    /// Returns true if the underlying net is an S-net.
+    pub fn is_s_system(&self) -> bool {
+        self.net.as_ref().is_s_net()
+    }
+    
+    /// Returns true if the underlying net is a T-net.
+    pub fn is_t_system(&self) -> bool {
+        self.net.as_ref().is_t_net()
+    }
+    
+    /// Returns true if the underlying net is a free-choice net.
+    pub fn is_free_choice_system(&self) -> bool {
+        self.net.as_ref().is_free_choice_net()
+    }
+    
+    /// Returns true if the underlying net is an asymmetric-choice net.
+    pub fn is_asymmetric_choice_system(&self) -> bool {
+        self.net.as_ref().is_asymmetric_choice_net()
+    }
+
+    /// Returns a reachability explorer for this system, using the specified exploration order.
+    pub fn explore_reachability(&self, order: ExplorationOrder) -> ReachabilityExplorer {
+        ReachabilityExplorer::new(self, order)
+    }
+
+    /// Returns a coverability explorer for this system, using the specified exploration order.
+    pub fn explore_coverability(&self, order: ExplorationOrder) -> CoverabilityGraph {
+        CoverabilityGraph::new(self, order)
+    }
 }
 
 #[cfg(test)]
@@ -134,6 +170,8 @@ mod tests {
     use super::*;
     use crate::marking::Marking;
     use crate::net::builder::NetBuilder;
+    use crate::net::Transition;
+
     /// Shorthand for creating a `Marking<u32>` in tests.
     fn m(val: impl Into<Marking>) -> Marking { val.into() }
 
@@ -154,10 +192,10 @@ mod tests {
     fn basic_firing() {
         let (net, t0, _t1) = two_place_cycle();
         let mut sys = System::new(net, [1, 0]);
-        assert_eq!(sys.marking(), m([1, 0]));
+        assert_eq!(sys.current_marking(), m([1, 0]));
         assert!(sys.is_enabled(t0));
         sys.try_fire(t0).unwrap();
-        assert_eq!(sys.marking(), m([0, 1]));
+        assert_eq!(sys.current_marking(), m([0, 1]));
     }
 
     #[test]
@@ -182,7 +220,7 @@ mod tests {
         assert!(!sys.is_deadlocked());
         let fired = sys.fire_any();
         assert!(fired.is_some());
-        assert_eq!(sys.marking(), m([0, 1]));
+        assert_eq!(sys.current_marking(), m([0, 1]));
     }
 
     #[test]
@@ -191,7 +229,7 @@ mod tests {
         let mut sys = System::new(net, [1, 0]);
         let fired = sys.choose_and_fire(|enabled| enabled.first());
         assert_eq!(fired, Some(t0));
-        assert_eq!(sys.marking(), m([0, 1]));
+        assert_eq!(sys.current_marking(), m([0, 1]));
     }
 
     #[test]
@@ -202,7 +240,7 @@ mod tests {
             enabled.iter().find(|et| *et == t1)
         });
         assert_eq!(fired, Some(t1));
-        assert_eq!(sys.marking(), m([1, 0]));
+        assert_eq!(sys.current_marking(), m([1, 0]));
     }
 
     #[test]
@@ -219,7 +257,7 @@ mod tests {
         let mut sys = System::new(net, [1, 0]);
         let fired = sys.choose_and_fire(|_enabled| None);
         assert_eq!(fired, None);
-        assert_eq!(sys.marking(), m([1, 0]));
+        assert_eq!(sys.current_marking(), m([1, 0]));
     }
 
     #[test]
@@ -227,9 +265,9 @@ mod tests {
         let (net, t0, _t1) = two_place_cycle();
         let mut sys = System::new(net, [1, 0]);
         sys.try_fire(t0).unwrap();
-        assert_eq!(sys.marking(), m([0, 1]));
+        assert_eq!(sys.current_marking(), m([0, 1]));
         sys.reset();
-        assert_eq!(sys.marking(), m([1, 0]));
+        assert_eq!(sys.current_marking(), m([1, 0]));
     }
 
     #[test]

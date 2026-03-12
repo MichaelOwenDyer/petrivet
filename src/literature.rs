@@ -8,6 +8,7 @@
 //! - **Murata 1989**: T. Murata, "Petri Nets: Properties, Analysis and
 //!   Applications," *Proceedings of the IEEE*, vol. 77, no. 4, pp. 541–580, 1989.
 //! - **Primer**: E. Best and R. Devillers, *Petri Net Primer*, Springer, 2024.
+//! - **Esparza Lecture Notes**: J. Esparza, *Petri Nets Lecture Notes*, TU Munich, 2024.
 //!
 //! # Murata 1989
 //!
@@ -131,6 +132,23 @@
 //!
 //! Used in: [`TNetLivenessEvidence`].
 //!
+//! ## §V-A — The coverability tree
+//!
+//! Murata presents the coverability tree algorithm (introducing ω as “infinity”)
+//! and lists the key properties that justify its use for boundedness and
+//! coverability-style questions.
+//!
+//! In particular (paraphrasing the numbered list):
+//! - **Boundedness**: (N, M₀) is bounded iff ω does not appear in any node label
+//!   of the coverability tree.
+//! - **Coverability (over-approximation)**: if a marking M is reachable from M₀,
+//!   then there exists a node labeled M′ in the coverability tree such that
+//!   \(M \le M′\).
+//!
+//! Used in: [`CoverabilityGraph`](crate::CoverabilityGraph),
+//! [`System::analyze_boundedness`](crate::System::analyze_boundedness),
+//! [`System::analyze_coverability`](crate::System::analyze_coverability).
+//!
 //! ## §IV-B — Incidence matrix and state equation
 //!
 //! > M' = M₀ + N · x, where N is the incidence matrix and x is the
@@ -212,6 +230,39 @@
 //!
 //! # Petri Net Primer (Best & Devillers)
 //!
+//! ## Proposition 3.23 — Finiteness of the coverability trees and graphs
+//!
+//! > Every Petri net has only finite coverability trees and graphs.
+//!
+//! This is the termination guarantee behind Karp–Miller-style exploration
+//! with ω-acceleration.
+//!
+//! Used in: [`CoverabilityGraph`](crate::CoverabilityGraph),
+//! [`System::analyze_coverability`](crate::System::analyze_coverability).
+//!
+//! ## Lemma 3.24 — Firing sequences in RG(N) and in Cov(N)
+//!
+//! This lemma relates firing sequences / paths in the reachability graph to
+//! corresponding paths in the coverability graph, and is used in the proof of
+//! Proposition 3.27.
+//!
+//! Used in: [`System::analyze_coverability`](crate::System::analyze_coverability),
+//! [`CoverabilityGraph::is_coverable`](crate::CoverabilityGraph::cover).
+//!
+//! ## Proposition 3.27 — All that can be checked on a coverability graph
+//!
+//! Among other properties, it states that the following is decidable by
+//! inspecting Cov(N):
+//!
+//! - **Coverability**: “Is a state M′ ∈ ℕ^S reachable such that M′ ≥ M?”
+//!
+//! And the proof establishes the core characterization used by this library:
+//! there exists a reachable M′ ≥ M iff Cov(N) contains a (generalised) node
+//! M″ ≥ M.
+//!
+//! Used in: [`CoverabilityGraph::is_coverable`](crate::CoverabilityGraph::cover),
+//! [`System::analyze_coverability`](crate::System::analyze_coverability).
+//!
 //! ## Provision 4.5 — No empty Petri nets
 //!
 //! > If C has no rows, or no columns, or both, linear algebra cannot
@@ -264,13 +315,6 @@
 //! > elementary cycles carry at least one token under M₀.
 //!
 //! Used in: [`TNetLivenessEvidence`].
-//!
-//! ## Theorem 5.22 — S-component coverage implies conservativeness
-//!
-//! > If a net N is covered by (strongly connected) S-components, then N is
-//! > conservative (i.e., bounded under every initial marking).
-//!
-//! Used in: [`s_components`](structural::s_components).
 //!
 //! ## Theorem 5.23 — T-component coverage implies consistency
 //!
@@ -337,7 +381,36 @@
 //! Used in: [`s_components`](structural::s_components),
 //! [`t_components`](structural::t_components).
 
+//! # Esparza Lecture Notes
+//!
+//! ## Theorem 3.2.5 — Coverability graph terminates
+//!
+//! > The coverability graph construction algorithm terminates.
+//!
+//! This is the termination guarantee behind Karp–Miller-style exploration
+//! with ω-acceleration.
+//!
+//! Used in: [`CoverabilityGraph`](crate::CoverabilityGraph),
+//! [`System::analyze_coverability`](crate::System::analyze_coverability).
+//!
+//! ## Theorem 3.2.8 — Coverability characterization
+//!
+//! > There is a reachable marking M′ ≥ M iff the coverability graph of (N, M₀)
+//! > contains an ω-marking M″ ≥ M.
+//!
+//! This is the key correctness property: coverability reduces to searching the
+//! finite coverability graph for a node that covers the target.
+//!
+//! Used in: [`CoverabilityGraph::is_coverable`](crate::CoverabilityGraph::cover),
+//! [`System::analyze_coverability`](crate::System::analyze_coverability).
+
+// These imports exist only to make intra-doc links shorter/readable.
+// They are compiled only under rustdoc.
+#[cfg(doc)]
 use crate::analysis::model::{CommonerHackCriterionResult, SNetLivenessEvidence, TNetLivenessEvidence};
+#[cfg(doc)]
 use crate::analysis::{semi_decision, structural};
+#[cfg(doc)]
 use crate::analysis::structural::{IncidenceMatrix, Invariants, SComponent};
+#[cfg(doc)]
 use crate::LivenessLevel;

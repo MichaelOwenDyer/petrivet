@@ -20,10 +20,10 @@
 //!
 //! let mut sys = System::new(net, [1, 0]);
 //! sys.choose_and_fire(|enabled| enabled.first());
-//! println!("Marking after firing: {}", sys.marking());
+//! println!("Marking after firing: {}", sys.current_marking());
 //!
 //! let mut cg = CoverabilityGraph::new(&sys, ExplorationOrder::BreadthFirst);
-//! for s in cg.iter().take(10) {
+//! for s in cg.take(10) {
 //!     if s.is_new {
 //!         println!("{:#?}", s.marking);
 //!     }

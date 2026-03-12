@@ -343,7 +343,7 @@ pub fn maximal_siphon_in(
     d
 }
 
-/// Finds all minimal siphons of a net using backtracking.
+/// Finds all minimal siphons of a net.
 ///
 /// A siphon is a set of places D where •D ⊆ D•: every transition that
 /// outputs into D also has an input from D. Once all places in a siphon
@@ -438,7 +438,15 @@ pub fn maximal_trap_in(
     maximal_trap
 }
 
-/// Finds all minimal traps of a net using backtracking.
+/// Finds all minimal traps of a net.
+///
+/// A trap is a set of places D where D• ⊆ •D: every transition that
+/// takes tokens out of D also puts tokens into D. Once a token is present
+/// in a trap, the trap can never become unmarked again.
+///
+/// Starts by computing the maximal trap (all places), then recursively
+/// tries excluding each place to find smaller traps. Results are filtered
+/// to keep only minimal ones.
 #[must_use]
 pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
     let all_places: HashSet<Place> = net.places().collect();
@@ -670,8 +678,8 @@ pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 /// ```
 ///
 /// References:
-/// - [Murata 1989, Theorem 12](crate::literature#theorem-12--commonerhack-criterion): "A free-choice net (N, M₀) is live iff
-///   every siphon in N contains a marked trap."
+/// - [Murata 1989, Theorem 12](crate::literature#theorem-12--commonerhack-criterion):
+///   "A free-choice net (N, M₀) is live iff every siphon in N contains a marked trap."
 /// - [Primer, Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc) (Commoner/Hack Criterion)
 /// - [Primer, Algorithm 6.19](crate::literature#algorithm-619--maximal-siphontrap-in-a-subset) (maximal siphon/trap in a subset)
 #[must_use]
@@ -1309,7 +1317,7 @@ mod tests {
         b.add_arc((p0, t1)); b.add_arc((t1, p2));
         b.add_arc((p2, t2)); b.add_arc((t2, p0));
         let net = b.build().unwrap();
-        assert!(net.is_free_choice());
+        assert!(net.is_free_choice_net());
 
         let marking = Marking::from([1u32, 0, 0]);
         let siphons = minimal_siphons(&net);

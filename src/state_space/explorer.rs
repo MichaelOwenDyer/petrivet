@@ -14,7 +14,7 @@ use std::hash::Hash;
 /// Operations on a token count needed for state space exploration.
 ///
 /// Implemented for `u32` (reachability) and `Omega` (coverability).
-pub(crate) trait TokenOps: Clone + Eq + Hash + Default {
+pub(super) trait TokenOps: Clone + Eq + Hash + Default {
     fn at_least_one(&self) -> bool;
     fn increment(&mut self);
     fn decrement(&mut self);
@@ -42,6 +42,7 @@ impl TokenOps for Omega {
 }
 
 /// Controls frontier traversal order.
+// TODO: Find better home for this?
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub enum ExplorationOrder {
     /// Breadth-first: `path_to` returns shortest firing sequences.
@@ -59,24 +60,29 @@ pub enum ExplorationOrder {
 /// Borrows the [`Net`] for its lifetime - the graph cannot outlive the net
 /// it explores.
 #[derive(Debug, Clone)]
-pub(crate) struct ExplorerCore<'a, T: TokenOps> {
-    pub graph: Graph<Marking<T>, Transition>,
-    pub seen: HashMap<Marking<T>, NodeIndex>,
-    pub frontier: VecDeque<(NodeIndex, Transition)>,
+pub(super) struct ExplorerCore<'a, T: TokenOps> {
+    /// Reference to the net being explored.
     pub net: &'a Net,
-    pub initial: NodeIndex,
-    pub(crate) order: ExplorationOrder,
-    /// Transitions with empty presets - always enabled, must be seeded
-    /// for every new node since the frontier optimization would miss them.
+    /// The node index of the initial marking, for pathfinding.
+    pub initial_idx: NodeIndex,
+    /// The exploration order: breadth-first or depth-first.
+    /// Corresponds to queue vs stack behavior of the frontier.
+    pub order: ExplorationOrder,
+    /// The state space graph. Nodes are markings, edges are transitions.
+    pub graph: Graph<Marking<T>, Transition>,
+    /// A hash table of seen markings to their node indices in the graph,
+    /// for O(1) lookup.
+    pub seen: HashMap<Marking<T>, NodeIndex>,
+    /// The worklist of potentially enabled transitions which we have not
+    /// yet investigated firing from their source markings.
+    pub frontier: VecDeque<(NodeIndex, Transition)>,
+    /// Transitions with empty presets - always enabled, and should
+    /// always be explored from every new marking regardless of the
+    /// marked places.
     pub(crate) source_transitions: Box<[Transition]>,
 }
 
 impl<'a, T: TokenOps> ExplorerCore<'a, T> {
-    /// Returns a reference to the underlying petgraph.
-    pub fn graph(&self) -> &Graph<Marking<T>, Transition> {
-        &self.graph
-    }
-
     /// Create a new explorer from a net reference and initial marking.
     ///
     /// Seeds the frontier with source transitions (empty preset, always
@@ -104,7 +110,7 @@ impl<'a, T: TokenOps> ExplorerCore<'a, T> {
 
         seen.insert(initial_marking, root);
 
-        Self { graph, seen, frontier, net, initial: root, order, source_transitions }
+        Self { graph, seen, frontier, net, initial_idx: root, order, source_transitions }
     }
 
     /// Change the exploration order for subsequent steps.
@@ -189,23 +195,23 @@ impl<'a, T: TokenOps> ExplorerCore<'a, T> {
     }
 
     /// Find a path from initial to target using A*.
-    pub fn path_to(&self, target: NodeIndex) -> Option<Vec<Transition>> {
-        if target == self.initial {
-            return Some(Vec::new());
+    pub fn path_to(&self, target: NodeIndex) -> Option<Box<[Transition]>> {
+        if target == self.initial_idx {
+            return Some(Box::new([]));
         }
         let (_, node_path) = petgraph::algo::astar(
             &self.graph,
-            self.initial,
+            self.initial_idx,
             |n| n == target,
             |_| 1u32,
             |_| 0u32,
         )?;
         let mut transitions = Vec::with_capacity(node_path.len() - 1);
-        for pair in node_path.windows(2) {
-            let edge = self.graph.find_edge(pair[0], pair[1])?;
+        for &[m1, m2] in node_path.array_windows() {
+            let edge = self.graph.find_edge(m1, m2)?;
             transitions.push(self.graph[edge]);
         }
-        Some(transitions)
+        Some(transitions.into_boxed_slice())
     }
 
     /// Node indices with no outgoing edges (deadlocked states).

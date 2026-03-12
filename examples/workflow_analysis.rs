@@ -38,6 +38,7 @@ use petrivet::analysis::semi_decision;
 use petrivet::analysis::structural;
 use petrivet::marking::Marking;
 use petrivet::net::builder::NetBuilder;
+use petrivet::OmegaMarking;
 use petrivet::state_space::CoverabilityGraph;
 use petrivet::state_space::ExplorationOrder;
 use petrivet::state_space::{ReachabilityExplorer, ReachabilityGraph};
@@ -193,8 +194,11 @@ fn main() {
     println!("States: {}, Edges: {}", cg.state_count(), cg.edge_count());
     println!("Bounded: {}", cg.is_bounded());
 
-    let threshold = Marking::from([0u32, 1, 0, 0, 0, 3]);
-    println!("All-done marking coverable: {}", cg.is_coverable(&threshold));
+    let threshold = OmegaMarking::from([0u32, 1, 0, 0, 0, 3]);
+    println!(
+        "All-done marking coverable: {}",
+        cg.cover(&threshold).map(|cover| format!("yes: {:?}", cover)).unwrap_or("no".to_string())
+    );
 
     println!("\n--- Reachability Graph ---\n");
 
@@ -265,7 +269,7 @@ fn main() {
     println!("\n--- Commoner's Theorem (Free-Choice Liveness) ---\n");
 
     let m0 = Marking::from([3u32, 1, 0, 0, 0, 0]);
-    if net.is_free_choice() {
+    if net.is_free_choice_net() {
         let live = structural::commoner_hack_criterion(&net, &m0).is_satisfied();
         println!(
             "Net is free-choice. Commoner criterion: every siphon contains a marked trap? {live}",

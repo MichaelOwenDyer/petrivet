@@ -105,11 +105,15 @@ impl From<Transition> for Node {
     }
 }
 
-/// An ordinary Petri net N = (S, T, F).
-/// All arc weights are implicitly 1. No place capacities.
+/// An ordinary Petri net N = (S, T, F), where
+/// - S is a finite, nonempty set of places,
+/// - T is a finite, nonempty set of transitions,
+/// - F ⊆ (S × T) ∪ (T × S) is the flow relation
+/// (arcs from places to transitions and from transitions to places).
 ///
-/// Given x ∈ S ∪ T, the set •x = {y | (y, x) ∈ F} is called the preset of x,
-/// and the set x• = {y | (x, y) ∈ F} is called the postset of x.
+/// For algorithmic convenience, we represent places and transitions as
+/// dense indices (`0..|S|` and `0..|T|`), and store the presets and postsets
+/// of each place and transition for efficient queries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Net {
     /// Structural class of the net, cached at build time for efficient queries.
@@ -137,16 +141,34 @@ impl Net {
         self.preset_p.len()
     }
 
+    /// Iterator over all places.
+    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
+        (0..self.n_places()).map(|idx| Place { idx })
+    }
+
     /// Number of transitions in the net.
     #[must_use]
     pub fn n_transitions(&self) -> usize {
         self.preset_t.len()
     }
 
+    /// Iterator over all transitions.
+    pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
+        (0..self.n_transitions()).map(|idx| Transition { idx })
+    }
+
     /// Number of nodes in the net (places + transitions).
     #[must_use]
     pub fn n_nodes(&self) -> usize {
-        self.n_places() + self.n_transitions()
+        self.preset_p.len() + self.preset_t.len()
+    }
+
+    /// Iterator over all nodes (places then transitions).
+    pub fn nodes(&self) -> impl Iterator<Item = Node> + '_ {
+        Iterator::chain(
+            self.places().map(Node::Place),
+            self.transitions().map(Node::Transition)
+        )
     }
 
     /// Number of arcs in the net.
@@ -156,24 +178,6 @@ impl Net {
         std::iter::zip(self.preset_p.iter(), self.postset_p.iter())
             .map(|(pre, post)| pre.len() + post.len())
             .sum()
-    }
-
-    /// Iterator over all places.
-    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
-        (0..self.n_places()).map(|idx| Place { idx })
-    }
-
-    /// Iterator over all transitions.
-    pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
-        (0..self.n_transitions()).map(|idx| Transition { idx })
-    }
-
-    /// Iterator over all nodes (places then transitions).
-    pub fn nodes(&self) -> impl Iterator<Item = Node> + '_ {
-        Iterator::chain(
-            self.places().map(Node::Place),
-            self.transitions().map(Node::Transition)
-        )
     }
 
     /// Iterator over all arcs.
@@ -212,7 +216,7 @@ impl Net {
     /// A net is a circuit if it is both an S-net and a T-net.
     #[must_use]
     pub fn is_circuit(&self) -> bool {
-        use NetClass::*;
+        use NetClass::Circuit;
         matches!(self.class, Circuit)
     }
 
@@ -244,7 +248,7 @@ impl Net {
     /// This method returns true for any free-choice net, including S-nets, T-nets, and Circuits,
     /// and false otherwise. For strict comparison, see the `class()` method.
     #[must_use]
-    pub fn is_free_choice(&self) -> bool {
+    pub fn is_free_choice_net(&self) -> bool {
         use NetClass::*;
         matches!(self.class, Circuit | SNet | TNet | FreeChoice)
     }
@@ -255,7 +259,7 @@ impl Net {
     /// This includes all free-choice nets (and their subclasses).
     /// For strict comparison, see the `class()` method.
     #[must_use]
-    pub fn is_asymmetric_choice(&self) -> bool {
+    pub fn is_asymmetric_choice_net(&self) -> bool {
         use NetClass::*;
         matches!(self.class, Circuit | SNet | TNet | FreeChoice | AsymmetricChoice)
     }

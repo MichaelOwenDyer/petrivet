@@ -83,7 +83,7 @@ fn main() {
     // Simulate 12 steps, always picking the first enabled transition
     for step in 1..=12 {
         if let Some(t) = sys.fire_any() {
-            println!("Step {step:>2}: fire {:<8} → {}", names[t.index()], sys.marking());
+            println!("Step {step:>2}: fire {:<8} → {}", names[t.index()], sys.current_marking());
         } else {
             println!("Step {step:>2}: DEADLOCK");
             break;
@@ -91,7 +91,7 @@ fn main() {
 
         // Safety check: both processes must never be in critical section at once
         assert!(
-            sys.marking()[crit1] == 0 || sys.marking()[crit2] == 0,
+            sys.current_marking()[crit1] == 0 || sys.current_marking()[crit2] == 0,
             "mutual exclusion violated!"
         );
     }
@@ -113,7 +113,7 @@ fn main() {
         });
 
         if let Some(t) = fired {
-            println!("Step {step:>2}: fire {:<8} → {}", names[t.index()], sys.marking());
+            println!("Step {step:>2}: fire {:<8} → {}", names[t.index()], sys.current_marking());
         } else {
             println!("Step {step:>2}: DEADLOCK");
             break;
@@ -131,11 +131,11 @@ fn main() {
 
     println!("Requesting access for process 1...");
     sys.try_fire(t_req1).expect("should succeed");
-    println!("  Marking: {}", sys.marking());
+    println!("  Marking: {}", sys.current_marking());
 
     println!("Entering critical section...");
     sys.try_fire(t_enter1).expect("should succeed");
-    println!("  Marking: {}", sys.marking());
+    println!("  Marking: {}", sys.current_marking());
 
     println!("Process 2 requests and tries to enter...");
     sys.try_fire(t_req2).expect("should succeed");
@@ -146,11 +146,11 @@ fn main() {
 
     println!("Process 1 exits critical section...");
     sys.try_fire(t_exit1).expect("should succeed");
-    println!("  Marking: {}", sys.marking());
+    println!("  Marking: {}", sys.current_marking());
 
     println!("Now process 2 can enter...");
     sys.try_fire(t_enter2).expect("should succeed");
-    println!("  Marking: {}", sys.marking());
+    println!("  Marking: {}", sys.current_marking());
 
     println!("\n=== Done ===");
 }
@@ -158,7 +158,7 @@ fn main() {
 fn print_state(sys: &System<impl AsRef<petrivet::net::Net>>, names: &[&str]) {
     print!("State: ");
     for (i, &name) in names.iter().enumerate() {
-        let tokens = sys.marking()[petrivet::net::Place::from_index(i)];
+        let tokens = sys.current_marking()[petrivet::net::Place::from_index(i)];
         if tokens > 0 {
             print!("{name}={tokens} ");
         }

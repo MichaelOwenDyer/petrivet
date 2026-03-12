@@ -21,9 +21,9 @@
 //! invariant vectors, siphon/trap sets, or marking equation
 //! results for custom analysis.
 
-use crate::analysis::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CoverabilityResult, Deadlock, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, ReachabilityProof, ReachabilityResult, SNetComponent, SNetLivenessEvidence, TNetComponent, TNetLivenessEvidence, UnreachabilityProof};
+use crate::analysis::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CoverabilityProof, CoverabilityResult, Deadlock, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, ReachabilityProof, ReachabilityResult, SNetComponent, SNetLivenessEvidence, TNetComponent, TNetLivenessEvidence, NonCoverabilityProof, UnreachabilityProof};
 use crate::net::{Place, Transition};
-use crate::{CoverabilityGraph, ExplorationOrder, Marking, Net, Omega, System};
+use crate::{CoverabilityGraph, ExplorationOrder, Marking, Net, Omega, OmegaMarking, System};
 
 pub mod structural;
 pub mod semi_decision;
@@ -91,7 +91,7 @@ impl<N: AsRef<Net>> System<N> {
             return analyze_liveness_t_net(net, &self.initial_marking);
         }
 
-        if net.is_free_choice()
+        if net.is_free_choice_net()
             && let chc = structural::commoner_hack_criterion(net, &self.initial_marking)
             && chc.is_satisfied() {
             return LivenessAnalysis {
@@ -182,6 +182,10 @@ impl<N: AsRef<Net>> System<N> {
     pub fn analyze_reachability(&self, target: &Marking) -> ReachabilityResult {
         let net = self.net.as_ref();
 
+        if self.initial_marking == *target {
+            return ReachabilityProof::FiringSequence(Box::new([])).into();
+        }
+
         if net.is_s_net() {
             if net.is_strongly_connected() {
                 let initial_marking_sum = self.initial_marking.iter().sum::<u32>();
@@ -235,8 +239,49 @@ impl<N: AsRef<Net>> System<N> {
         }
     }
 
+    /// Analyzes coverability of a target marking with structured evidence.
+    ///
+    /// A marking `target` is **coverable** if there exists a reachable marking `M`
+    /// such that `M(p) >= target(p)` for every place `p`.
+    ///
+    /// Strategy (ascending cost):
+    /// 1. Trivial: if `M₀ >= target`, return immediately.
+    /// 2. LP covering equation (necessary): if infeasible, `target` is uncoverable.
+    /// 3. ILP covering equation (stronger necessary): if infeasible, uncoverable.
+    /// 4. Coverability graph (Karp–Miller): always terminates; exact.
+    ///
+    /// References:
+    /// - [Murata 1989, §V-A](crate::literature#v-a--the-coverability-tree) (coverability tree properties)
+    /// - [Primer, Proposition 3.23](crate::literature#proposition-323--finiteness-of-the-coverability-trees-and-graphs) (termination)
+    /// - [Primer, Proposition 3.27](crate::literature#proposition-327--all-that-can-be-checked-on-a-coverability-graph) (coverability via Cov(N))
+    /// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation) (necessary condition underpinning LP/ILP filters)
+    /// - [Esparza Lecture Notes, Theorem 3.2.5](crate::literature#theorem-325--coverability-graph-terminates) (termination, supplementary)
+    /// - [Esparza Lecture Notes, Theorem 3.2.8](crate::literature#theorem-328--coverability-characterization) (correctness, supplementary)
+    #[must_use]
     pub fn analyze_coverability(&self, target: &Marking) -> CoverabilityResult {
-        todo!()
+        let net = self.net.as_ref();
+
+        if self.initial_marking >= *target {
+            return CoverabilityProof {
+                firing_sequence: Box::new([]),
+                covering_marking: OmegaMarking::from(self.initial_marking.clone()),
+            }.into();
+        }
+
+        if semi_decision::find_covering_equation_rational_solution(net, &self.initial_marking, target).is_none() {
+            return NonCoverabilityProof::MarkingEquationNoRationalSolution.into();
+        }
+
+        if semi_decision::find_covering_equation_integer_solution(net, &self.initial_marking, target).is_none() {
+            return NonCoverabilityProof::MarkingEquationNoIntegerSolution.into();
+        }
+
+        CoverabilityGraph::new(self, ExplorationOrder::BreadthFirst)
+            .cover(&OmegaMarking::from(target))
+            .map_or_else(
+                || NonCoverabilityProof::ExhaustiveSearch.into(),
+                |proof| CoverabilityResult::Coverable(proof)
+            )
     }
 
     /// Whether the system is bounded (all places have finite token counts
@@ -299,7 +344,8 @@ impl<N: AsRef<Net>> System<N> {
 ///   SCC is reachable by tokens, **L0** otherwise.
 /// - Transitions whose source SCC has no tokens and cannot receive any: **L0**.
 ///
-/// References: [Murata 1989 Theorem 4](crate::literature#theorem-4--liveness-of-s-nets-state-machines), [Primer Corollary 5.30](crate::literature#corollary-530--liveness-of-s-systems).
+/// References: [Murata 1989 Theorem 4](crate::literature#theorem-4--liveness-of-s-nets-state-machines),
+/// [Primer Corollary 5.30](crate::literature#corollary-530--liveness-of-s-systems).
 fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
     use petgraph::graph::NodeIndex;
 
@@ -645,6 +691,7 @@ fn has_zero_token_cycle(
 mod tests {
     use super::*;
     use crate::net::builder::NetBuilder;
+    use crate::Omega;
 
     /// SC S-net (circuit): marked → all L4.
     #[test]
@@ -871,5 +918,69 @@ mod tests {
         let analysis = sys.analyze_liveness();
         assert!(analysis.net_level().is_live());
         assert!(matches!(analysis.method, LivenessMethod::FreeChoice(_)));
+    }
+
+    #[test]
+    fn coverability_initial_marking_covers() {
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arc((p0, t0)); b.add_arc((t0, p1));
+        b.add_arc((p1, t1)); b.add_arc((t1, p0));
+        let net = b.build().unwrap();
+        let sys = System::new(net, [1u32, 0]);
+
+        let res = sys.analyze_coverability(&Marking::from([1u32, 0]));
+        assert!(res.is_coverable());
+        match res {
+            CoverabilityResult::Coverable(CoverabilityProof { firing_sequence, covering_marking }) => {
+                assert_eq!(covering_marking, Marking::from([1u32, 0]));
+                assert_eq!(firing_sequence.len(), 0);
+            }
+            _ => panic!("expected InitialMarking proof"),
+        }
+    }
+
+    #[test]
+    fn coverability_uncoverable_detected_by_lp() {
+        // Two-place cycle with one token: cannot cover (1,1).
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arc((p0, t0)); b.add_arc((t0, p1));
+        b.add_arc((p1, t1)); b.add_arc((t1, p0));
+        let net = b.build().unwrap();
+        let sys = System::new(net, [1u32, 0]);
+
+        let res = sys.analyze_coverability(&Marking::from([1u32, 1]));
+        assert!(res.is_uncoverable());
+        assert!(matches!(
+            res,
+            CoverabilityResult::Uncoverable(NonCoverabilityProof::MarkingEquationNoRationalSolution)
+        ));
+    }
+
+    #[test]
+    fn coverability_unbounded_omega_witness() {
+        // Unbounded producer: t0 consumes p0 and produces p0 and p1.
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p0));
+        b.add_arc((t0, p1));
+        let net = b.build().unwrap();
+        let sys = System::new(net, [1u32, 0]);
+
+        let res = sys.analyze_coverability(&Marking::from([1u32, 10]));
+        assert!(res.is_coverable());
+        match res {
+            CoverabilityResult::Coverable(CoverabilityProof { covering_marking, .. }) => {
+                // p0 stays 1; p1 becomes ω in the coverability graph.
+                assert_eq!(covering_marking[p0], Omega::Finite(1));
+                assert!(covering_marking[p1] >= Omega::Finite(10));
+            }
+            _ => panic!("expected coverability-graph proof"),
+        }
     }
 }

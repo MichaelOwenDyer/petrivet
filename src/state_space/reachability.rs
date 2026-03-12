@@ -49,9 +49,6 @@ use crate::net::{Net, Transition};
 use crate::state_space::CoverabilityGraph;
 use crate::state_space::{explorer::ExplorerCore, ExplorationOrder};
 use crate::system::System;
-use petgraph::graph::NodeIndex;
-use petgraph::Graph;
-use std::collections::HashMap;
 
 /// A single step in reachability graph exploration.
 #[derive(Debug, Clone)]
@@ -113,7 +110,7 @@ impl<'a> ReachabilityExplorer<'a> {
     #[must_use]
     pub fn new(sys: &'a System<impl AsRef<Net>>, order: ExplorationOrder) -> Self {
         let net = sys.net().as_ref();
-        let marking = sys.marking().clone();
+        let marking = sys.current_marking().clone();
         Self {
             core: ExplorerCore::new(net, marking, order),
         }
@@ -209,7 +206,7 @@ impl<'a> ReachabilityExplorer<'a> {
     /// The initial marking.
     #[must_use]
     pub fn initial_marking(&self) -> &Marking {
-        self.core.marking_at(self.core.initial)
+        self.core.marking_at(self.core.initial_idx)
     }
 
     /// Whether `target` has been discovered so far.
@@ -221,7 +218,7 @@ impl<'a> ReachabilityExplorer<'a> {
     /// Returns a firing sequence from the initial marking to `target`,
     /// among states discovered so far.
     #[must_use]
-    pub fn path_to(&self, target: &Marking) -> Option<Vec<Transition>> {
+    pub fn path_to(&self, target: &Marking) -> Option<Box<[Transition]>> {
         let &target_idx = self.core.seen.get(target)?;
         self.core.path_to(target_idx)
     }
@@ -324,7 +321,7 @@ impl<'a> ReachabilityGraph<'a> {
     /// The initial marking.
     #[must_use]
     pub fn initial_marking(&self) -> &Marking {
-        self.core.marking_at(self.core.initial)
+        self.core.marking_at(self.core.initial_idx)
     }
 
     /// Whether `target` is reachable from the initial marking.
@@ -335,11 +332,11 @@ impl<'a> ReachabilityGraph<'a> {
 
     /// Returns a firing sequence from the initial marking to `target`.
     ///
-    /// When built with BFS, this is a shortest firing sequence.
+    /// When built with BFS, this is a minimal firing sequence.
     #[must_use]
     pub fn path_to(&self, target: &Marking) -> Option<Box<[Transition]>> {
-        let &target_idx = self.core.seen.get(target)?;
-        self.core.path_to(target_idx).map(Vec::into_boxed_slice)
+        self.core.seen.get(target)
+            .and_then(|&target_idx| self.core.path_to(target_idx))
     }
 
     /// Whether a marking exists in the graph.
@@ -483,49 +480,34 @@ impl<'a> TryFrom<CoverabilityGraph<'a>> for ReachabilityGraph<'a> {
     type Error = CoverabilityGraph<'a>;
 
     fn try_from(cg: CoverabilityGraph<'a>) -> Result<Self, Self::Error> {
-        if !cg.is_bounded() {
+        if !cg.is_fully_explored() || !cg.is_bounded() {
             return Err(cg);
         }
 
-        let cg_core = cg.into_core();
-        let order = cg_core.order;
-        let cg_initial = cg_core.initial;
-        let net = cg_core.net;
-
-        let source_transitions: Box<[Transition]> = net
-            .transitions()
-            .filter(|&t| net.preset_t(t).is_empty())
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
-
-        let mut graph: Graph<Marking<u32>, Transition> =
-            Graph::with_capacity(cg_core.graph.node_count(), cg_core.graph.edge_count());
-        let mut index_map: HashMap<NodeIndex, NodeIndex> = HashMap::new();
-        let mut seen: HashMap<Marking<u32>, NodeIndex> = HashMap::new();
-
-        for old_idx in cg_core.graph.node_indices() {
-            let u32_marking = unwrap_omega_marking_to_u32(&cg_core.graph[old_idx]);
-            let new_idx = graph.add_node(u32_marking.clone());
-            index_map.insert(old_idx, new_idx);
-            seen.insert(u32_marking, new_idx);
-        }
-
-        for edge in cg_core.graph.edge_indices() {
-            let (src, dst) = cg_core.graph.edge_endpoints(edge).unwrap();
-            let t = cg_core.graph[edge];
-            graph.add_edge(index_map[&src], index_map[&dst], t);
-        }
-
-        let initial = index_map[&cg_initial];
+        let net = cg.core.net;
+        let initial_idx = cg.core.initial_idx;
+        let order = cg.core.order;
+        let graph = cg.core.graph.map(
+            |_idx, omega_marking| unwrap_omega_marking_to_u32(omega_marking),
+            |_src, &t| t,
+        );
+        let seen = cg.core.seen
+            .into_iter()
+            .map(|(marking, idx)| {
+                (unwrap_omega_marking_to_u32(&marking), idx)
+            })
+            .collect();
+        let frontier = cg.core.frontier;
+        let source_transitions = cg.core.source_transitions;
 
         Ok(ReachabilityGraph {
             core: ExplorerCore {
+                net,
+                initial_idx,
+                order,
                 graph,
                 seen,
-                frontier: std::collections::VecDeque::new(),
-                net,
-                initial,
-                order,
+                frontier,
                 source_transitions,
             },
         })
@@ -536,7 +518,7 @@ fn unwrap_omega_marking_to_u32(om: &Marking<Omega>) -> Marking<u32> {
     om.iter()
         .map(|o| match o {
             Omega::Finite(n) => *n,
-            Omega::Unbounded => unreachable!("called on bounded graph"),
+            Omega::Unbounded => panic!("unwrap_omega_marking called on unbounded graph"),
         })
         .collect()
 }
@@ -802,7 +784,7 @@ mod tests {
         for t in &path {
             replay.try_fire(*t).expect("path should be valid");
         }
-        assert_eq!(replay.marking(), &target);
+        assert_eq!(replay.current_marking(), &target);
     }
 
     #[test]

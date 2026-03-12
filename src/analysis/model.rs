@@ -19,6 +19,7 @@ use crate::marking::Marking;
 use crate::net::{Place, Transition};
 use std::collections::HashSet;
 use crate::Omega;
+use crate::marking::OmegaMarking;
 
 pub type Siphon = HashSet<Place>;
 pub type Trap = HashSet<Place>;
@@ -79,12 +80,21 @@ pub struct BoundednessAnalysis {
 
 impl BoundednessAnalysis {
     /// Whether the system is bounded.
+    /// 
+    /// # Panics
+    /// 
+    /// Panics for the degenerate net which does not have any places.
     #[must_use]
     pub fn of_system(&self) -> Omega {
+        // unwrap safety: degenerate nets are not constructable via builder
         self.place_bounds.iter().max().copied().expect("at least one place")
     }
 
     /// Returns the bound for a specific place.
+    /// 
+    /// # Panics
+    /// 
+    /// Panics if the provided place is not found in the net.
     #[must_use]
     pub fn of_place(&self, p: Place) -> Omega {
         self.place_bounds[p.index()]
@@ -103,26 +113,13 @@ pub enum BoundednessAnalysisMethod {
     CoverabilityGraph,
 }
 
-/// Liveness level of a transition, following Murata 1989 §V-C.
+/// Liveness level of a transition from a given initial marking, following Murata 1989 §V-C.
 ///
 /// The levels form a strict hierarchy: L4 ⊂ L3 ⊂ L2 ⊂ L1, and L0 means
 /// the transition is dead (not even L1).
-// 0) dead (LO-live) if t can never be fired in any firing
-// sequence in L(Mo).
-// 1) L1-Live(potential/yfirab/e) if tcan be fired at least once
-// in some firing sequence in ,!(MO).
-// 2) L2-live if, given any positive integer k, t can be fired
-// at least k times in some firing sequence in L(Mo).
-// 3) L I l i v e if t appears infinitely, often i n some firing
-// sequence in L(Mo).
-// 4) L4-liveorliveif tisL7-IiveforeverymarkingMin R(Mo)
 ///
-/// L0: Dead: the transition never fires in any firing sequence from M₀.
-/// L1: Potentially firable - 
-///
-///
-/// For **bounded** nets, L2 and L3 coincide: if a transition can fire
-/// arbitrarily many times, the finite state space forces a cycle, making it
+/// For **bounded** nets, L2 and L3 coincide: if a transition can fire any positive
+/// integer k number of times, the finite state space forces a cycle, making it
 /// possible to fire infinitely often. We still distinguish them in the enum for
 /// theoretical completeness, but bounded-net analysis reports L3 when both
 /// L2 and L3 hold.
@@ -132,19 +129,19 @@ pub enum BoundednessAnalysisMethod {
 /// - Petri Net Primer, §5.4 (liveness)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LivenessLevel {
-    /// Dead: the transition never fires in any firing sequence from M₀.
+    /// Dead: the transition never fires in any firing sequence from the initial marking.
     L0,
-    /// Potentially firable: the transition fires at least once in some
-    /// firing sequence from M₀.
+    /// Potentially firable: there exists a firing sequence from the initial marking
+    /// where the transition fires at least once.
     L1,
-    /// For any positive integer k, there exists a firing sequence from
-    /// M₀ in which t fires at least k times. (Equivalent to L3 for bounded nets.)
+    /// For any positive integer `k`, there exists a firing sequence from the initial marking
+    /// where the transition fires at least `k` times (but not necessarily infinitely often!).
     L2,
-    /// There exists an infinite firing sequence from M₀ in which t
-    /// appears infinitely often.
+    /// Potentially infinitely fireable: there exists a firing sequence from the initial marking
+    /// where the transition fires infinitely many times.
     L3,
-    /// For every marking M reachable from M₀,
-    /// there exists a firing sequence from M that includes t.
+    /// Live: the transition is L1-live from every marking reachable from the initial marking
+    /// (can always become enabled again).
     L4,
 }
 
@@ -302,7 +299,7 @@ pub enum LivenessMethod {
     FreeChoice(CommonerHackCriterionResult),
     /// SCC analysis on the full reachability graph (bounded net).
     ReachabilityGraphSCC,
-    /// Current algorithms could not decide.
+    /// Current algorithms could not decide (unbounded general net).
     Inconclusive,
 }
 
@@ -443,7 +440,7 @@ pub enum CoverabilityResult {
     /// The target marking is coverable from M₀.
     Coverable(CoverabilityProof),
     /// The target marking is not coverable from M₀.
-    Uncoverable(UncoverabilityProof),
+    Uncoverable(NonCoverabilityProof),
 }
 
 impl CoverabilityResult {
@@ -460,17 +457,38 @@ impl CoverabilityResult {
     }
 }
 
+/// Proof that a marking is coverable.
+///
+/// For bounded nets, the coverability graph contains only finite markings, so the
+/// returned `covering_marking` is a reachable marking.
+///
+/// For unbounded nets, the coverability graph may contain ω-markings. An ω-marking
+/// that covers the target is still a valid proof of coverability, but it may not be
+/// a reachable marking itself. Instead, it represents the existence of reachable
+/// markings that can exceed any finite threshold on its ω-places.
+/// 
+/// A node of the coverability graph covers the target.
+///
+/// The witness firing sequence reaches a node in the coverability graph. The
+/// node marking may contain ω.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CoverabilityProof {
-    /// A firing sequence from M₀ to a marking M' that covers the target.
+    /// A firing sequence from M₀ to a node whose marking covers the target.
     pub firing_sequence: Box<[Transition]>,
-    /// The covering marking M' ≥ target.
-    pub covering_marking: Marking,
+    /// The node marking M″ with M″ ≥ target (may contain ω).
+    pub covering_marking: OmegaMarking,
+}
+
+impl From<CoverabilityProof> for CoverabilityResult {
+    fn from(value: CoverabilityProof) -> Self {
+        CoverabilityResult::Coverable(value)
+    }
 }
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum UncoverabilityProof {
+pub enum NonCoverabilityProof {
     /// The LP marking equation (rational relaxation) is infeasible.
     /// Some S-invariant is violated.
     MarkingEquationNoRationalSolution,
@@ -479,4 +497,10 @@ pub enum UncoverabilityProof {
     MarkingEquationNoIntegerSolution,
     /// Full coverability graph explored; target not covered.
     ExhaustiveSearch,
+}
+
+impl From<NonCoverabilityProof> for CoverabilityResult {
+    fn from(value: NonCoverabilityProof) -> Self {
+        CoverabilityResult::Uncoverable(value)
+    }
 }

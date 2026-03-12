@@ -209,6 +209,58 @@ pub fn find_covering_equation_rational_solution(
         })
 }
 
+/// Finds a non-negative integer solution to the covering equation:
+/// does there exist x ∈ ℕ^{|T|} such that `m₀ + N · x >= threshold`?
+///
+/// This is a stronger necessary condition than [`find_covering_equation_rational_solution`].
+/// If no integer solution exists, the target is definitely not coverable.
+///
+/// References:
+/// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation) (state equation is a necessary condition)
+/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (firing count vector must be integer)
+#[must_use]
+pub fn find_covering_equation_integer_solution(
+    net: &Net,
+    initial: &Marking,
+    threshold: &Marking,
+) -> Option<Box<[u32]>> {
+    use good_lp::{constraint, variable, Expression, ProblemVariables, SolverModel, Variable};
+
+    let mut variables = ProblemVariables::new();
+    let parikh_vector: Vec<Variable> = net
+        .transitions()
+        .map(|_| variables.add(variable().integer().min(0)))
+        .collect();
+
+    let incidence = net.incidence_matrix();
+    let constraints = net
+        .places()
+        .map(|p| {
+            let change: Expression = net
+                .transitions()
+                .map(|t| incidence.get(p, t) as f64 * parikh_vector[t.idx])
+                .sum();
+            let m0_p = f64::from(initial[p]);
+            let thresh = f64::from(threshold[p]);
+            // m₀[p] + Σ_t N[p][t] · x[t] >= threshold[p]
+            constraint!(change >= thresh - m0_p)
+        });
+
+    let objective: Expression = parikh_vector.iter().copied().sum();
+    variables
+        .minimise(objective)
+        .using(good_lp::microlp)
+        .with_all(constraints)
+        .solve()
+        .map_or(None, |solution| {
+            let firing_counts: Box<[u32]> = parikh_vector
+                .iter()
+                .map(|&v| solution.value(v).round() as u32)
+                .collect();
+            Some(firing_counts)
+        })
+}
+
 /// Checks structural boundedness: is the net bounded for every possible
 /// initial marking?
 ///

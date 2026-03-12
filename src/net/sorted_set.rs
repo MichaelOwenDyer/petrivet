@@ -1,4 +1,4 @@
-/// An owned, sorted, deduplicated set backed by a vec.
+/// An owned, sorted, set backed by a vec.
 ///
 /// Constructed once from a `Vec<T>`: the constructor sorts and deduplicates
 /// in place, then freezes the result into a `Box<[T]>`. The invariant
@@ -81,13 +81,6 @@ impl<T: Ord> SortedSet<T> {
     #[must_use]
     pub fn is_disjoint(&self, other: &Self) -> bool {
         !self.intersects(other)
-    }
-}
-
-impl<T> SortedSet<T> {
-    /// Consumes the set and returns the underlying `Vec<T>`.
-    pub(crate) fn into_vec(self) -> Vec<T> {
-        self.0
     }
 }
 
