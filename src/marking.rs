@@ -55,6 +55,41 @@ impl<T> Marking<T> {
     }
 }
 
+impl Marking<u32> {
+    /// Whether all places have zero tokens.
+    #[must_use]
+    pub fn is_zero(&self) -> bool {
+        self.0.iter().all(|&t| t == 0)
+    }
+
+    /// Total number of tokens across all places.
+    #[must_use]
+    pub fn total_tokens(&self) -> u64 {
+        self.0.iter().map(|&t| u64::from(t)).sum()
+    }
+
+    /// Places that have at least one token.
+    pub fn support(&self) -> impl Iterator<Item = Place> + '_ {
+        self.0.iter().enumerate().filter_map(|(i, &t)| {
+            if t > 0 { Some(Place { idx: i }) } else { None }
+        })
+    }
+
+    /// Applies a signed incidence vector to this marking.
+    ///
+    /// Returns `None` if any place would go below zero (transition not enabled).
+    #[must_use]
+    pub fn apply_delta(&self, delta: &[i64]) -> Option<Marking<u32>> {
+        debug_assert_eq!(self.len(), delta.len());
+        let mut result = Vec::with_capacity(self.len());
+        for (&tokens, &d) in self.0.iter().zip(delta.iter()) {
+            let new_val = i64::from(tokens) + d;
+            result.push(u32::try_from(new_val).ok()?);
+        }
+        Some(Marking(result.into_boxed_slice()))
+    }
+}
+
 impl<T: Default + Clone> Marking<T> {
     /// Creates a marking with the default value for each place.
     /// For `u32` this is 0; for `Omega` this is `Omega::Finite(0)`.
@@ -136,15 +171,16 @@ impl<T: fmt::Display> fmt::Display for Marking<T> {
     }
 }
 
-/// Folds element-wise orderings into a single partial ordering.
-/// Returns `None` if the elements are incomparable (some greater, some lesser).
-fn partial_cmp_fold(mut iter: impl Iterator<Item = Ordering>) -> Option<Ordering> {
-    iter.try_fold(Ordering::Equal, |acc, next| match (acc, next) {
+/// Merges two orderings in the context of element-wise comparison of markings.
+/// If either is `Equal`, returns the other. If both are `Less` or both are `Greater`, returns that.
+/// Otherwise, returns `None` (incomparable).
+fn merge_ordering(acc: Ordering, next: Ordering) -> Option<Ordering> {
+    match (acc, next) {
         (Ordering::Equal, o) | (o, Ordering::Equal) => Some(o),
         (Ordering::Less, Ordering::Less) => Some(Ordering::Less),
         (Ordering::Greater, Ordering::Greater) => Some(Ordering::Greater),
         _ => None,
-    })
+    }
 }
 
 /// Covering relation on markings:
@@ -153,42 +189,9 @@ fn partial_cmp_fold(mut iter: impl Iterator<Item = Ordering>) -> Option<Ordering
 impl<T: Ord> PartialOrd for Marking<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         debug_assert_eq!(self.len(), other.len());
-        partial_cmp_fold(iter::zip(&self.0, &other.0).map(|(a, b)| a.cmp(b)))
-    }
-}
-
-impl Marking<u32> {
-    /// Whether all places have zero tokens.
-    #[must_use]
-    pub fn is_zero(&self) -> bool {
-        self.0.iter().all(|&t| t == 0)
-    }
-
-    /// Total number of tokens across all places.
-    #[must_use]
-    pub fn total_tokens(&self) -> u64 {
-        self.0.iter().map(|&t| u64::from(t)).sum()
-    }
-
-    /// Places that have at least one token.
-    pub fn support(&self) -> impl Iterator<Item = Place> + '_ {
-        self.0.iter().enumerate().filter_map(|(i, &t)| {
-            if t > 0 { Some(Place { idx: i }) } else { None }
-        })
-    }
-
-    /// Applies a signed incidence vector to this marking.
-    ///
-    /// Returns `None` if any place would go below zero (transition not enabled).
-    #[must_use]
-    pub fn apply_delta(&self, delta: &[i64]) -> Option<Marking<u32>> {
-        debug_assert_eq!(self.len(), delta.len());
-        let mut result = Vec::with_capacity(self.len());
-        for (&tokens, &d) in self.0.iter().zip(delta.iter()) {
-            let new_val = i64::from(tokens) + d;
-            result.push(u32::try_from(new_val).ok()?);
-        }
-        Some(Marking(result.into_boxed_slice()))
+        iter::zip(&self.0, &other.0)
+            .map(|(a, b)| a.cmp(b))
+            .try_fold(Ordering::Equal, merge_ordering)
     }
 }
 
@@ -320,9 +323,9 @@ impl PartialEq<Marking<u32>> for Marking<Omega> {
 impl PartialOrd<Marking<Omega>> for Marking<u32> {
     fn partial_cmp(&self, other: &Marking<Omega>) -> Option<Ordering> {
         debug_assert_eq!(self.len(), other.len());
-        partial_cmp_fold(
-            iter::zip(&self.0, &other.0).map(|(&n, o)| Omega::Finite(n).cmp(o))
-        )
+        iter::zip(&self.0, &other.0)
+            .map(|(&n, o)| Omega::Finite(n).cmp(o))
+            .try_fold(Ordering::Equal, merge_ordering)
     }
 }
 
