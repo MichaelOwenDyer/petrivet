@@ -46,7 +46,7 @@ use crate::analysis::model::LivenessLevel;
 use crate::marking::{Marking, Omega};
 use crate::net::{Net, Transition};
 use crate::state_space::explorer::StateGraph;
-use crate::state_space::{explorer::StateSpaceExplorer, CoverabilityExplorer, CoverabilityGraph, ExplorationOrder};
+use crate::state_space::{explorer::StateSpaceExplorer, CoverabilityGraph, ExplorationOrder};
 use crate::system::System;
 
 /// An incremental exploration handle for a Petri net's reachability graph.

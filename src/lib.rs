@@ -36,6 +36,8 @@ pub mod system;
 pub mod state_space;
 pub mod analysis;
 pub mod literature;
+#[cfg(feature = "pnml")]
+pub mod pnml;
 
 pub use analysis::model::LivenessLevel;
 pub use marking::*;

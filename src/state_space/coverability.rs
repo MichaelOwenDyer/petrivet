@@ -226,6 +226,7 @@ impl fmt::Debug for CoverabilityExplorer<'_> {
 #[derive(Clone)]
 pub struct CoverabilityGraph<'a> {
     pub(super) state_space: StateGraph<'a, Omega>, // todo: make private
+    #[expect(dead_code)] // currently unused but may be useful for quick access in future queries
     place_bounds: Box<[Omega]>, // precompute place bounds for quick access
 }
 
