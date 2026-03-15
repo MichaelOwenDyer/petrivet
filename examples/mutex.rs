@@ -30,6 +30,7 @@
 
 use petrivet::net::builder::NetBuilder;
 use petrivet::system::System;
+use petrivet::{Net, Place};
 
 fn main() {
     println!("=== Mutual Exclusion Protocol ===\n");
@@ -72,7 +73,7 @@ fn main() {
 
     // Initial marking: both processes idle, mutex available
     // Places: idle1, wait1, crit1, idle2, wait2, crit2, mutex
-    let mut sys = System::new(net, [1, 0, 0, 1, 0, 0, 1]);
+    let mut sys = System::new(&net, [1, 0, 0, 1, 0, 0, 1]);
 
     let names = ["req1", "enter1", "exit1", "req2", "enter2", "exit2"];
     let place_names = ["idle1", "wait1", "crit1", "idle2", "wait2", "crit2", "mutex"];
@@ -100,7 +101,7 @@ fn main() {
     print_state(&sys, &place_names);
 
     println!("\n--- Priority simulation: process 2 has priority ---\n");
-    sys.reset();
+    let mut sys = System::new(&net, [1, 0, 0, 1, 0, 0, 1]);
     print_state(&sys, &place_names);
 
     for step in 1..=12 {
@@ -121,7 +122,7 @@ fn main() {
     }
 
     println!("\n--- Manual firing with try_fire ---\n");
-    sys.reset();
+    let mut sys = System::new(&net, [1, 0, 0, 1, 0, 0, 1]);
 
     println!("Trying to enter critical section without requesting first...");
     match sys.try_fire(t_enter1) {
@@ -155,10 +156,10 @@ fn main() {
     println!("\n=== Done ===");
 }
 
-fn print_state(sys: &System<impl AsRef<petrivet::net::Net>>, names: &[&str]) {
+fn print_state(sys: &System<impl AsRef<Net>>, names: &[&str]) {
     print!("State: ");
     for (i, &name) in names.iter().enumerate() {
-        let tokens = sys.current_marking()[petrivet::net::Place::from_index(i)];
+        let tokens = sys.current_marking()[Place::from_index(i)];
         if tokens > 0 {
             print!("{name}={tokens} ");
         }

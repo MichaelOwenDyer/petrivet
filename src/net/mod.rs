@@ -137,29 +137,29 @@ impl Net {
 
     /// Number of places in the net.
     #[must_use]
-    pub fn n_places(&self) -> usize {
+    pub fn place_count(&self) -> usize {
         self.preset_p.len()
     }
 
     /// Iterator over all places.
     pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
-        (0..self.n_places()).map(|idx| Place { idx })
+        (0..self.place_count()).map(|idx| Place { idx })
     }
 
     /// Number of transitions in the net.
     #[must_use]
-    pub fn n_transitions(&self) -> usize {
+    pub fn transition_count(&self) -> usize {
         self.preset_t.len()
     }
 
     /// Iterator over all transitions.
     pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
-        (0..self.n_transitions()).map(|idx| Transition { idx })
+        (0..self.transition_count()).map(|idx| Transition { idx })
     }
 
     /// Number of nodes in the net (places + transitions).
     #[must_use]
-    pub fn n_nodes(&self) -> usize {
+    pub fn node_count(&self) -> usize {
         self.preset_p.len() + self.preset_t.len()
     }
 
@@ -173,7 +173,7 @@ impl Net {
 
     /// Number of arcs in the net.
     #[must_use]
-    pub fn n_arcs(&self) -> usize {
+    pub fn arc_count(&self) -> usize {
         // Either sum of all presets/postsets of transitions or places should give the same count.
         std::iter::zip(self.preset_p.iter(), self.postset_p.iter())
             .map(|(pre, post)| pre.len() + post.len())
@@ -189,25 +189,25 @@ impl Net {
         })
     }
 
-    /// Preset of a transition: input places (•t).
+    /// Preset of a transition: places that this transition consumes tokens from (•t).
     #[must_use]
     pub fn preset_t(&self, t: Transition) -> &SortedSet<Place> {
         &self.preset_t[t.idx]
     }
 
-    /// Postset of a transition: output places (t•).
+    /// Postset of a transition: places that this transition produces tokens into (t•).
     #[must_use]
     pub fn postset_t(&self, t: Transition) -> &SortedSet<Place> {
         &self.postset_t[t.idx]
     }
 
-    /// Preset of a place: transitions that produce into this place (•p).
+    /// Preset of a place: transitions that produce tokens into this place (•p).
     #[must_use]
     pub fn preset_p(&self, p: Place) -> &SortedSet<Transition> {
         &self.preset_p[p.idx]
     }
 
-    /// Postset of a place: transitions that consume from this place (p•).
+    /// Postset of a place: transitions that consume tokens from this place (p•).
     #[must_use]
     pub fn postset_p(&self, p: Place) -> &SortedSet<Transition> {
         &self.postset_p[p.idx]
@@ -292,7 +292,7 @@ impl Net {
     #[must_use]
     pub fn is_strongly_connected(&self) -> bool {
         use petgraph::graph::NodeIndex;
-        let mut graph = petgraph::Graph::<Node, ()>::with_capacity(self.n_nodes(), self.n_arcs());
+        let mut graph = petgraph::Graph::<Node, ()>::with_capacity(self.node_count(), self.arc_count());
         let p_indices: Vec<NodeIndex> = self.places().map(|p| graph.add_node(Node::Place(p))).collect();
         let t_indices: Vec<NodeIndex> = self.transitions().map(|t| graph.add_node(Node::Transition(t))).collect();
         self.arcs().for_each(|arc| match arc {
@@ -350,28 +350,28 @@ mod tests {
     #[test]
     fn test_n_places() {
         let net = example_net();
-        assert_eq!(net.n_places(), 2);
-        assert_eq!(net.n_places(), net.places().count());
+        assert_eq!(net.place_count(), 2);
+        assert_eq!(net.place_count(), net.places().count());
     }
 
     #[test]
     fn test_n_transitions() {
         let net = example_net();
-        assert_eq!(net.n_transitions(), 2);
-        assert_eq!(net.n_transitions(), net.transitions().count());
+        assert_eq!(net.transition_count(), 2);
+        assert_eq!(net.transition_count(), net.transitions().count());
     }
 
     #[test]
     fn test_n_nodes() {
         let net = example_net();
-        assert_eq!(net.n_nodes(), 4);
-        assert_eq!(net.n_nodes(), net.nodes().count());
+        assert_eq!(net.node_count(), 4);
+        assert_eq!(net.node_count(), net.nodes().count());
     }
 
     #[test]
     fn test_n_arcs() {
         let net = example_net();
-        assert_eq!(net.n_arcs(), 4);
-        assert_eq!(net.n_arcs(), net.arcs().count());
+        assert_eq!(net.arc_count(), 4);
+        assert_eq!(net.arc_count(), net.arcs().count());
     }
 }

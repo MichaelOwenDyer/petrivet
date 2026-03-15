@@ -38,11 +38,10 @@ use petrivet::analysis::semi_decision;
 use petrivet::analysis::structural;
 use petrivet::marking::Marking;
 use petrivet::net::builder::NetBuilder;
-use petrivet::OmegaMarking;
-use petrivet::state_space::CoverabilityGraph;
 use petrivet::state_space::ExplorationOrder;
 use petrivet::state_space::{ReachabilityExplorer, ReachabilityGraph};
 use petrivet::system::System;
+use petrivet::OmegaMarking;
 
 fn main() {
     println!("=== PCB Assembly Line Analysis ===\n");
@@ -89,7 +88,7 @@ fn main() {
     let place_names = ["raw", "station", "soldered", "passed", "failed", "done"];
     let trans_names = ["solder", "inspect_pass", "ship", "rework", "inspect_fail"];
 
-    println!("Net: {} places, {} transitions", net.n_places(), net.n_transitions());
+    println!("Net: {} places, {} transitions", net.place_count(), net.transition_count());
     println!("Structural class: {}", net.class());
 
     println!("\n--- Structural Analysis ---\n");
@@ -110,7 +109,7 @@ fn main() {
     }
     println!(
         "  Covered by S-invariants (conservative): {}",
-        inv.is_covered_by_s_invariants(net.n_places())
+        inv.is_covered_by_s_invariants(net.place_count())
     );
 
     println!(
@@ -190,14 +189,18 @@ fn main() {
 
     println!("\n--- Coverability Graph ---\n");
 
-    let cg = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-    println!("States: {}, Edges: {}", cg.state_count(), cg.edge_count());
+    let cg = sys.build_coverability_graph();
+    println!("Markings: {}, Edges: {}", cg.marking_count(), cg.edge_count());
     println!("Bounded: {}", cg.is_bounded());
 
-    let threshold = OmegaMarking::from([0u32, 1, 0, 0, 0, 3]);
+    // todo: make this more ergonomic:
+    let threshold = OmegaMarking::from([0u32.into(), 1.into(), 0.into(), 0.into(), 0.into(), 3.into()]);
     println!(
         "All-done marking coverable: {}",
-        cg.cover(&threshold).map(|cover| format!("yes: {:?}", cover)).unwrap_or("no".to_string())
+        cg.cover(&threshold).map_or_else(
+            || "no".to_string(),
+            |cover| format!("yes: {cover:?}")
+        )
     );
 
     println!("\n--- Reachability Graph ---\n");

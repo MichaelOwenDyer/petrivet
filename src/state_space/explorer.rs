@@ -1,7 +1,7 @@
 //! Shared exploration core for reachability and coverability graph construction.
 //!
 //! This module is crate-private. Users interact with
-//! [`CoverabilityGraph`](crate::CoverabilityGraph) and
+//! [`CoverabilityGraph`](crate::CoverabilityExplorer) and
 //! [`ReachabilityGraph`](crate::ReachabilityGraph) instead.
 
 use crate::marking::{Marking, Omega};
@@ -60,29 +60,23 @@ pub enum ExplorationOrder {
 /// Borrows the [`Net`] for its lifetime - the graph cannot outlive the net
 /// it explores.
 #[derive(Debug, Clone)]
-pub(super) struct ExplorerCore<'a, T: TokenOps> {
-    /// Reference to the net being explored.
-    pub net: &'a Net,
-    /// The node index of the initial marking, for pathfinding.
-    pub initial_idx: NodeIndex,
+pub(super) struct StateSpaceExplorer<'a, T: TokenOps> {
+    /// The state space being explored.
+    /// Can be extracted once exploration is complete.
+    pub(super) state_space: StateGraph<'a, T>,
     /// The exploration order: breadth-first or depth-first.
     /// Corresponds to queue vs stack behavior of the frontier.
-    pub order: ExplorationOrder,
-    /// The state space graph. Nodes are markings, edges are transitions.
-    pub graph: Graph<Marking<T>, Transition>,
-    /// A hash table of seen markings to their node indices in the graph,
-    /// for O(1) lookup.
-    pub seen: HashMap<Marking<T>, NodeIndex>,
+    pub(super) order: ExplorationOrder,
     /// The worklist of potentially enabled transitions which we have not
     /// yet investigated firing from their source markings.
-    pub frontier: VecDeque<(NodeIndex, Transition)>,
+    frontier: VecDeque<(NodeIndex, Transition)>,
     /// Transitions with empty presets - always enabled, and should
     /// always be explored from every new marking regardless of the
     /// marked places.
-    pub(crate) source_transitions: Box<[Transition]>,
+    source_transitions: Box<[Transition]>,
 }
 
-impl<'a, T: TokenOps> ExplorerCore<'a, T> {
+impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     /// Create a new explorer from a net reference and initial marking.
     ///
     /// Seeds the frontier with source transitions (empty preset, always
@@ -90,61 +84,64 @@ impl<'a, T: TokenOps> ExplorerCore<'a, T> {
     /// of the initial marking.
     pub fn new(net: &'a Net, initial_marking: Marking<T>, order: ExplorationOrder) -> Self {
         let mut graph = Graph::new();
-        let mut seen = HashMap::new();
-        let mut frontier = VecDeque::new();
+        let initial_idx = graph.add_node(initial_marking.clone());
 
         let source_transitions: Box<[Transition]> = net
             .transitions()
             .filter(|&t| net.preset_t(t).is_empty())
             .collect();
 
-        let root = graph.add_node(initial_marking.clone());
-
-        net.places()
+        let frontier: VecDeque<_> = net.places()
             .filter(|&p| initial_marking[p].at_least_one())
             .flat_map(|p| net.postset_p(p).iter().copied())
             .chain(source_transitions.iter().copied())
             .collect::<HashSet<Transition>>()
             .into_iter()
-            .for_each(|t| frontier.push_back((root, t)));
+            .map(|t| (initial_idx, t))
+            .collect();
 
-        seen.insert(initial_marking, root);
+        let mut seen = HashMap::new();
+        seen.insert(initial_marking, initial_idx);
 
-        Self { graph, seen, frontier, net, initial_idx: root, order, source_transitions }
+        let state_space = StateGraph { net, initial_idx, graph, seen };
+
+        Self { state_space, order, frontier, source_transitions }
     }
 
-    /// Change the exploration order for subsequent steps.
-    pub fn set_exploration_order(&mut self, order: ExplorationOrder) {
-        self.order = order;
+    /// The number of items in the frontier, for debugging or instrumentation.
+    pub fn frontier_count(&self) -> usize {
+        self.frontier.len()
     }
 
-    pub fn exploration_order(&self) -> ExplorationOrder {
-        self.order
+    /// Whether the frontier is empty (exploration complete).
+    pub fn is_fully_explored(&self) -> bool {
+        self.frontier.is_empty()
     }
 
     /// Pop the next `(NodeIndex, Transition)` from the frontier.
-    pub fn pop(&mut self) -> Option<(NodeIndex, Transition)> {
+    pub fn pop_frontier(&mut self) -> Option<(NodeIndex, Transition)> {
         match self.order {
             ExplorationOrder::BreadthFirst => self.frontier.pop_front(),
             ExplorationOrder::DepthFirst => self.frontier.pop_back(),
         }
     }
 
+    // todo: relocate is_enabled() and fire()?
     /// Whether a transition is enabled at the marking stored in `node`.
     pub fn is_enabled(&self, node: NodeIndex, t: Transition) -> bool {
-        let marking = &self.graph[node];
-        self.net.preset_t(t).iter().all(|&p| marking[p].at_least_one())
+        let marking = &self.state_space.graph[node];
+        self.state_space.net.preset_t(t).iter().all(|&p| marking[p].at_least_one())
     }
 
     /// Compute the marking that results from firing `t` at `node`.
     ///
     /// Caller must ensure the transition is enabled.
     pub fn fire(&self, node: NodeIndex, t: Transition) -> Marking<T> {
-        let mut result = self.graph[node].clone();
-        for &p in self.net.preset_t(t) {
+        let mut result = self.state_space.graph[node].clone();
+        for &p in self.state_space.net.preset_t(t) {
             result[p].decrement();
         }
-        for &p in self.net.postset_t(t) {
+        for &p in self.state_space.net.postset_t(t) {
             result[p].increment();
         }
         result
@@ -161,37 +158,48 @@ impl<'a, T: TokenOps> ExplorerCore<'a, T> {
         over: Transition,
         marking: Marking<T>,
     ) -> (NodeIndex, bool) {
-        if let Some(&idx) = self.seen.get(&marking) {
-            self.graph.add_edge(from, idx, over);
+        if let Some(&idx) = self.state_space.seen.get(&marking) {
+            self.state_space.graph.add_edge(from, idx, over);
             return (idx, false);
         }
 
-        let idx = self.graph.add_node(marking.clone());
-        self.graph.add_edge(from, idx, over);
+        let idx = self.state_space.graph.add_node(marking.clone());
+        self.state_space.graph.add_edge(from, idx, over);
 
         // seed frontier with all transitions that could possibly be enabled at this marking
-        self.net
+        self.state_space.net
             .places()
             .filter(|&p| marking[p].at_least_one())
-            .flat_map(|p| self.net.postset_p(p).iter().copied())
+            .flat_map(|p| self.state_space.net.postset_p(p).iter().copied())
             .chain(self.source_transitions.iter().copied())
             .collect::<HashSet<Transition>>()
             .into_iter()
             .for_each(|t| self.frontier.push_back((idx, t)));
 
-        self.seen.insert(marking, idx);
+        self.state_space.seen.insert(marking, idx);
 
         (idx, true)
     }
+}
 
+#[derive(Debug, Clone)]
+pub(super) struct StateGraph<'a, T: TokenOps> {
+    /// Reference to the net.
+    pub net: &'a Net,
+    /// Reference to the graph's initial node, for pathfinding.
+    pub initial_idx: NodeIndex,
+    /// The underlying graph structure. Nodes are markings, edges are transitions.
+    pub graph: Graph<Marking<T>, Transition>,
+    /// A hash table of seen markings to their node indices in the graph,
+    /// for O(1) lookup.
+    pub seen: HashMap<Marking<T>, NodeIndex>,
+}
+
+/// A fully explored state space.
+impl<T: TokenOps> StateGraph<'_, T> {
     /// Reference to the marking at a given node.
     pub fn marking_at(&self, idx: NodeIndex) -> &Marking<T> {
         &self.graph[idx]
-    }
-
-    /// Whether the frontier is empty (exploration complete).
-    pub fn is_fully_explored(&self) -> bool {
-        self.frontier.is_empty()
     }
 
     /// Find a path from initial to target using A*.
@@ -206,16 +214,18 @@ impl<'a, T: TokenOps> ExplorerCore<'a, T> {
             |_| 1u32,
             |_| 0u32,
         )?;
-        let mut transitions = Vec::with_capacity(node_path.len() - 1);
-        for &[m1, m2] in node_path.array_windows() {
-            let edge = self.graph.find_edge(m1, m2)?;
-            transitions.push(self.graph[edge]);
-        }
-        Some(transitions.into_boxed_slice())
+        let transition_path = node_path
+            .array_windows()
+            .map(|&[m1_idx, m2_idx]| {
+                self.graph.find_edge(m1_idx, m2_idx).expect("edge must exist")
+            })
+            .map(|edge_idx| self.graph[edge_idx])
+            .collect();
+        Some(transition_path)
     }
 
     /// Node indices with no outgoing edges (deadlocked states).
-    pub fn deadlock_indices(&self) -> Vec<NodeIndex> {
+    pub fn deadlock_indices(&self) -> impl Iterator<Item = NodeIndex> {
         self.graph
             .node_indices()
             .filter(|&idx| {
@@ -224,6 +234,5 @@ impl<'a, T: TokenOps> ExplorerCore<'a, T> {
                     .next()
                     .is_none()
             })
-            .collect()
     }
 }

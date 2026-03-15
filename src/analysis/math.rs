@@ -4,9 +4,9 @@
 //! of an integer matrix. Used internally for S-invariant and T-invariant
 //! computation.
 
-use std::iter;
 use crate::analysis::structural::IncidenceMatrix;
 use crate::Place;
+use std::iter;
 
 /// Computes an integer basis for the null space of the given matrix.
 ///
@@ -18,8 +18,8 @@ use crate::Place;
 /// rational arithmetic entirely.
 #[must_use]
 pub fn integer_null_space(matrix: &IncidenceMatrix) -> Box<[Box<[i32]>]> {
-    let rows = matrix.n_rows();
-    let cols = matrix.n_cols();
+    let rows = matrix.row_count();
+    let cols = matrix.column_count();
 
     if rows == 0 || cols == 0 {
         return (0..cols).map(|i| {
@@ -134,8 +134,8 @@ fn gcd_u64(a: u32, b: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Place, Transition};
     use super::*;
+    use crate::{Place, Transition};
 
     fn mat_from_vecs(rows: &[&[i32]]) -> IncidenceMatrix {
         let n_rows = rows.len();
@@ -148,8 +148,8 @@ mod tests {
 
     fn verify_null_space(matrix: &IncidenceMatrix, basis: &[Box<[i32]>]) {
         for row in basis {
-            for r in 0..matrix.n_rows() {
-                let dot: i32 = (0..matrix.n_cols())
+            for r in 0..matrix.row_count() {
+                let dot: i32 = (0..matrix.column_count())
                     .map(|c| matrix.get(Place { idx: r }, Transition { idx: c }) * row[c])
                     .sum();
                 assert_eq!(dot, 0, "null space vector is not in kernel");

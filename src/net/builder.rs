@@ -1,11 +1,11 @@
 //! Builder for constructing Petri nets.
 
-use std::collections::VecDeque;
+use crate::class::NetClass;
 use crate::net::{Arc, Net, Place, SortedSet, Transition};
+use crate::Node;
+use std::collections::VecDeque;
 use std::error::Error;
 use std::{fmt, iter};
-use crate::class::NetClass;
-use crate::Node;
 
 /// Builder for constructing an ordinary Petri net.
 ///
@@ -77,7 +77,7 @@ impl NetBuilder {
 
     /// Adds a single place, returning its handle.
     pub fn add_place(&mut self) -> Place {
-        let p = Place { idx: self.n_places() };
+        let p = Place { idx: self.place_count() };
         self.preset_p.push(SortedSet::new());
         self.postset_p.push(SortedSet::new());
         p
@@ -96,7 +96,7 @@ impl NetBuilder {
 
     /// Adds a single transition, returning its handle.
     pub fn add_transition(&mut self) -> Transition {
-        let t = Transition { idx: self.n_transitions() };
+        let t = Transition { idx: self.transition_count() };
         self.preset_t.push(SortedSet::new());
         self.postset_t.push(SortedSet::new());
         t
@@ -176,18 +176,18 @@ impl NetBuilder {
     /// Will panic if the arc references a place or transition with an out-of-bounds index,
     /// e.g. if you use a handle from a different builder or add an arc before adding the referenced nodes.
     pub fn add_arcs<A: IntoArcs>(&mut self, arcs: A) -> bool {
-        arcs.into_arcs().map(|arc| self.add_arc(arc)).all(|b| b)
+        arcs.into_arcs().all(|arc| self.add_arc(arc))
     }
 
     /// Number of places added so far.
     #[must_use]
-    pub fn n_places(&self) -> usize {
+    pub fn place_count(&self) -> usize {
         self.preset_p.len()
     }
 
     /// Number of transitions added so far.
     #[must_use]
-    pub fn n_transitions(&self) -> usize {
+    pub fn transition_count(&self) -> usize {
         self.preset_t.len()
     }
 
@@ -212,7 +212,7 @@ impl NetBuilder {
     /// - [`BuildError::Empty`] if the builder has zero places or zero transitions.
     /// - [`BuildError::NotConnected`] if any place or transition has no arcs.
     pub fn build(self) -> Result<Net, BuildError> {
-        if self.n_places() == 0 || self.n_transitions() == 0 {
+        if self.place_count() == 0 || self.transition_count() == 0 {
             return Err(BuildError::Empty);
         }
 
@@ -371,8 +371,8 @@ mod tests {
         b.add_arc((p1, t1));
         b.add_arc((t1, p2));
         let net = b.build().unwrap();
-        assert_eq!(net.n_places(), 3);
-        assert_eq!(net.n_transitions(), 2);
+        assert_eq!(net.place_count(), 3);
+        assert_eq!(net.transition_count(), 2);
     }
 
     #[test]
@@ -526,8 +526,8 @@ mod tests {
         b.add_arc((t, p));
         let net = b.build().expect("valid net");
         assert_eq!(net.class(), NetClass::Circuit);
-        assert_eq!(net.n_places(), 1);
-        assert_eq!(net.n_transitions(), 1);
+        assert_eq!(net.place_count(), 1);
+        assert_eq!(net.transition_count(), 1);
     }
 
     /// Source transition (no input places) - builder should accept this.
@@ -567,8 +567,8 @@ mod tests {
         let original = b.build().expect("valid net");
 
         let b2 = NetBuilder::from(original.clone());
-        assert_eq!(b2.n_places(), 3);
-        assert_eq!(b2.n_transitions(), 2);
+        assert_eq!(b2.place_count(), 3);
+        assert_eq!(b2.transition_count(), 2);
 
         let rebuilt = b2.build().expect("round-trip should produce valid net");
         assert_eq!(rebuilt, original);
@@ -595,8 +595,8 @@ mod tests {
         b2.add_arc((p_new, t1));
         let extended = b2.build().expect("valid extended net");
 
-        assert_eq!(extended.n_places(), 3);
-        assert_eq!(extended.n_transitions(), 3);
+        assert_eq!(extended.place_count(), 3);
+        assert_eq!(extended.transition_count(), 3);
         // Original handles still work
         assert!(extended.preset_t(t0).contains(&p0));
         assert!(extended.postset_t(t0).contains(&p1));

@@ -17,8 +17,7 @@
 //! ```
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::system::System;
-//! use petrivet::{CoverabilityGraph, ReachabilityGraph, ExplorationOrder};
-//!
+//! //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
 //! let [t0, t1] = b.add_transitions();
@@ -28,7 +27,7 @@
 //! let sys = System::new(net, [1, 0]);
 //!
 //! // 1. Build coverability graph (always terminates)
-//! let cg = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+//! let cg = sys.build_coverability_graph();
 //!
 //! // 2. If bounded, promote to reachability graph for exact analysis
 //! if let Ok(rg) = cg.into_reachability_graph() {
@@ -46,20 +45,9 @@
 use crate::analysis::model::LivenessLevel;
 use crate::marking::{Marking, Omega};
 use crate::net::{Net, Transition};
-use crate::state_space::CoverabilityGraph;
-use crate::state_space::{explorer::ExplorerCore, ExplorationOrder};
+use crate::state_space::explorer::StateGraph;
+use crate::state_space::{explorer::StateSpaceExplorer, CoverabilityExplorer, CoverabilityGraph, ExplorationOrder};
 use crate::system::System;
-
-/// A single step in reachability graph exploration.
-#[derive(Debug, Clone)]
-pub struct ReachabilityStep {
-    /// The transition that was fired.
-    pub transition: Transition,
-    /// The resulting marking.
-    pub marking: Marking,
-    /// Whether this marking was newly discovered.
-    pub is_new: bool,
-}
 
 /// An incremental exploration handle for a Petri net's reachability graph.
 ///
@@ -92,17 +80,18 @@ pub struct ReachabilityStep {
 /// assert!(!explorer.is_fully_explored()); // unbounded → never finishes
 /// ```
 pub struct ReachabilityExplorer<'a> {
-    core: ExplorerCore<'a, u32>,
+    core: StateSpaceExplorer<'a, u32>,
 }
 
-impl std::fmt::Debug for ReachabilityExplorer<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReachabilityExplorer")
-            .field("state_count", &self.state_count())
-            .field("edge_count", &self.edge_count())
-            .field("is_fully_explored", &self.is_fully_explored())
-            .finish()
-    }
+/// A single step in reachability graph exploration.
+#[derive(Debug, Clone)]
+pub struct ReachabilityStep {
+    /// The transition that was fired.
+    pub transition: Transition,
+    /// The resulting marking.
+    pub marking: Marking,
+    /// Whether this marking was newly discovered.
+    pub is_new: bool,
 }
 
 impl<'a> ReachabilityExplorer<'a> {
@@ -112,7 +101,7 @@ impl<'a> ReachabilityExplorer<'a> {
         let net = sys.net().as_ref();
         let marking = sys.current_marking().clone();
         Self {
-            core: ExplorerCore::new(net, marking, order),
+            core: StateSpaceExplorer::new(net, marking, order),
         }
     }
 
@@ -121,12 +110,12 @@ impl<'a> ReachabilityExplorer<'a> {
     /// Returns `None` when the frontier is exhausted (fully explored).
     pub fn explore_next(&mut self) -> Option<ReachabilityStep> {
         loop {
-            let (src, t) = self.core.pop()?;
-            if !self.core.is_enabled(src, t) {
+            let (src_idx, t) = self.core.pop_frontier()?;
+            if !self.core.is_enabled(src_idx, t) {
                 continue;
             }
-            let new_marking = self.core.fire(src, t);
-            let (_, is_new) = self.core.register(src, t, new_marking.clone());
+            let new_marking = self.core.fire(src_idx, t);
+            let (_, is_new) = self.core.register(src_idx, t, new_marking.clone());
             return Some(ReachabilityStep {
                 transition: t,
                 marking: new_marking,
@@ -174,15 +163,15 @@ impl<'a> ReachabilityExplorer<'a> {
         while self.explore_next().is_some() {}
     }
 
-    /// Change the exploration order for subsequent steps.
-    pub fn set_exploration_order(&mut self, order: ExplorationOrder) {
-        self.core.set_exploration_order(order);
-    }
-
     /// Current exploration order.
     #[must_use]
     pub fn exploration_order(&self) -> ExplorationOrder {
-        self.core.exploration_order()
+        self.core.order
+    }
+
+    /// Change the exploration order for subsequent steps.
+    pub fn set_exploration_order(&mut self, order: ExplorationOrder) {
+        self.core.order = order;
     }
 
     /// Whether the frontier is empty (no more states to explore).
@@ -194,50 +183,60 @@ impl<'a> ReachabilityExplorer<'a> {
     /// Number of distinct markings discovered so far.
     #[must_use]
     pub fn state_count(&self) -> usize {
-        self.core.graph.node_count()
+        self.core.state_space.graph.node_count()
     }
 
     /// Number of edges (transition firings) discovered so far.
     #[must_use]
     pub fn edge_count(&self) -> usize {
-        self.core.graph.edge_count()
+        self.core.state_space.graph.edge_count()
     }
 
     /// The initial marking.
     #[must_use]
     pub fn initial_marking(&self) -> &Marking {
-        self.core.marking_at(self.core.initial_idx)
+        self.core.state_space.marking_at(self.core.state_space.initial_idx)
     }
 
     /// Whether `target` has been discovered so far.
     #[must_use]
     pub fn is_reachable(&self, target: &Marking) -> bool {
-        self.core.seen.contains_key(target)
+        self.core.state_space.seen.contains_key(target)
     }
 
     /// Returns a firing sequence from the initial marking to `target`,
     /// among states discovered so far.
     #[must_use]
     pub fn path_to(&self, target: &Marking) -> Option<Box<[Transition]>> {
-        let &target_idx = self.core.seen.get(target)?;
-        self.core.path_to(target_idx)
+        let &target_idx = self.core.state_space.seen.get(target)?;
+        self.core.state_space.path_to(target_idx)
     }
 
     /// Whether a marking has been discovered so far.
     #[must_use]
     pub fn contains(&self, marking: &Marking) -> bool {
-        self.core.seen.contains_key(marking)
+        self.core.state_space.seen.contains_key(marking)
     }
 
     /// Iterator over all discovered markings.
     pub fn states(&self) -> impl Iterator<Item = &Marking> {
-        self.core.graph.node_weights()
+        self.core.state_space.graph.node_weights()
     }
 
     /// All discovered markings as a collected vector.
     #[must_use]
     pub fn markings(&self) -> Vec<&Marking> {
-        self.core.graph.node_weights().collect()
+        self.core.state_space.graph.node_weights().collect()
+    }
+}
+
+impl std::fmt::Debug for ReachabilityExplorer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReachabilityExplorer")
+            .field("state_count", &self.state_count())
+            .field("edge_count", &self.edge_count())
+            .field("is_fully_explored", &self.is_fully_explored())
+            .finish()
     }
 }
 
@@ -249,7 +248,7 @@ impl<'a> ReachabilityExplorer<'a> {
 /// return owned results; callers should store them if repeated access is needed.
 ///
 /// The reachability graph is infinite for unbounded systems. For unknown systems,
-/// prefer building a [`CoverabilityGraph`] first (always terminates, decides
+/// prefer building a [`CoverabilityExplorer`] first (always terminates, decides
 /// coverability and boundedness), then attempt to promote to a `ReachabilityGraph`,
 /// which succeeds if and only if the net is bounded.
 ///
@@ -287,7 +286,7 @@ impl<'a> ReachabilityExplorer<'a> {
 /// assert!(levels.iter().all(|&l| l == LivenessLevel::L4));
 /// ```
 pub struct ReachabilityGraph<'a> {
-    core: ExplorerCore<'a, u32>,
+    state_space: StateGraph<'a, u32>,
 }
 
 impl<'a> ReachabilityGraph<'a> {
@@ -299,35 +298,38 @@ impl<'a> ReachabilityGraph<'a> {
     /// path or use [`ReachabilityExplorer`] with manual termination.
     #[must_use]
     pub fn build(sys: &'a System<impl AsRef<Net>>, order: ExplorationOrder) -> Self {
+        // todo: rewrite
         let mut explorer = ReachabilityExplorer::new(sys, order);
-        explorer.explore_all();
+        explorer.explore_all(); // WARNING: does not terminate for unbounded nets!
         // explore_all() returned, so the frontier is exhausted,
         // so is_fully_explored() is true, so conversion to ReachabilityGraph is infallible.
-        ReachabilityGraph { core: explorer.core }
+        ReachabilityGraph {
+            state_space: explorer.core.state_space
+        }
     }
 
     /// Number of distinct reachable markings.
     #[must_use]
     pub fn state_count(&self) -> usize {
-        self.core.graph.node_count()
+        self.state_space.graph.node_count()
     }
 
     /// Number of edges (transition firings) in the graph.
     #[must_use]
     pub fn edge_count(&self) -> usize {
-        self.core.graph.edge_count()
+        self.state_space.graph.edge_count()
     }
 
     /// The initial marking.
     #[must_use]
     pub fn initial_marking(&self) -> &Marking {
-        self.core.marking_at(self.core.initial_idx)
+        self.state_space.marking_at(self.state_space.initial_idx)
     }
 
     /// Whether `target` is reachable from the initial marking.
     #[must_use]
     pub fn is_reachable(&self, target: &Marking) -> bool {
-        self.core.seen.contains_key(target)
+        self.state_space.seen.contains_key(target)
     }
 
     /// Returns a firing sequence from the initial marking to `target`.
@@ -335,41 +337,39 @@ impl<'a> ReachabilityGraph<'a> {
     /// When built with BFS, this is a minimal firing sequence.
     #[must_use]
     pub fn path_to(&self, target: &Marking) -> Option<Box<[Transition]>> {
-        self.core.seen.get(target)
-            .and_then(|&target_idx| self.core.path_to(target_idx))
+        self.state_space.seen.get(target)
+            .and_then(|&target_idx| self.state_space.path_to(target_idx))
     }
 
     /// Whether a marking exists in the graph.
     #[must_use]
     pub fn contains(&self, marking: &Marking) -> bool {
-        self.core.seen.contains_key(marking)
+        self.state_space.seen.contains_key(marking)
     }
 
     /// Iterator over all reachable markings.
     pub fn states(&self) -> impl Iterator<Item = &Marking> {
-        self.core.graph.node_weights()
+        self.state_space.graph.node_weights()
     }
 
     /// All reachable markings as a collected vector.
     #[must_use]
     pub fn markings(&self) -> Vec<&Marking> {
-        self.core.graph.node_weights().collect()
+        self.state_space.graph.node_weights().collect()
     }
 
     /// All markings with no enabled transitions.
     #[must_use]
-    pub fn deadlocks(&self) -> Vec<&Marking> {
-        self.core
+    pub fn deadlocks(&self) -> impl Iterator<Item = &Marking> {
+        self.state_space
             .deadlock_indices()
-            .iter()
-            .map(|&idx| self.core.marking_at(idx))
-            .collect()
+            .map(|idx| self.state_space.marking_at(idx))
     }
 
     /// Whether every reachable marking has at least one enabled transition.
     #[must_use]
     pub fn is_deadlock_free(&self) -> bool {
-        self.core.deadlock_indices().is_empty()
+        self.state_space.deadlock_indices().next().is_none()
     }
 
     /// Computes liveness levels for all transitions in a single pass.
@@ -386,8 +386,8 @@ impl<'a> ReachabilityGraph<'a> {
     pub fn liveness_levels(&self) -> Box<[LivenessLevel]> {
         use petgraph::visit::EdgeRef;
 
-        let n_transitions = self.core.net.n_transitions();
-        let graph = &self.core.graph;
+        let n_transitions = self.state_space.net.transition_count();
+        let graph = &self.state_space.graph;
         let sccs = petgraph::algo::kosaraju_scc(graph);
 
         if sccs.is_empty() || n_transitions == 0 {
@@ -467,48 +467,44 @@ impl<'a> TryFrom<ReachabilityExplorer<'a>> for ReachabilityGraph<'a> {
             return Err(explorer);
         }
         Ok(ReachabilityGraph {
-            core: explorer.core,
+            state_space: explorer.core.state_space,
         })
     }
 }
 
-/// Convert a fully explored, bounded coverability graph into a
-/// `ReachabilityGraph`.
+/// Converts the coverability graph into a `ReachabilityGraph` if it is bounded
+/// (contains no markings with ω). This is a "promotion" operation that preserves
+/// the graph structure but unwraps all markings from `Marking<Omega>` to `Marking<u32>`.
+///
+/// If the coverability graph contains unbounded markings, the conversion fails
+/// and returns the unchanged argument for further inspection.
 ///
 /// Fails if the coverability graph is unbounded (contains any ω markings).
 impl<'a> TryFrom<CoverabilityGraph<'a>> for ReachabilityGraph<'a> {
     type Error = CoverabilityGraph<'a>;
 
     fn try_from(cg: CoverabilityGraph<'a>) -> Result<Self, Self::Error> {
-        if !cg.is_fully_explored() || !cg.is_bounded() {
+        if !cg.is_bounded() {
             return Err(cg);
         }
 
-        let net = cg.core.net;
-        let initial_idx = cg.core.initial_idx;
-        let order = cg.core.order;
-        let graph = cg.core.graph.map(
+        let graph = cg.state_space.graph.map(
             |_idx, omega_marking| unwrap_omega_marking_to_u32(omega_marking),
             |_src, &t| t,
         );
-        let seen = cg.core.seen
+        let seen = cg.state_space.seen
             .into_iter()
             .map(|(marking, idx)| {
                 (unwrap_omega_marking_to_u32(&marking), idx)
             })
             .collect();
-        let frontier = cg.core.frontier;
-        let source_transitions = cg.core.source_transitions;
 
         Ok(ReachabilityGraph {
-            core: ExplorerCore {
-                net,
-                initial_idx,
-                order,
+            state_space: StateGraph {
+                net: cg.state_space.net,
+                initial_idx: cg.state_space.initial_idx,
                 graph,
                 seen,
-                frontier,
-                source_transitions,
             },
         })
     }
@@ -602,7 +598,7 @@ mod tests {
 
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
         assert!(!rg.is_deadlock_free());
-        assert_eq!(rg.deadlocks().len(), 1);
+        assert_eq!(rg.deadlocks().count(), 1);
     }
 
     #[test]
@@ -893,7 +889,7 @@ mod tests {
 
         let net = b.build().unwrap();
         let sys = System::new(net, [1u32, 0, 0, 1, 0, 0, 1]);
-        let cg = CoverabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+        let cg = sys.build_coverability_graph();
         let rg = cg.into_reachability_graph().unwrap();
         let levels = rg.liveness_levels();
 

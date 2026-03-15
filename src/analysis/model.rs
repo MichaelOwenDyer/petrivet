@@ -16,10 +16,10 @@
 //! details when needed.
 
 use crate::marking::Marking;
-use crate::net::{Place, Transition};
-use std::collections::HashSet;
-use crate::Omega;
 use crate::marking::OmegaMarking;
+use crate::net::{Place, Transition};
+use crate::Omega;
+use std::collections::HashSet;
 
 pub type Siphon = HashSet<Place>;
 pub type Trap = HashSet<Place>;
@@ -466,11 +466,19 @@ impl CoverabilityResult {
 /// that covers the target is still a valid proof of coverability, but it may not be
 /// a reachable marking itself. Instead, it represents the existence of reachable
 /// markings that can exceed any finite threshold on its ω-places.
-/// 
+///
 /// A node of the coverability graph covers the target.
 ///
 /// The witness firing sequence reaches a node in the coverability graph. The
 /// node marking may contain ω.
+///
+/// todo: good idea to always include firing sequence? Maybe some callers don't need it
+///  and it is not necessarily cheap to construct. But how to provide ergonomic access
+///  otherwise? Maybe a 'witness' method for lazy computation? But I guess without the
+///  firing sequence it is not so much proof as just a statement of existence.
+///
+/// todo: instead of pub fields, provide read-only accessor methods and no public constructors
+///  so that the struct is type-system proof.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CoverabilityProof {
@@ -480,12 +488,8 @@ pub struct CoverabilityProof {
     pub covering_marking: OmegaMarking,
 }
 
-impl From<CoverabilityProof> for CoverabilityResult {
-    fn from(value: CoverabilityProof) -> Self {
-        CoverabilityResult::Coverable(value)
-    }
-}
-
+/// Various methods to demonstrate that a marking is not coverable
+/// in a given system.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum NonCoverabilityProof {
@@ -499,6 +503,14 @@ pub enum NonCoverabilityProof {
     ExhaustiveSearch,
 }
 
+/// If we have proof of coverability, the target is coverable.
+impl From<CoverabilityProof> for CoverabilityResult {
+    fn from(value: CoverabilityProof) -> Self {
+        CoverabilityResult::Coverable(value)
+    }
+}
+
+/// If we have proof of non-coverability, the target is not coverable.
 impl From<NonCoverabilityProof> for CoverabilityResult {
     fn from(value: NonCoverabilityProof) -> Self {
         CoverabilityResult::Uncoverable(value)

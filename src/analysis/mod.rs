@@ -21,9 +21,9 @@
 //! invariant vectors, siphon/trap sets, or marking equation
 //! results for custom analysis.
 
-use crate::analysis::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CoverabilityProof, CoverabilityResult, Deadlock, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, ReachabilityProof, ReachabilityResult, SNetComponent, SNetLivenessEvidence, TNetComponent, TNetLivenessEvidence, NonCoverabilityProof, UnreachabilityProof};
+use crate::analysis::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CoverabilityProof, CoverabilityResult, Deadlock, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, SNetComponent, SNetLivenessEvidence, TNetComponent, TNetLivenessEvidence, UnreachabilityProof};
 use crate::net::{Place, Transition};
-use crate::{CoverabilityGraph, ExplorationOrder, Marking, Net, Omega, OmegaMarking, System};
+use crate::{ExplorationOrder, Marking, Net, Omega, OmegaMarking, System};
 
 pub mod structural;
 pub mod semi_decision;
@@ -43,7 +43,7 @@ impl<N: AsRef<Net>> System<N> {
 
         if let Some(place_weights) = semi_decision::find_positive_place_subvariant(net) {
             let weighted_sum: f64 = net.places()
-                .map(|p| place_weights[p.index()] * f64::from(self.initial_marking[p]))
+                .map(|p| place_weights[p.index()] * f64::from(self.marking[p]))
                 .sum();
             let place_bounds: Box<[Omega]> = net.places()
                 .map(|p| {
@@ -58,11 +58,10 @@ impl<N: AsRef<Net>> System<N> {
             };
         }
 
-        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
-        let place_bounds: Box<[Omega]> = net.places()
-            .map(|p| cg.place_bound(p))
-            .collect();
+        let cg = self.build_coverability_graph();
+        let place_bounds: Box<[Omega]> = cg.place_bounds();
 
+        // todo: also return cg?
         BoundednessAnalysis {
             place_bounds,
             method: BoundednessAnalysisMethod::CoverabilityGraph,
@@ -84,33 +83,36 @@ impl<N: AsRef<Net>> System<N> {
         let net = self.net.as_ref();
 
         if net.is_s_net() {
-            return analyze_liveness_s_net(net, &self.initial_marking);
+            return analyze_liveness_s_net(net, &self.marking);
         }
 
         if net.is_t_net() {
-            return analyze_liveness_t_net(net, &self.initial_marking);
+            return analyze_liveness_t_net(net, &self.marking);
         }
 
         if net.is_free_choice_net()
-            && let chc = structural::commoner_hack_criterion(net, &self.initial_marking)
+            && let chc = structural::commoner_hack_criterion(net, &self.marking)
             && chc.is_satisfied() {
             return LivenessAnalysis {
-                levels: vec![LivenessLevel::L4; net.n_transitions()].into_boxed_slice(),
+                levels: vec![LivenessLevel::L4; net.transition_count()].into_boxed_slice(),
                 method: LivenessMethod::FreeChoice(chc),
             };
         }
 
-        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
-        if let Ok(rg) = cg.into_reachability_graph() {
-            let levels = rg.liveness_levels();
-            LivenessAnalysis {
-                levels,
-                method: LivenessMethod::ReachabilityGraphSCC,
+        match self.build_coverability_graph().into_reachability_graph() {
+            Ok(rg) => {
+                let levels = rg.liveness_levels();
+                LivenessAnalysis {
+                    levels,
+                    method: LivenessMethod::ReachabilityGraphSCC,
+                }
             }
-        } else {
-            LivenessAnalysis {
-                levels: vec![LivenessLevel::L0; net.n_transitions()].into_boxed_slice(),
-                method: LivenessMethod::Inconclusive,
+            Err(_cg) => {
+                // TODO: liveness for unbounded nets
+                LivenessAnalysis {
+                    levels: vec![LivenessLevel::L0; net.transition_count()].into_boxed_slice(),
+                    method: LivenessMethod::Inconclusive,
+                }
             }
         }
     }
@@ -127,7 +129,7 @@ impl<N: AsRef<Net>> System<N> {
     pub fn analyze_deadlock_freedom(&self) -> DeadlockAnalysis {
         let net = self.net.as_ref();
 
-        let chc = structural::commoner_hack_criterion(net, &self.initial_marking);
+        let chc = structural::commoner_hack_criterion(net, &self.marking);
         if chc.is_satisfied() {
             return DeadlockAnalysis {
                 deadlocks: Box::new([]),
@@ -135,8 +137,7 @@ impl<N: AsRef<Net>> System<N> {
             };
         }
 
-        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
-        match cg.into_reachability_graph() {
+        match self.build_coverability_graph().into_reachability_graph() {
             Ok(rg) => {
                 let deadlock_markings = rg.deadlocks();
                 let deadlocks: Box<[Deadlock]> = deadlock_markings
@@ -182,13 +183,13 @@ impl<N: AsRef<Net>> System<N> {
     pub fn analyze_reachability(&self, target: &Marking) -> ReachabilityResult {
         let net = self.net.as_ref();
 
-        if self.initial_marking == *target {
+        if self.marking == *target {
             return ReachabilityProof::FiringSequence(Box::new([])).into();
         }
 
         if net.is_s_net() {
             if net.is_strongly_connected() {
-                let initial_marking_sum = self.initial_marking.iter().sum::<u32>();
+                let initial_marking_sum = self.marking.iter().sum::<u32>();
                 let target_marking_sum = target.iter().sum::<u32>();
                 return if initial_marking_sum == target_marking_sum {
                     ReachabilityProof::StronglyConnectedSNetTokenConservation {
@@ -201,7 +202,7 @@ impl<N: AsRef<Net>> System<N> {
                     }.into()
                 };
             }
-            return semi_decision::find_marking_equation_rational_solution(net, &self.initial_marking, target)
+            return semi_decision::find_marking_equation_rational_solution(net, &self.marking, target)
                 .map_or_else(
                     || UnreachabilityProof::MarkingEquationNoRationalSolution.into(),
                     |s| ReachabilityProof::SNetMarkingEquationRationalSolution(s).into()
@@ -209,7 +210,7 @@ impl<N: AsRef<Net>> System<N> {
         }
 
         if net.is_t_net() {
-            return semi_decision::find_marking_equation_integer_solution(net, &self.initial_marking, target)
+            return semi_decision::find_marking_equation_integer_solution(net, &self.marking, target)
                 .map_or_else(
                     || UnreachabilityProof::MarkingEquationNoIntegerSolution.into(),
                     |s| ReachabilityProof::TNetMarkingEquationIntegerSolution(s).into()
@@ -217,25 +218,29 @@ impl<N: AsRef<Net>> System<N> {
         }
 
         if semi_decision::find_marking_equation_rational_solution(
-            net, &self.initial_marking, target,
+            net, &self.marking, target,
         ).is_none() {
             return UnreachabilityProof::MarkingEquationNoRationalSolution.into();
         }
 
+        // todo: only test ILP if the rational solution is already an integer solution
         if semi_decision::find_marking_equation_integer_solution(
-            net, &self.initial_marking, target,
+            net, &self.marking, target,
         ).is_none() {
             return UnreachabilityProof::MarkingEquationNoIntegerSolution.into();
         }
 
-        let cg = CoverabilityGraph::build(self, ExplorationOrder::BreadthFirst);
-        if let Ok(rg) = cg.into_reachability_graph() {
-            rg.path_to(target).map_or_else(
-                || UnreachabilityProof::ExhaustiveSearch.into(),
-                |path| ReachabilityProof::FiringSequence(path).into()
-            )
-        } else {
-            ReachabilityResult::Inconclusive
+        // todo: short circuit evaluation once we find it
+        match self.build_coverability_graph().into_reachability_graph() {
+            Ok(rg) => {
+                rg.path_to(target).map_or_else(
+                    || UnreachabilityProof::ExhaustiveSearch.into(),
+                    |path| ReachabilityProof::FiringSequence(path).into()
+                )
+            }
+            Err(_cg) => {
+                ReachabilityResult::Inconclusive
+            }
         }
     }
 
@@ -261,26 +266,31 @@ impl<N: AsRef<Net>> System<N> {
     pub fn analyze_coverability(&self, target: &Marking) -> CoverabilityResult {
         let net = self.net.as_ref();
 
-        if self.initial_marking >= *target {
+        if self.marking >= *target {
             return CoverabilityProof {
                 firing_sequence: Box::new([]),
-                covering_marking: OmegaMarking::from(self.initial_marking.clone()),
+                covering_marking: OmegaMarking::from(self.marking.clone()),
             }.into();
         }
 
-        if semi_decision::find_covering_equation_rational_solution(net, &self.initial_marking, target).is_none() {
+        if semi_decision::find_covering_equation_rational_solution(
+            net,
+            &self.marking,
+            target
+        ).is_none() {
             return NonCoverabilityProof::MarkingEquationNoRationalSolution.into();
         }
 
-        if semi_decision::find_covering_equation_integer_solution(net, &self.initial_marking, target).is_none() {
+        // todo: only test ILP if the rational solution is already an integer solution
+        if semi_decision::find_covering_equation_integer_solution(net, &self.marking, target).is_none() {
             return NonCoverabilityProof::MarkingEquationNoIntegerSolution.into();
         }
 
-        CoverabilityGraph::new(self, ExplorationOrder::BreadthFirst)
-            .cover(&OmegaMarking::from(target))
+        self.explore_coverability(ExplorationOrder::BreadthFirst)
+            .find_cover(&OmegaMarking::from(target))
             .map_or_else(
                 || NonCoverabilityProof::ExhaustiveSearch.into(),
-                |proof| CoverabilityResult::Coverable(proof)
+                CoverabilityResult::Coverable
             )
     }
 
@@ -349,8 +359,8 @@ impl<N: AsRef<Net>> System<N> {
 fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
     use petgraph::graph::NodeIndex;
 
-    let n_p = net.n_places();
-    let n_t = net.n_transitions();
+    let n_p = net.place_count();
+    let n_t = net.transition_count();
 
     // Build the place graph: places are nodes, transitions are directed edges
     // from their single input place to their single output place.
@@ -501,8 +511,8 @@ fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
 fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
     use petgraph::graph::NodeIndex;
 
-    let n_p = net.n_places();
-    let n_t = net.n_transitions();
+    let n_p = net.place_count();
+    let n_t = net.transition_count();
 
     // Build the transition graph: transitions are nodes, places are directed
     // edges from their single input transition to their single output transition.
@@ -646,7 +656,7 @@ fn has_zero_token_cycle(
 
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum DfsState { Unvisited, InStack, Done }
-    let mut state = vec![DfsState::Unvisited; net.n_places()];
+    let mut state = vec![DfsState::Unvisited; net.place_count()];
 
     for &start in &zero_places {
         if state[start.index()] != DfsState::Unvisited {

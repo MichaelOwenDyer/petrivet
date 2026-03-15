@@ -287,7 +287,7 @@ pub fn find_covering_equation_integer_solution(
 /// per-place upper bounds can be derived: M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋.
 #[must_use]
 pub fn find_positive_place_subvariant(net: &Net) -> Option<Box<[f64]>> {
-    if net.n_places() == 0 {
+    if net.place_count() == 0 {
         return Some(Box::new([]));
     }
 

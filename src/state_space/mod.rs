@@ -25,7 +25,7 @@ impl<N: AsRef<Net>> System<N> {
     /// This is a read-only query. To fire one of these, use [`try_fire`](Self::try_fire)
     /// or [`choose_and_fire`](Self::choose_and_fire).
     #[must_use]
-    pub fn enabled_transitions(&self) -> Vec<Transition> {
+    pub fn enabled_transitions(&self) -> Box<[Transition]> {
         let net = self.net.as_ref();
         net.transitions().filter(|&t| self.is_enabled(t)).collect()
     }
@@ -42,12 +42,12 @@ impl<N: AsRef<Net>> System<N> {
     /// Returns `Ok(())` if the transition was enabled and has been fired.
     /// # Errors
     /// Returns `Err(FireError::NotEnabled)` if it was not enabled.
-    pub fn try_fire(&mut self, t: Transition) -> Result<(), FireError> {
+    pub fn try_fire(&mut self, t: Transition) -> Result<(), NotEnabled> {
         if self.is_enabled(t) {
             self.fire_unchecked(t);
             Ok(())
         } else {
-            Err(FireError::NotEnabled(t))
+            Err(NotEnabled(t))
         }
     }
 
@@ -103,17 +103,16 @@ impl<N: AsRef<Net>> System<N> {
     {
         let enabled = self.enabled_transitions();
         let set = EnabledSet(enabled, PhantomData);
-        let chosen = choose(set)?;
-        let t = chosen.0;
-        self.fire_unchecked(t);
-        Some(t)
+        let chosen = choose(set)?.0;
+        self.fire_unchecked(chosen);
+        Some(chosen)
     }
 
     /// Fire a transition without checking enablement.
     ///
     /// The caller must guarantee the transition is enabled. Underflow will
     /// panic in debug mode and wrap in release mode.
-    fn fire_unchecked(&mut self, t: Transition) {
+    pub fn fire_unchecked(&mut self, t: Transition) {
         let net = self.net.as_ref();
         for &p in net.preset_t(t) {
             self.marking[p] -= 1;
@@ -159,7 +158,7 @@ impl fmt::Debug for EnabledTransition<'_> {
 /// The set of transitions enabled in a specific marking.
 ///
 /// Only exists inside the [`choose_and_fire`](System::choose_and_fire) closure.
-pub struct EnabledSet<'a>(Vec<Transition>, PhantomData<&'a ()>);
+pub struct EnabledSet<'a>(Box<[Transition]>, PhantomData<&'a ()>);
 
 impl<'a> EnabledSet<'a> {
     /// Returns the first enabled transition, if any.
@@ -200,17 +199,14 @@ impl fmt::Debug for EnabledSet<'_> {
 
 /// Error returned when attempting to fire a transition that is not enabled.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FireError {
-    /// The transition is not enabled under the current marking.
-    NotEnabled(Transition),
-}
+pub struct NotEnabled(Transition);
 
-impl fmt::Display for FireError {
+impl fmt::Display for NotEnabled {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FireError::NotEnabled(t) => write!(f, "transition {t} is not enabled"),
+            NotEnabled(t) => write!(f, "transition {t} is not enabled"),
         }
     }
 }
 
-impl std::error::Error for FireError {}
+impl std::error::Error for NotEnabled {}

@@ -24,11 +24,11 @@
 //!
 //! // Simulation
 //! assert!(sys.is_enabled(start));
-//! sys.try_fire(start).unwrap();
+//! sys.fire_unchecked(start);
 //! assert_eq!(sys.current_marking().iter().collect::<Vec<_>>(), vec![&0, &1]);
 //!
 //! // Behavioral analysis
-//! sys.reset();
+//! let sys = System::new(net, [1, 0]);
 //! assert!(sys.is_bounded());
 //! assert!(sys.is_live());
 //! ```
@@ -59,20 +59,16 @@
 
 use crate::marking::Marking;
 use crate::net::Net;
-use crate::{CoverabilityGraph, ExplorationOrder, ReachabilityExplorer};
+use crate::{CoverabilityExplorer, CoverabilityGraph, ExplorationOrder, ReachabilityExplorer};
 
-/// A Petri net system: a net N paired with a mutable marking.
+/// A Petri net system (N, M): a net structure paired with a mutable marking.
 ///
 /// `N` can be any type that provides access to a [`Net`] reference via [`AsRef<Net>`]:
 /// `Net` (owned), `&Net` (borrowed), `Rc<Net>`, `Arc<Net>`, etc.
 /// This lets callers choose the ownership strategy that fits their use case.
-///
-/// The initial marking is stored for reference and [`reset`](System::reset).
-/// The current marking evolves as transitions fire.
 #[derive(Debug, Clone)]
 pub struct System<N: AsRef<Net>> {
     pub(crate) net: N,
-    pub(crate) initial_marking: Marking,
     pub(crate) marking: Marking,
 }
 
@@ -85,18 +81,19 @@ impl<N: AsRef<Net>> System<N> {
     ///
     /// Panics in debug mode if the marking length doesn't match the number of
     /// places in the net.
+    /// todo: how to ensure the marking has the same length as the number of places
+    ///  at compile time?
     #[must_use]
     pub fn new(net: N, initial_marking: impl Into<Marking>) -> Self {
         let initial_marking = initial_marking.into();
-        debug_assert_eq!(
+        assert_eq!(
             initial_marking.len(),
-            net.as_ref().n_places(),
+            net.as_ref().place_count(),
             "marking length ({}) must equal number of places ({})",
             initial_marking.len(),
-            net.as_ref().n_places(),
+            net.as_ref().place_count(),
         );
-        let marking = initial_marking.clone();
-        Self { net, initial_marking, marking }
+        Self { net, marking: initial_marking }
     }
 
     /// Returns a reference to the underlying net.
@@ -107,26 +104,14 @@ impl<N: AsRef<Net>> System<N> {
 
     /// Returns the initial marking.
     #[must_use]
-    pub fn initial_marking(&self) -> &Marking {
-        &self.initial_marking
-    }
-
-    /// Returns the current marking.
-    #[must_use]
     pub fn current_marking(&self) -> &Marking {
         &self.marking
     }
 
-    /// Resets the current marking to the initial marking.
-    /// Returns the old marking before the reset.
-    pub fn reset(&mut self) -> Marking {
-        std::mem::replace(&mut self.marking, self.initial_marking.clone())
-    }
-
-    /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
+    /// Consumes the system and returns (`net`, `marking`).
     #[must_use]
-    pub fn into_parts(self) -> (N, Marking, Marking) {
-        (self.net, self.initial_marking, self.marking)
+    pub fn into_parts(self) -> (N, Marking) {
+        (self.net, self.marking)
     }
     
     /// Returns true if the underlying net is a circuit.
@@ -155,13 +140,18 @@ impl<N: AsRef<Net>> System<N> {
     }
 
     /// Returns a reachability explorer for this system, using the specified exploration order.
-    pub fn explore_reachability(&self, order: ExplorationOrder) -> ReachabilityExplorer {
+    pub fn explore_reachability(&self, order: ExplorationOrder) -> ReachabilityExplorer<'_> {
         ReachabilityExplorer::new(self, order)
     }
 
     /// Returns a coverability explorer for this system, using the specified exploration order.
-    pub fn explore_coverability(&self, order: ExplorationOrder) -> CoverabilityGraph {
-        CoverabilityGraph::new(self, order)
+    pub fn explore_coverability(&self, order: ExplorationOrder) -> CoverabilityExplorer<'_> {
+        CoverabilityExplorer::new(self, order)
+    }
+
+    /// Returns the complete coverability graph for this system.
+    pub fn build_coverability_graph(&self) -> CoverabilityGraph<'_> {
+        CoverabilityGraph::new(self)
     }
 }
 
@@ -261,16 +251,6 @@ mod tests {
     }
 
     #[test]
-    fn reset() {
-        let (net, t0, _t1) = two_place_cycle();
-        let mut sys = System::new(net, [1, 0]);
-        sys.try_fire(t0).unwrap();
-        assert_eq!(sys.current_marking(), m([0, 1]));
-        sys.reset();
-        assert_eq!(sys.current_marking(), m([1, 0]));
-    }
-
-    #[test]
     fn enabled_transitions_query() {
         let (net, t0, t1) = two_place_cycle();
         let sys = System::new(net, [1, 1]);
@@ -284,8 +264,7 @@ mod tests {
         let (net, t0, _t1) = two_place_cycle();
         let mut sys = System::new(net, [1, 0]);
         sys.try_fire(t0).unwrap();
-        let (_net, initial, current) = sys.into_parts();
-        assert_eq!(initial, m([1, 0]));
+        let (_, current) = sys.into_parts();
         assert_eq!(current, m([0, 1]));
     }
 

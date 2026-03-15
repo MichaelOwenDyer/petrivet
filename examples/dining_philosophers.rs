@@ -67,13 +67,13 @@ fn main() {
     println!("Structural class: {}\n", net.class());
 
     // Initial marking: all philosophers thinking, all forks on table
-    let mut initial = vec![0u32; 4 * N];
+    let mut initial = [0u32; 4 * N];
     for i in 0..N {
         initial[thinking[i].index()] = 1; // thinking
         initial[forks[i].index()] = 1;  // fork available
     }
 
-    let mut sys = System::new(net.clone(), initial.clone());
+    let mut sys = System::new(&net, initial);
 
     println!("--- Simulation ---\n");
 
@@ -93,24 +93,23 @@ fn main() {
 
     println!("--- State Space Analysis ---\n");
 
-    sys.reset();
+    let sys = System::new(&net, initial);
     let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
     println!("Reachable states: {}", rg.state_count());
     println!("Edges: {}", rg.edge_count());
     println!("Deadlock-free: {}", rg.is_deadlock_free());
 
-    let deadlocks = rg.deadlocks();
-    println!("Deadlock states: {}", deadlocks.len());
-    for (i, dl) in deadlocks.iter().enumerate() {
-        println!("  deadlock {}: {}", i + 1, dl);
+    println!("Deadlock states:");
+    for (i, dl) in rg.deadlocks().enumerate() {
+        println!("  {}: {}", i + 1, dl);
     }
 
-    // Show the shortest path to the deadlock
-    if let Some(dl) = deadlocks.first() {
+    // Show the shortest path to the first deadlock
+    if let Some(dl) = rg.deadlocks().next() {
         let dl_marking: Marking = (*dl).clone();
         if let Some(path) = rg.path_to(&dl_marking) {
             println!(
-                "\nShortest path to deadlock ({} steps):",
+                "\nShortest path to deadlock 1 ({} steps):",
                 path.len()
             );
             for (step, t) in path.iter().enumerate() {
@@ -149,7 +148,7 @@ fn main() {
     println!("S-invariants: {} basis vectors", inv.s_invariants.len());
     println!(
         "Conservative (covered by S-invariants): {}",
-        inv.is_covered_by_s_invariants(net.n_places())
+        inv.is_covered_by_s_invariants(net.place_count())
     );
     println!("T-invariants: {} basis vectors", inv.t_invariants.len());
     println!(
@@ -160,7 +159,7 @@ fn main() {
     let siphons = structural::minimal_siphons(&net);
     println!("\nMinimal siphons: {}", siphons.len());
 
-    let m0 = Marking::from(initial.clone());
+    let m0 = Marking::from(initial);
     let chc = structural::commoner_hack_criterion(&net, &m0);
     println!("Every siphon contains a marked trap: {}", chc.is_satisfied());
     if !chc.is_satisfied() {

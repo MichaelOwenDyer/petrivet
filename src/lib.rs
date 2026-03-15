@@ -3,7 +3,7 @@
 //! # Quick Start
 //!
 //! ```
-//! use petrivet::{CoverabilityGraph, ExplorationOrder};
+//! use petrivet::{CoverabilityExplorer, ExplorationOrder};
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::system::System;
 //!
@@ -22,7 +22,7 @@
 //! sys.choose_and_fire(|enabled| enabled.first());
 //! println!("Marking after firing: {}", sys.current_marking());
 //!
-//! let mut cg = CoverabilityGraph::new(&sys, ExplorationOrder::BreadthFirst);
+//! let mut cg = CoverabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
 //! for s in cg.take(10) {
 //!     if s.is_new {
 //!         println!("{:#?}", s.marking);
@@ -40,7 +40,7 @@ pub mod literature;
 pub use analysis::model::LivenessLevel;
 pub use marking::*;
 pub use net::*;
-pub use state_space::coverability::CoverabilityGraph;
-pub use state_space::explorer::ExplorationOrder;
-pub use state_space::reachability::{ReachabilityExplorer, ReachabilityGraph};
+pub use state_space::coverability::*;
+pub use state_space::explorer::*;
+pub use state_space::reachability::*;
 pub use system::System;

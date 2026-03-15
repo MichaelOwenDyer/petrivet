@@ -30,7 +30,7 @@
 //! let inv = structural::compute_invariants(&net);
 //! // One S-invariant: tokens are conserved (p0 + p1 = const)
 //! assert_eq!(inv.s_invariants.len(), 1);
-//! assert!(inv.is_covered_by_s_invariants(net.n_places()));
+//! assert!(inv.is_covered_by_s_invariants(net.place_count()));
 //!
 //! // One minimal siphon = one minimal trap = {p0, p1}
 //! let siphons = structural::minimal_siphons(&net);
@@ -67,8 +67,8 @@ impl IncidenceMatrix {
     /// Constructs the |P| × |T| incidence matrix for a given net.
     #[must_use]
     pub fn new(net: &Net) -> Self {
-        let rows = net.n_places();
-        let cols = net.n_transitions();
+        let rows = net.place_count();
+        let cols = net.transition_count();
         let mut data = vec![0; rows * cols];
         for t in net.transitions() {
             for &p in net.preset_t(t) {
@@ -90,13 +90,13 @@ impl IncidenceMatrix {
 
     /// Number of rows (places).
     #[must_use]
-    pub fn n_rows(&self) -> usize {
+    pub fn row_count(&self) -> usize {
         self.rows
     }
 
     /// Number of columns (transitions).
     #[must_use]
-    pub fn n_cols(&self) -> usize {
+    pub fn column_count(&self) -> usize {
         self.cols
     }
 
@@ -286,7 +286,7 @@ impl Invariants {
 /// let inv = compute_invariants(&net);
 /// // 3 S-invariants: idle1+wait1+crit1, idle2+wait2+crit2, crit1+crit2+mutex
 /// assert_eq!(inv.s_invariants.len(), 3);
-/// assert!(inv.is_covered_by_s_invariants(net.n_places()));
+/// assert!(inv.is_covered_by_s_invariants(net.place_count()));
 /// // 2 T-invariants: complete cycle for each process
 /// assert_eq!(inv.t_invariants.len(), 2);
 /// ```
@@ -406,10 +406,10 @@ pub fn minimal_siphons(net: &Net) -> Box<[HashSet<Place>]> {
 /// Uses the dual of the shrinking algorithm: iteratively remove any place p
 /// where some transition t ∈ p• has no output place in the current set.
 #[must_use]
-pub fn maximal_trap_in(
+pub fn maximal_trap_in<S: std::hash::BuildHasher + Clone>(
     net: &Net,
-    subset: &HashSet<Place>
-) -> HashSet<Place> {
+    subset: &HashSet<Place, S>
+) -> HashSet<Place, S> {
     let mut maximal_trap = subset.clone();
     loop {
         let mut removed = false;
@@ -502,7 +502,7 @@ pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
 pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
-    if net.n_places() == 0 {
+    if net.place_count() == 0 {
         return Box::new([]);
     }
 
@@ -535,12 +535,11 @@ pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
     }
 
     let objective: Expression = x.iter().copied().sum();
-    loop {
-        let Ok(solution) = vars.clone()
-            .minimise(&objective)
-            .using(good_lp::microlp)
-            .with_all(constraints.clone())
-            .solve() else { break };
+    while let Ok(solution) = vars.clone()
+        .minimise(&objective)
+        .using(good_lp::microlp)
+        .with_all(constraints.clone())
+        .solve() {
 
         let siphon: HashSet<Place> = net
             .places() // x[p] > 0.5 => binary variable is 1, p is in the siphon
@@ -571,7 +570,7 @@ pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
-    let n_p = net.n_places();
+    let n_p = net.place_count();
     if n_p == 0 {
         return Box::new([]);
     }
@@ -682,7 +681,7 @@ pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 ///   "A free-choice net (N, M₀) is live iff every siphon in N contains a marked trap."
 /// - [Primer, Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc) (Commoner/Hack Criterion)
 /// - [Primer, Algorithm 6.19](crate::literature#algorithm-619--maximal-siphontrap-in-a-subset) (maximal siphon/trap in a subset)
-#[must_use]
+#[must_use] // todo: move this out of structural module since marking is relevant?
 pub fn commoner_hack_criterion(
     net: &Net,
     marking: &Marking,
@@ -766,7 +765,7 @@ pub fn s_components(net: &Net) -> Vec<SComponent> {
     // process cycle and the mutex cycle). Query every place to find all
     // distinct components.
     for p in net.places() {
-        let Some(support) = find_nonneg_invariant_support(&inv.s_invariants, p.index(), net.n_places())
+        let Some(support) = find_nonneg_invariant_support(&inv.s_invariants, p.index(), net.place_count())
         else {
             continue;
         };
@@ -877,7 +876,7 @@ pub fn t_components(net: &Net) -> Vec<TComponent> {
         let Some(support) = find_nonneg_invariant_support(
             &inv.t_invariants,
             t.index(),
-            net.n_transitions(),
+            net.transition_count(),
         ) else {
             continue;
         };
@@ -1005,8 +1004,8 @@ mod tests {
         assert_eq!(inv.s_invariants[0][0], inv.s_invariants[0][1]);
         // T-invariant: equal firing counts (full cycle)
         assert_eq!(inv.t_invariants[0][0], inv.t_invariants[0][1]);
-        assert!(inv.is_covered_by_s_invariants(net.n_places()));
-        assert!(inv.is_covered_by_t_invariants(net.n_transitions()));
+        assert!(inv.is_covered_by_s_invariants(net.place_count()));
+        assert!(inv.is_covered_by_t_invariants(net.transition_count()));
     }
 
     #[test]
@@ -1047,11 +1046,11 @@ mod tests {
 
         // 3 S-invariants for mutex net (7 places, rank 4 → dim 3)
         assert_eq!(inv.s_invariants.len(), 3);
-        assert!(inv.is_covered_by_s_invariants(net.n_places()));
+        assert!(inv.is_covered_by_s_invariants(net.place_count()));
 
         // 2 T-invariants (6 transitions, rank 4 → dim 2)
         assert_eq!(inv.t_invariants.len(), 2);
-        assert!(inv.is_covered_by_t_invariants(net.n_transitions()));
+        assert!(inv.is_covered_by_t_invariants(net.transition_count()));
     }
 
     #[test]

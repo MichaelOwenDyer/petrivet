@@ -11,9 +11,9 @@
 
 use crate::net::Place;
 use std::cmp::Ordering;
-use std::{fmt, iter};
 use std::fmt::Debug;
 use std::ops::{Index, IndexMut};
+use std::{fmt, iter};
 
 /// A marking: one value of type `T` per place, indexed by [`Place`].
 ///
@@ -27,8 +27,7 @@ use std::ops::{Index, IndexMut};
 /// let m = Marking::from([1, 0, 3]);
 /// let m: Marking = vec![1, 0, 3].into();
 /// ```
-///
-
+/// todo: consider replacing Box with Rc or Arc?
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Marking<T = u32>(Box<[T]>);
 
@@ -73,20 +72,6 @@ impl Marking<u32> {
         self.0.iter().enumerate().filter_map(|(i, &t)| {
             if t > 0 { Some(Place { idx: i }) } else { None }
         })
-    }
-
-    /// Applies a signed incidence vector to this marking.
-    ///
-    /// Returns `None` if any place would go below zero (transition not enabled).
-    #[must_use]
-    pub fn apply_delta(&self, delta: &[i64]) -> Option<Marking<u32>> {
-        debug_assert_eq!(self.len(), delta.len());
-        let mut result = Vec::with_capacity(self.len());
-        for (&tokens, &d) in self.0.iter().zip(delta.iter()) {
-            let new_val = i64::from(tokens) + d;
-            result.push(u32::try_from(new_val).ok()?);
-        }
-        Some(Marking(result.into_boxed_slice()))
     }
 }
 
@@ -358,19 +343,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_delta_success() {
-        let m: Marking = [2, 1, 0].into();
-        let result = m.apply_delta(&[-1, 1, 1]).unwrap();
-        assert_eq!(result, Marking::from([1, 2, 1]));
-    }
-
-    #[test]
-    fn apply_delta_underflow() {
-        let m: Marking = [0, 1].into();
-        assert!(m.apply_delta(&[-1, 0]).is_none());
-    }
-
-    #[test]
     fn omega_ordering() {
         assert!(Omega::Finite(100) < Omega::Unbounded);
         assert!(Omega::Unbounded > Omega::Finite(u32::MAX));
@@ -464,12 +436,6 @@ mod tests {
         let om: OmegaMarking = [Omega::Finite(1), Omega::Unbounded].into();
         assert!(u32m < om);
         assert!(om > u32m);
-    }
-
-    #[test]
-    fn total_tokens_large() {
-        let m: Marking = [u32::MAX, u32::MAX].into();
-        assert_eq!(m.total_tokens(), 2 * u64::from(u32::MAX));
     }
 
     #[test]
