@@ -20,7 +20,7 @@
 //! b.add_arc((finish, idle));
 //! let net = b.build().expect("valid net");
 //!
-//! let mut sys = System::new(net, [1, 0]);
+//! let mut sys = System::new(&net, [1, 0]);
 //!
 //! // Simulation
 //! assert!(sys.is_enabled(start));
@@ -28,7 +28,7 @@
 //! assert_eq!(sys.current_marking().iter().collect::<Vec<_>>(), vec![&0, &1]);
 //!
 //! // Behavioral analysis
-//! let sys = System::new(net, [1, 0]);
+//! let sys = System::new(&net, [1, 0]);
 //! assert!(sys.is_bounded());
 //! assert!(sys.is_live());
 //! ```

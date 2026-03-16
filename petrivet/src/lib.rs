@@ -22,8 +22,8 @@
 //! sys.choose_and_fire(|enabled| enabled.first());
 //! println!("Marking after firing: {}", sys.current_marking());
 //!
-//! let mut cg = CoverabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
-//! for s in cg.take(10) {
+//! let mut cg = sys.explore_coverability(ExplorationOrder::BreadthFirst);
+//! for s in cg.explore_iter().take(10) {
 //!     if s.is_new {
 //!         println!("{:#?}", s.marking);
 //!     }

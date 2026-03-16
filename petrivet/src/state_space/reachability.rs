@@ -17,7 +17,7 @@
 //! ```
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::system::System;
-//! //!
+//! 
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
 //! let [t0, t1] = b.add_transitions();
