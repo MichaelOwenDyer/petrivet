@@ -36,6 +36,7 @@ pub mod system;
 pub mod state_space;
 pub mod analysis;
 pub mod literature;
+pub mod labeled;
 #[cfg(feature = "pnml")]
 pub mod pnml;
 

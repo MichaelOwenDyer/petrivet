@@ -62,6 +62,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod convert;
 pub mod net_type {
     pub const PT_NET: &str = "http://www.pnml.org/version-2009/grammar/ptnet";
     pub const CORE_MODEL: &str = "http://www.pnml.org/version-2009/grammar/pnmlcoremodel";
