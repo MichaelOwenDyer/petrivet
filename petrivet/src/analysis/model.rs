@@ -83,7 +83,7 @@ impl BoundednessAnalysis {
     /// 
     /// # Panics
     /// 
-    /// Panics for the degenerate net which does not have any places.
+    /// Panics for the degenerate net which consists of a single lone transition.
     #[must_use]
     pub fn of_system(&self) -> Omega {
         // unwrap safety: degenerate nets are not constructable via builder
