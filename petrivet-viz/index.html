@@ -31,13 +31,18 @@
         <div id="net-name">—</div>
         <div id="marking-label">Marking</div>
         <div id="marking-row">—</div>
+        <div id="deadlock-warn" class="deadlock-warn"></div>
       </div>
 
       <div class="sidebar-section">
-        <h3>Analysis</h3>
-        <div id="analysis-content">
-          <p class="hint">Load a net to see analysis results.</p>
+        <div class="section-header">
+          <h3>Analysis</h3>
+          <span id="analysis-stale" class="stale-badge">↻ stale</span>
         </div>
+        <div id="analysis-content">
+          <p class="hint">Load a net, then click <em>Analyze</em>.</p>
+        </div>
+        <button id="btn-analyze" disabled>Analyze marking</button>
       </div>
 
       <div class="sidebar-section">

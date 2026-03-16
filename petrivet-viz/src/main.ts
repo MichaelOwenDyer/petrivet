@@ -9,6 +9,8 @@ let sys: WasmSystem | null = null;
 let cy: Core | null = null;
 let cachedStructure: WasmNetStructure | null = null;
 let animating = false;
+// Marking vector at which analysis was last run, so we can show a stale badge
+let lastAnalyzedMarking: number[] | null = null;
 
 // Bootstrap
 
@@ -115,8 +117,13 @@ function renderNet(): void {
   }
 
   cy.fit(undefined, 60);
+  lastAnalyzedMarking = null;
+  el('analysis-stale').classList.remove('visible');
+  el('analysis-content').innerHTML =
+    '<p class="hint">Click <em>Analyze marking</em> to compute properties.</p>';
+  el('btn-analyze').removeAttribute('disabled');
+
   syncMarking();
-  updateAnalysisPanel();
 
   const netName = s.net_name ?? 'Untitled net';
   document.title = `petrivet — ${netName}`;
@@ -174,18 +181,13 @@ function syncMarking(): void {
     node.data('enabled', enabled.has(node.data('index') as number));
   });
 
-  const isDeadlocked = sys.isDeadlocked();
-  el('marking-row').textContent = `[${marking.join(', ')}]`;
+  el('marking-row').textContent = `(${marking.join(', ')})`;
+  el('deadlock-warn').textContent = sys.isDeadlocked() ? '⚠ Deadlocked' : '';
 
-  const existing = el('deadlock-warn');
-  if (isDeadlocked && !existing) {
-    const d = document.createElement('div');
-    d.id = 'deadlock-warn';
-    d.className = 'deadlock-warn';
-    d.textContent = '⚠ Deadlocked';
-    el('marking-row').after(d);
-  } else if (!isDeadlocked) {
-    existing?.remove();
+  // Show stale badge if the marking has changed since analysis was last run
+  if (lastAnalyzedMarking) {
+    const stale = marking.some((v, i) => v !== lastAnalyzedMarking![i]);
+    el('analysis-stale').classList.toggle('visible', stale);
   }
 
   el('btn-reset').removeAttribute('disabled');
@@ -226,18 +228,12 @@ async function animateFire(transIdx: number): Promise<void> {
     }),
   );
 
-  //  Fire & update inputs
+  // Fire (updates WASM state only — no visual change yet, so input tokens
+  // stay visible while the bullets are "inside" the transition)
   sys.fire(transIdx);
-  const marking = Array.from(sys.currentMarking());
-  for (const pi of inputPlaces) {
-    const t = marking[pi]!;
-    cy.$(`#p${pi}`).data('tokens', t).data('label', tokenLabel(t));
-  }
 
-  //  Flash transition
-  transNode.addClass('firing');
-  await delay(duration * 0.2);
-  transNode.removeClass('firing');
+  const nowEnabled = new Set(Array.from(sys.enabledTransitions()));
+  transNode.data('enabled', nowEnabled.has(transIdx));
 
   //  Phase 2: new tokens emanate from the transition
   await Promise.all(
@@ -246,12 +242,6 @@ async function animateFire(transIdx: number): Promise<void> {
       return moveGhost(transPos, to, duration);
     }),
   );
-
-  //  Update outputs & final sync
-  for (const pi of outputPlaces) {
-    const t = marking[pi]!;
-    cy.$(`#p${pi}`).data('tokens', t).data('label', tokenLabel(t));
-  }
 
   syncMarking();
   animating = false;
@@ -279,23 +269,98 @@ function moveGhost(
   });
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 // Analysis panel
+
+const NET_CLASS_INFO: Record<string, { label: string; desc: string }> = {
+  Circuit: {
+    label: 'Circuit',
+    desc: 'A simple closed loop.',
+  },
+  SNet: {
+    label: 'S-net',
+    desc: 'Every transition has exactly one input place and one output place. ',
+  },
+  TNet: {
+    label: 'T-net',
+    desc: 'Every place has exactly one input transition and one output transition. ',
+  },
+  FreeChoice: {
+    label: 'Free-Choice',
+    desc: 'If two transitions share an input place they have identical input sets. '
+      + 'Choice and concurrency are structurally separated. '
+      + 'Commoner\'s Theorem and the Rank Theorem give efficient liveness criteria.',
+  },
+  AsymmetricChoice: {
+    label: 'Asymmetric Choice',
+    desc: 'If two transitions share an input place, one\'s input set is a subset of '
+      + 'the other\'s. A strict generalisation of Free-Choice. '
+      + 'Many structural analysis results still apply.',
+  },
+  Unrestricted: {
+    label: 'P/T Net',
+    desc: 'No structural restrictions. The most general class. ',
+  },
+};
+
+function runAnalysis(): void {
+  if (!sys) return;
+  lastAnalyzedMarking = Array.from(sys.currentMarking());
+  updateAnalysisPanel();
+  el('analysis-stale').classList.remove('visible');
+}
 
 function updateAnalysisPanel(): void {
   if (!sys || !cachedStructure) return;
   const s = cachedStructure;
+
+  const classKey = s.net_class as string;
+  const classInfo = NET_CLASS_INFO[classKey] ?? { label: classKey, desc: '' };
+  const infoBtn = classInfo.desc
+    ? `<button class="info-btn" aria-label="About ${classInfo.label}">ℹ</button>`
+    : '';
+
   el('analysis-content').innerHTML = `
-    <div class="prop"><span>Class</span><span>${s.net_class}</span></div>
+    <div class="prop">
+      <span>Class</span>
+      <span class="class-cell">${infoBtn}${classInfo.label}</span>
+    </div>
     <div class="prop"><span>Places</span><span>${s.place_count}</span></div>
     <div class="prop"><span>Transitions</span><span>${s.transition_count}</span></div>
     <div class="prop"><span>Bounded</span><span>${yesNo(sys.isBounded())}</span></div>
     <div class="prop"><span>Live (L4)</span><span>${yesNo(sys.isLive())}</span></div>
     <div class="prop"><span>Deadlock-free</span><span>${yesNo(sys.isDeadlockFree())}</span></div>
   `;
+
+  // Tooltip: opens to the LEFT of the sidebar, floating over the canvas
+  el('analysis-content').querySelector('.info-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const existing = document.getElementById('class-tooltip');
+    if (existing) { existing.remove(); return; }
+
+    const btn = e.currentTarget as HTMLElement;
+    const rect = btn.getBoundingClientRect();
+
+    const tooltip = document.createElement('div');
+    tooltip.id = 'class-tooltip';
+    tooltip.className = 'class-tooltip';
+    tooltip.textContent = classInfo.desc;
+
+    // Position: right edge of tooltip is 8px left of the sidebar's left edge
+    const rightOffset = window.innerWidth - rect.left + 8;
+    const topOffset = Math.min(rect.top, window.innerHeight - 160);
+    tooltip.style.right = `${rightOffset}px`;
+    tooltip.style.top = `${topOffset}px`;
+
+    document.body.appendChild(tooltip);
+
+    const dismiss = (ev: Event) => {
+      if (!tooltip.contains(ev.target as Node)) {
+        tooltip.remove();
+        document.removeEventListener('click', dismiss);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', dismiss), 0);
+  });
 }
 
 function yesNo(b: boolean): string {
@@ -351,6 +416,7 @@ function setupToolbar(): void {
     syncMarking();
   });
   el('btn-fit').addEventListener('click', () => cy?.fit(undefined, 60));
+  el('btn-analyze').addEventListener('click', () => runAnalysis());
 }
 
 function setupAnimSlider(): void {
@@ -426,10 +492,6 @@ function netStyles(): cytoscape.StylesheetStyle[] {
         color: '#15803d',
         cursor: 'pointer',
       } as cytoscape.Css.Node,
-    },
-    {
-      selector: 'node[type="transition"].firing',
-      style: { 'background-color': '#facc15' } as cytoscape.Css.Node,
     },
     {
       selector: 'node[type="transition"]:selected',
