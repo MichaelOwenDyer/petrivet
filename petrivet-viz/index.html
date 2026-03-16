@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>petrivet</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <div class="layout">
+    <header class="toolbar">
+      <span class="toolbar-brand">petrivet</span>
+      <button id="btn-open">Open PNML…</button>
+      <button id="btn-reset" disabled>Reset</button>
+      <button id="btn-fit">Fit</button>
+      <div class="toolbar-spacer"></div>
+      <span id="node-info"></span>
+      <span id="status"></span>
+    </header>
+
+    <div id="cy"></div>
+
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <h3>Net</h3>
+        <div id="net-name">—</div>
+        <div id="marking-label">Marking</div>
+        <div id="marking-row">—</div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Analysis</h3>
+        <div id="analysis-content">
+          <p class="hint">Load a net to see analysis results.</p>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <p class="hint">
+          Click an enabled (green) transition to fire it.<br>
+          Drag &amp; drop a <code>.pnml</code> file onto the canvas,
+          or use <em>Open PNML…</em>
+        </p>
+      </div>
+    </aside>
+  </div>
+
+  <input type="file" id="file-input" accept=".pnml" style="display:none">
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

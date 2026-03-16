@@ -417,6 +417,84 @@ impl WasmSystem {
     }
 }
 
+#[wasm_bindgen]
+impl WasmSystem {
+    /// Export the net topology as a Graphviz DOT string.
+    ///
+    /// Useful for interoperating with external tools or rendering a read-only
+    /// view via `@viz-js/viz`. Places are circles, transitions are rectangles.
+    /// Labels from the PNML document are used when available.
+    #[wasm_bindgen(js_name = toDot)]
+    pub fn to_dot(&self) -> String {
+        let net = self.system.net().as_ref();
+        let mut out = String::new();
+        let name = self
+            .labels
+            .as_ref()
+            .and_then(|l| l.net_name())
+            .unwrap_or("petri_net");
+        out.push_str(&format!(
+            "digraph {} {{\n  rankdir=LR;\n  node [fontname=\"sans-serif\"];\n",
+            dot_id(name)
+        ));
+
+        for p in net.places() {
+            let label = self
+                .labels
+                .as_ref()
+                .and_then(|l| l.place_name(p))
+                .unwrap_or("");
+            let display = if label.is_empty() {
+                format!("p{}", p.index())
+            } else {
+                label.to_string()
+            };
+            out.push_str(&format!(
+                "  p{} [shape=circle label={}];\n",
+                p.index(),
+                dot_id(&display)
+            ));
+        }
+
+        for t in net.transitions() {
+            let label = self
+                .labels
+                .as_ref()
+                .and_then(|l| l.transition_name(t))
+                .unwrap_or("");
+            let display = if label.is_empty() {
+                format!("t{}", t.index())
+            } else {
+                label.to_string()
+            };
+            out.push_str(&format!(
+                "  t{} [shape=box label={}];\n",
+                t.index(),
+                dot_id(&display)
+            ));
+        }
+
+        for arc in net.arcs() {
+            match arc {
+                PetriArc::PlaceToTransition(p, t) => {
+                    out.push_str(&format!("  p{} -> t{};\n", p.index(), t.index()));
+                }
+                PetriArc::TransitionToPlace(t, p) => {
+                    out.push_str(&format!("  t{} -> p{};\n", t.index(), p.index()));
+                }
+            }
+        }
+
+        out.push('}');
+        out
+    }
+}
+
+/// Produce a quoted DOT identifier, escaping internal double-quotes.
+fn dot_id(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 fn omega_to_wasm(omega: Omega) -> WasmOmega {
     match omega {
         Omega::Finite(n) => WasmOmega::Finite(n),

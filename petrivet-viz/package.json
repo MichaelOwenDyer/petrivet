@@ -1,0 +1,22 @@
+{
+  "name": "petrivet-viz",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "cytoscape": "^3.30.0",
+    "petrivet-wasm": "file:../petrivet-wasm/pkg"
+  },
+  "devDependencies": {
+    "@types/cytoscape": "^3.21.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vite-plugin-top-level-await": "^1.4.0",
+    "vite-plugin-wasm": "^3.4.0"
+  }
+}

@@ -1,3 +1,5 @@
 /target
 .idea
+.cursor
 petrivet-wasm/pkg
+node_modules
