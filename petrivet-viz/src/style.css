@@ -82,6 +82,28 @@ html, body {
   max-width: 360px;
 }
 
+.anim-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.anim-label input[type="range"] {
+  width: 90px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+#anim-speed-val {
+  color: #94a3b8;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+  min-width: 36px;
+}
+
 #status {
   color: #f87171;
   font-size: 12px;

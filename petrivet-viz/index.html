@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>petrivet</title>
-  <link rel="stylesheet" href="/src/style.css">
+  <link rel="stylesheet" href="src/style.css">
 </head>
 <body>
   <div class="layout">
@@ -14,6 +14,11 @@
       <button id="btn-reset" disabled>Reset</button>
       <button id="btn-fit">Fit</button>
       <div class="toolbar-spacer"></div>
+      <label class="anim-label" for="anim-speed">
+        Animate
+        <input type="range" id="anim-speed" min="0" max="600" value="280" step="20">
+        <span id="anim-speed-val">280ms</span>
+      </label>
       <span id="node-info"></span>
       <span id="status"></span>
     </header>
@@ -46,6 +51,6 @@
   </div>
 
   <input type="file" id="file-input" accept=".pnml" style="display:none">
-  <script type="module" src="/src/main.ts"></script>
+  <script type="module" src="src/main.ts"></script>
 </body>
 </html>
