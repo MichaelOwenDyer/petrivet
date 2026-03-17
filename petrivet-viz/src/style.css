@@ -82,6 +82,51 @@ html, body {
   max-width: 360px;
 }
 
+.toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: #1e293b;
+  flex-shrink: 0;
+}
+
+.toolbar-label {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+#layout-select {
+  background: #1e293b;
+  color: #cbd5e1;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  padding: 4px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+  appearance: auto;
+}
+
+#layout-select:focus {
+  border-color: #3b82f6;
+}
+
+#btn-freeze {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.1s;
+}
+
+#btn-freeze:hover {
+  background: #334155;
+}
+
 .anim-label {
   display: flex;
   align-items: center;

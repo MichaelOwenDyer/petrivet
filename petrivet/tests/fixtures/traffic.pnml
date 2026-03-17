@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">
+  <net id="railway_interlocking_live_net" type="http://www.pnml.org/version-2009/grammar/ptnet">
+    <name>
+      <text>Live Single-Track Railway Interlocking</text>
+    </name>
+    <page id="page1">
+
+      <place id="p_a_approaching">
+        <name><text>Train A Approaching</text></name>
+        <initialMarking><text>1</text></initialMarking>
+      </place>
+      <place id="p_a_on_track">
+        <name><text>Train A on Critical Segment</text></name>
+        <initialMarking><text>0</text></initialMarking>
+      </place>
+      <place id="p_a_cleared">
+        <name><text>Train A Cleared Segment</text></name>
+        <initialMarking><text>0</text></initialMarking>
+      </place>
+
+      <place id="p_b_approaching">
+        <name><text>Train B Approaching</text></name>
+        <initialMarking><text>1</text></initialMarking>
+      </place>
+      <place id="p_b_on_track">
+        <name><text>Train B on Critical Segment</text></name>
+        <initialMarking><text>0</text></initialMarking>
+      </place>
+      <place id="p_b_cleared">
+        <name><text>Train B Cleared Segment</text></name>
+        <initialMarking><text>0</text></initialMarking>
+      </place>
+
+      <place id="p_track_free">
+        <name><text>Track Segment Free</text></name>
+        <initialMarking><text>1</text></initialMarking>
+      </place>
+
+      <transition id="t_a_enter">
+        <name><text>Train A Enters Segment</text></name>
+      </transition>
+      <transition id="t_a_leave">
+        <name><text>Train A Leaves Segment</text></name>
+      </transition>
+      <transition id="t_a_reset">
+        <name><text>Train A Returns to Start</text></name>
+      </transition>
+
+      <transition id="t_b_enter">
+        <name><text>Train B Enters Segment</text></name>
+      </transition>
+      <transition id="t_b_leave">
+        <name><text>Train B Leaves Segment</text></name>
+      </transition>
+      <transition id="t_b_reset">
+        <name><text>Train B Returns to Start</text></name>
+      </transition>
+
+      <arc id="arc_a1" source="p_a_approaching" target="t_a_enter"/>
+      <arc id="arc_a2" source="p_track_free" target="t_a_enter"/>
+      <arc id="arc_a3" source="t_a_enter" target="p_a_on_track"/>
+
+      <arc id="arc_a4" source="p_a_on_track" target="t_a_leave"/>
+      <arc id="arc_a5" source="t_a_leave" target="p_a_cleared"/>
+      <arc id="arc_a6" source="t_a_leave" target="p_track_free"/>
+
+      <arc id="arc_a7" source="p_a_cleared" target="t_a_reset"/>
+      <arc id="arc_a8" source="t_a_reset" target="p_a_approaching"/>
+
+      <arc id="arc_b1" source="p_b_approaching" target="t_b_enter"/>
+      <arc id="arc_b2" source="p_track_free" target="t_b_enter"/>
+      <arc id="arc_b3" source="t_b_enter" target="p_b_on_track"/>
+
+      <arc id="arc_b4" source="p_b_on_track" target="t_b_leave"/>
+      <arc id="arc_b5" source="t_b_leave" target="p_b_cleared"/>
+      <arc id="arc_b6" conservation="true" source="t_b_leave" target="p_track_free"/>
+
+      <arc id="arc_b7" source="p_b_cleared" target="t_b_reset"/>
+      <arc id="arc_b8" source="t_b_reset" target="p_b_approaching"/>
+
+    </page>
+  </net>
+</pnml>

@@ -2,6 +2,15 @@ import { WasmSystem } from 'petrivet-wasm';
 import type { WasmNetStructure, WasmPosition } from 'petrivet-wasm';
 import cytoscape from 'cytoscape';
 import type { Core, ElementDefinition, NodeSingular } from 'cytoscape';
+import cola from 'cytoscape-cola';
+import fcose from 'cytoscape-fcose';
+import dagre from 'cytoscape-dagre';
+
+// Register layout extensions once, at module scope, before any cy instance
+// is created. Calling use() more than once for the same extension is safe.
+cytoscape.use(cola);
+cytoscape.use(fcose);
+cytoscape.use(dagre);
 
 // App state
 
@@ -9,6 +18,7 @@ let sys: WasmSystem | null = null;
 let cy: Core | null = null;
 let cachedStructure: WasmNetStructure | null = null;
 let animating = false;
+let activeLayout: ReturnType<Core['layout']> | null = null;
 // Marking vector at which analysis was last run, so we can show a stale badge
 let lastAnalyzedMarking: number[] | null = null;
 
@@ -38,6 +48,7 @@ function main(): void {
   setupDropzone();
   setupToolbar();
   setupAnimSlider();
+  setupLayoutSelector();
 }
 
 // PNML loading
@@ -99,24 +110,23 @@ function renderNet(): void {
     elements.push({ data: { source: `t${arc.source}`, target: `p${arc.target}` } });
   }
 
+  // Stop any running physics before replacing graph elements
+  activeLayout?.stop();
+  activeLayout = null;
+
   cy.elements().remove();
   cy.add(elements);
 
   const hasPositions = s.place_positions.some((p) => p != null);
   if (hasPositions) {
     cy.layout({ name: 'preset' }).run();
+    cy.fit(undefined, 60);
   } else {
-    cy.layout({
-      name: 'cose',
-      animate: false,
-      padding: 80,
-      nodeRepulsion: () => 8192,
-      idealEdgeLength: () => 100,
-      gravity: 0.25,
-    } as Parameters<Core['layout']>[0]).run();
+    // Use the currently selected layout algorithm (fitAfter=true so it fits
+    // once the layout converges or times out for cola).
+    const selectedLayout = (el('layout-select') as HTMLSelectElement).value;
+    applyLayout(selectedLayout, true);
   }
-
-  cy.fit(undefined, 60);
   lastAnalyzedMarking = null;
   el('analysis-stale').classList.remove('visible');
   el('analysis-content').innerHTML =
@@ -417,6 +427,139 @@ function setupToolbar(): void {
   });
   el('btn-fit').addEventListener('click', () => cy?.fit(undefined, 60));
   el('btn-analyze').addEventListener('click', () => runAnalysis());
+}
+
+type LayoutOpts = Parameters<Core['layout']>[0];
+
+function layoutOptions(name: string): LayoutOpts {
+  switch (name) {
+    case 'fcose':
+      return {
+        name: 'fcose',
+        animate: true,
+        animationDuration: 800,
+        quality: 'proof',
+        randomize: false,
+        // Push nodes apart; good defaults for bipartite Petri net topology
+        nodeRepulsion: () => 8000,
+        idealEdgeLength: () => 110,
+        edgeElasticity: () => 0.45,
+        nestingFactor: 0.1,
+        gravity: 0.25,
+        numIter: 2500,
+        // nodeSeparation: 80,
+      } as unknown as LayoutOpts;
+
+    case 'cola':
+      return {
+        name: 'cola',
+        infinite: true,
+        animate: true,
+        refresh: 1,
+        nodeSpacing: 20,
+        edgeLength: 120,
+        avoidOverlap: true,
+        unconstrainedIterations: 10,
+        userConstIter: 0,
+        allConstIter: 0,
+      } as unknown as LayoutOpts;
+
+    case 'dagre':
+      return {
+        name: 'dagre',
+        animate: true,
+        animationDuration: 600,
+        rankDir: 'LR',
+        nodeSep: 60,
+        edgeSep: 20,
+        rankSep: 110,
+      } as unknown as LayoutOpts;
+
+    case 'breadthfirst':
+      return {
+        name: 'breadthfirst',
+        animate: true,
+        animationDuration: 600,
+        directed: false,
+        padding: 40,
+        spacingFactor: 1.75,
+      } as LayoutOpts;
+
+    case 'circle':
+      return {
+        name: 'circle',
+        animate: true,
+        animationDuration: 600,
+        padding: 40,
+        spacingFactor: 1.5,
+      } as LayoutOpts;
+
+    case 'grid':
+    default:
+      return {
+        name: 'grid',
+        animate: true,
+        animationDuration: 600,
+        padding: 40,
+        spacingFactor: 1.5,
+      } as LayoutOpts;
+  }
+}
+
+/** Apply the selected layout. For cola (physics) the simulation runs
+ *  indefinitely until the user freezes it; all other layouts run once. */
+function applyLayout(name: string, fitAfter = true): void {
+  if (!cy) return;
+
+  // Stop any previously running continuous layout
+  activeLayout?.stop();
+  activeLayout = null;
+
+  const btnFreeze = el('btn-freeze') as HTMLButtonElement;
+  const isCola = name === 'cola';
+  btnFreeze.style.display = isCola ? '' : 'none';
+  btnFreeze.textContent = '⏸';
+  btnFreeze.title = 'Freeze physics';
+
+  const layout = cy.layout(layoutOptions(name));
+
+  if (isCola) {
+    activeLayout = layout;
+    if (fitAfter) {
+      // Cola layoutstop fires only when stopped explicitly; fit after a short
+      // delay once the spring forces have had time to spread the net out.
+      setTimeout(() => cy?.fit(undefined, 60), 1200);
+    }
+  } else if (fitAfter) {
+    layout.on('layoutstop', () => cy?.fit(undefined, 60));
+  }
+
+  layout.run();
+}
+
+function setupLayoutSelector(): void {
+  const select = el('layout-select') as HTMLSelectElement;
+  select.addEventListener('change', () => applyLayout(select.value));
+
+  const btnFreeze = el('btn-freeze') as HTMLButtonElement;
+  btnFreeze.addEventListener('click', () => {
+    if (activeLayout) {
+      // Freeze: stop the physics simulation
+      activeLayout.stop();
+      activeLayout = null;
+      btnFreeze.textContent = '▶';
+      btnFreeze.title = 'Resume physics';
+    } else {
+      // Resume: restart cola
+      if (select.value === 'cola') {
+        const layout = cy!.layout(layoutOptions('cola'));
+        activeLayout = layout;
+        layout.run();
+        btnFreeze.textContent = '⏸';
+        btnFreeze.title = 'Freeze physics';
+      }
+    }
+  });
 }
 
 function setupAnimSlider(): void {

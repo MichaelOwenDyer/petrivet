@@ -13,6 +13,17 @@
       <button id="btn-open">Open PNML…</button>
       <button id="btn-reset" disabled>Reset</button>
       <button id="btn-fit">Fit</button>
+      <div class="toolbar-sep"></div>
+      <label class="toolbar-label" for="layout-select">Layout</label>
+      <select id="layout-select">
+        <option value="fcose">fCoSE</option>
+        <option value="cola">Cola ⚡ physics</option>
+        <option value="dagre">Dagre</option>
+        <option value="breadthfirst">Breadthfirst</option>
+        <option value="circle">Circle</option>
+        <option value="grid">Grid</option>
+      </select>
+      <button id="btn-freeze" title="Freeze physics" style="display:none">⏸</button>
       <div class="toolbar-spacer"></div>
       <label class="anim-label" for="anim-speed">
         Animate

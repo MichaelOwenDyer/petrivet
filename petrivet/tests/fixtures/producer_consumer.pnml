@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">
+  <net id="producer_consumer_net" type="http://www.pnml.org/version-2009/grammar/ptnet">
+    <name>
+      <text>Producer-Consumer with Bounded Buffer</text>
+    </name>
+    <page id="page1">
+
+      <place id="producer_ready">
+        <name><text>Producer Ready</text></name>
+        <initialMarking><text>1</text></initialMarking>
+      </place>
+      <place id="buffer_filled">
+        <name><text>Filled Buffer Slots</text></name>
+        <initialMarking><text>0</text></initialMarking>
+      </place>
+      <place id="buffer_empty">
+        <name><text>Empty Buffer Slots (Max 5)</text></name>
+        <initialMarking><text>5</text></initialMarking>
+      </place>
+      <place id="consumer_ready">
+        <name><text>Consumer Ready</text></name>
+        <initialMarking><text>1</text></initialMarking>
+      </place>
+
+      <transition id="produce">
+        <name><text>Produce Item</text></name>
+      </transition>
+      <transition id="consume">
+        <name><text>Consume Item</text></name>
+      </transition>
+
+      <arc id="a1" source="producer_ready" target="produce"/>
+      <arc id="a2" source="buffer_empty" target="produce"/>
+      <arc id="a3" source="produce" target="producer_ready"/>
+      <arc id="a4" source="produce" target="buffer_filled"/>
+
+      <arc id="a5" source="consumer_ready" target="consume"/>
+      <arc id="a6" source="buffer_filled" target="consume"/>
+      <arc id="a7" source="consume" target="consumer_ready"/>
+      <arc id="a8" source="consume" target="buffer_empty"/>
+
+    </page>
+  </net>
+</pnml>

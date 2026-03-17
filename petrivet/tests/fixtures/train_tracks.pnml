@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">
+  <net id="train_tracks_v2" type="http://www.pnml.org/version-2009/grammar/ptnet">
+    <name>
+      <text>Figure 2.5: Train tracks (second version)</text>
+    </name>
+    <page id="page1">
+
+      <place id="P0"><name><text>Track 0 (1:00)</text></name><initialMarking><text>0</text></initialMarking></place>
+      <place id="P1"><name><text>Track 1 (2:00)</text></name><initialMarking><text>1</text></initialMarking></place>
+      <place id="P2"><name><text>Track 2 (4:00)</text></name><initialMarking><text>0</text></initialMarking></place>
+      <place id="P3"><name><text>Track 3 (5:00)</text></name><initialMarking><text>0</text></initialMarking></place>
+      <place id="P4"><name><text>Track 4 (7:00)</text></name><initialMarking><text>0</text></initialMarking></place>
+      <place id="P5"><name><text>Track 5 (8:00)</text></name><initialMarking><text>1</text></initialMarking></place>
+      <place id="P6"><name><text>Track 6 (10:00)</text></name><initialMarking><text>0</text></initialMarking></place>
+      <place id="P7"><name><text>Track 7 (11:00)</text></name><initialMarking><text>1</text></initialMarking></place>
+
+      <place id="R0"><name><text>Resource 0 (12:00)</text></name><initialMarking><text>0</text></initialMarking></place>
+      <place id="R1"><name><text>Resource 1 (1:30)</text></name><initialMarking><text>0</text></initialMarking></place>
+      <place id="R2"><name><text>Resource 2 (3:00)</text></name><initialMarking><text>0</text></initialMarking></place>
+      <place id="R3"><name><text>Resource 3 (4:30)</text></name><initialMarking><text>1</text></initialMarking></place>
+      <place id="R4"><name><text>Resource 4 (6:00)</text></name><initialMarking><text>1</text></initialMarking></place>
+      <place id="R5"><name><text>Resource 5 (7:30)</text></name><initialMarking><text>0</text></initialMarking></place>
+      <place id="R6"><name><text>Resource 6 (9:00)</text></name><initialMarking><text>0</text></initialMarking></place>
+      <place id="R7"><name><text>Resource 7 (10:30)</text></name><initialMarking><text>0</text></initialMarking></place>
+
+      <transition id="T0"><name><text>Move T0 (Top)</text></name></transition>
+      <transition id="T1"><name><text>Move T1 (Top-Right)</text></name></transition>
+      <transition id="T2"><name><text>Move T2 (Right)</text></name></transition>
+      <transition id="T3"><name><text>Move T3 (Bottom-Right)</text></name></transition>
+      <transition id="T4"><name><text>Move T4 (Bottom)</text></name></transition>
+      <transition id="T5"><name><text>Move T5 (Bottom-Left)</text></name></transition>
+      <transition id="T6"><name><text>Move T6 (Left)</text></name></transition>
+      <transition id="T7"><name><text>Move T7 (Top-Left)</text></name></transition>
+
+      <arc id="a_P7_T0" source="P7" target="T0"/>
+      <arc id="a_R1_T0" source="R1" target="T0"/>
+      <arc id="a_T0_P0" source="T0" target="P0"/>
+      <arc id="a_T0_R7" source="T0" target="R7"/>
+
+      <arc id="a_P0_T1" source="P0" target="T1"/>
+      <arc id="a_R2_T1" source="R2" target="T1"/>
+      <arc id="a_T1_P1" source="T1" target="P1"/>
+      <arc id="a_T1_R0" source="T1" target="R0"/>
+
+      <arc id="a_P1_T2" source="P1" target="T2"/>
+      <arc id="a_R3_T2" source="R3" target="T2"/>
+      <arc id="a_T2_P2" source="T2" target="P2"/>
+      <arc id="a_T2_R1" source="T2" target="R1"/>
+
+      <arc id="a_P2_T3" source="P2" target="T3"/>
+      <arc id="a_R4_T3" source="R4" target="T3"/>
+      <arc id="a_T3_P3" source="T3" target="P3"/>
+      <arc id="a_T3_R2" source="T3" target="R2"/>
+
+      <arc id="a_P3_T4" source="P3" target="T4"/>
+      <arc id="a_R5_T4" source="R5" target="T4"/>
+      <arc id="a_T4_P4" source="T4" target="P4"/>
+      <arc id="a_T4_R3" source="T4" target="R3"/>
+
+      <arc id="a_P4_T5" source="P4" target="T5"/>
+      <arc id="a_R6_T5" source="R6" target="T5"/>
+      <arc id="a_T5_P5" source="T5" target="P5"/>
+      <arc id="a_T5_R4" source="T5" target="R4"/>
+
+      <arc id="a_P5_T6" source="P5" target="T6"/>
+      <arc id="a_R7_T6" source="R7" target="T6"/>
+      <arc id="a_T6_P6" source="T6" target="P6"/>
+      <arc id="a_T6_R5" source="T6" target="R5"/>
+
+      <arc id="a_P6_T7" source="P6" target="T7"/>
+      <arc id="a_R0_T7" source="R0" target="T7"/>
+      <arc id="a_T7_P7" source="T7" target="P7"/>
+      <arc id="a_T7_R6" source="T7" target="R6"/>
+
+    </page>
+  </net>
+</pnml>
