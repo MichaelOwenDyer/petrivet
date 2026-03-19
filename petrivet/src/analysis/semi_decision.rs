@@ -38,7 +38,7 @@
 //! ```
 
 use crate::marking::Marking;
-use crate::net::{Net, Place};
+use crate::net::{Net, Place, PlaceMap, TransitionMap};
 use good_lp::{
     constraint, variable, Expression, ProblemVariables, Solution,
     SolverModel, Variable,
@@ -69,21 +69,19 @@ pub fn find_marking_equation_rational_solution(
     let incidence = net.incidence_matrix();
 
     let mut variables = ProblemVariables::new();
-    let rational_firing_counts: Vec<Variable> = net
+    let firing_counts: TransitionMap<Variable> = net
         .transitions()
         .map(|_| variables.add(variable().min(0.0)))
         .collect();
 
-    // Minimize total firing count (arbitrary objective; we only care about feasibility).
-    let objective: Expression = rational_firing_counts.iter().copied().sum();
+    let objective: Expression = firing_counts.values().copied().sum();
 
-    // Constraint: m₀[p] + Σ_t N[p][t] · x[t] = m'[p]  for each place p
     let constraints = net
         .places()
         .map(|p| {
             let lhs: Expression = net
                 .transitions()
-                .map(|t| incidence.get(p, t) as f64 * rational_firing_counts[t.idx])
+                .map(|t| incidence.get(p, t) as f64 * firing_counts[t])
                 .sum();
             let rhs = f64::from(target[p]) - f64::from(initial[p]);
             constraint!(lhs == rhs)
@@ -95,7 +93,7 @@ pub fn find_marking_equation_rational_solution(
         .with_all(constraints)
         .solve()
         .map_or(None, |solution| {
-            let rational_solution: Box<[f64]> = rational_firing_counts
+            let rational_solution: Box<[f64]> = firing_counts
                 .into_iter()
                 .map(|v| solution.value(v))
                 .collect();
@@ -125,12 +123,12 @@ pub fn find_marking_equation_integer_solution(
     target: &Marking,
 ) -> Option<Box<[u32]>> {
     let mut variables = ProblemVariables::new();
-    let integer_firing_counts: Vec<Variable> = net
+    let firing_counts: TransitionMap<Variable> = net
         .transitions()
         .map(|_| variables.add(variable().integer().min(0)))
         .collect();
 
-    let objective: Expression = integer_firing_counts.iter().copied().sum();
+    let objective: Expression = firing_counts.values().copied().sum();
 
     let incidence = net.incidence_matrix();
     let constraints = net
@@ -138,7 +136,7 @@ pub fn find_marking_equation_integer_solution(
         .map(|p| {
             let lhs: Expression = net
                 .transitions()
-                .map(|t| incidence.get(p, t) as f64 * integer_firing_counts[t.idx])
+                .map(|t| incidence.get(p, t) as f64 * firing_counts[t])
                 .sum();
             let rhs = f64::from(target[p]) - f64::from(initial[p]);
             constraint!(lhs == rhs)
@@ -150,7 +148,7 @@ pub fn find_marking_equation_integer_solution(
         .with_all(constraints)
         .solve()
         .map_or(None, |solution| {
-            let integer_solution: Box<[u32]> = integer_firing_counts.iter()
+            let integer_solution: Box<[u32]> = firing_counts.values()
                 .map(|&v| solution.value(v).round() as u32)
                 .collect();
             Some(integer_solution)
@@ -175,7 +173,7 @@ pub fn find_covering_equation_rational_solution(
     threshold: &Marking,
 ) -> Option<Box<[f64]>> {
     let mut variables = ProblemVariables::new();
-    let parikh_vector: Vec<Variable> = net
+    let parikh_vector: TransitionMap<Variable> = net
         .transitions()
         .map(|_| variables.add(variable().min(0.0)))
         .collect();
@@ -186,15 +184,14 @@ pub fn find_covering_equation_rational_solution(
         .map(|p| {
             let change: Expression = net
                 .transitions()
-                .map(|t| f64::from(incidence.get(p, t)) * parikh_vector[t.idx])
+                .map(|t| f64::from(incidence.get(p, t)) * parikh_vector[t])
                 .sum();
             let m0_p = f64::from(initial[p]);
             let thresh = f64::from(threshold[p]);
-            // m₀[p] + Σ_t N[p][t] · x[t] >= threshold[p]
             constraint!(change >= thresh - m0_p)
         });
 
-    let objective: Expression = parikh_vector.iter().copied().sum();
+    let objective: Expression = parikh_vector.values().copied().sum();
     variables
         .minimise(objective)
         .using(good_lp::microlp)
@@ -202,8 +199,8 @@ pub fn find_covering_equation_rational_solution(
         .solve()
         .map_or(None, |solution| {
             let firing_counts: Box<[f64]> = parikh_vector
-                .iter()
-                .map(|&v| solution.value(v))
+                .into_iter()
+                .map(|v| solution.value(v))
                 .collect();
             Some(firing_counts)
         })
@@ -224,10 +221,9 @@ pub fn find_covering_equation_integer_solution(
     initial: &Marking,
     threshold: &Marking,
 ) -> Option<Box<[u32]>> {
-    use good_lp::{constraint, variable, Expression, ProblemVariables, SolverModel, Variable};
 
     let mut variables = ProblemVariables::new();
-    let parikh_vector: Vec<Variable> = net
+    let parikh_vector: TransitionMap<Variable> = net
         .transitions()
         .map(|_| variables.add(variable().integer().min(0)))
         .collect();
@@ -238,15 +234,14 @@ pub fn find_covering_equation_integer_solution(
         .map(|p| {
             let change: Expression = net
                 .transitions()
-                .map(|t| incidence.get(p, t) as f64 * parikh_vector[t.idx])
+                .map(|t| incidence.get(p, t) as f64 * parikh_vector[t])
                 .sum();
             let m0_p = f64::from(initial[p]);
             let thresh = f64::from(threshold[p]);
-            // m₀[p] + Σ_t N[p][t] · x[t] >= threshold[p]
             constraint!(change >= thresh - m0_p)
         });
 
-    let objective: Expression = parikh_vector.iter().copied().sum();
+    let objective: Expression = parikh_vector.values().copied().sum();
     variables
         .minimise(objective)
         .using(good_lp::microlp)
@@ -254,8 +249,8 @@ pub fn find_covering_equation_integer_solution(
         .solve()
         .map_or(None, |solution| {
             let firing_counts: Box<[u32]> = parikh_vector
-                .iter()
-                .map(|&v| solution.value(v).round() as u32)
+                .into_iter()
+                .map(|v| solution.value(v).round() as u32)
                 .collect();
             Some(firing_counts)
         })
@@ -292,7 +287,7 @@ pub fn find_positive_place_subvariant(net: &Net) -> Option<Box<[f64]>> {
     }
 
     let mut variables = ProblemVariables::new();
-    let place_weights: Vec<Variable> = net
+    let place_weights: PlaceMap<Variable> = net
         .places()
         .map(|_| variables.add(variable().min(1.0)))
         .collect();
@@ -302,7 +297,7 @@ pub fn find_positive_place_subvariant(net: &Net) -> Option<Box<[f64]>> {
         .transitions()
         .map(|t| {
             let token_delta: Expression = net.places()
-                .map(|p| f64::from(incidence.get(p, t)) * place_weights[p.idx])
+                .map(|p| f64::from(incidence.get(p, t)) * place_weights[p])
                 .sum();
             constraint!(token_delta <= 0.0)
         });
@@ -315,8 +310,8 @@ pub fn find_positive_place_subvariant(net: &Net) -> Option<Box<[f64]>> {
         .ok()
         .map(|solution| {
             place_weights
-                .iter()
-                .map(|&v| solution.value(v))
+                .into_iter()
+                .map(|v| solution.value(v))
                 .collect::<Vec<_>>()
                 .into_boxed_slice()
         })
@@ -342,7 +337,7 @@ pub fn is_structurally_bounded(net: &Net) -> bool {
 #[must_use]
 pub fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<Box<[f64]>> {
     let mut variables = ProblemVariables::new();
-    let place_weights: Vec<Variable> = net.places()
+    let place_weights: PlaceMap<Variable> = net.places()
         .map(|p| {
             if p == place {
                 variables.add(variable().min(1.0))
@@ -352,28 +347,26 @@ pub fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<Box<[f6
         })
         .collect();
 
-    // we are looking for a region of the net containing the target place
-    // which the firing of any transition cannot increase the weighted token count of that region.
     let incidence = net.incidence_matrix();
     let constraints = net
         .transitions()
         .map(|t| {
             let token_delta: Expression = net
                 .places()
-                .map(|p| f64::from(incidence.get(p, t)) * place_weights[p.idx])
+                .map(|p| f64::from(incidence.get(p, t)) * place_weights[p])
                 .sum();
             constraint!(token_delta <= 0.0)
         });
 
-    variables // objective doesn't matter; we only care about feasibility
+    variables
         .minimise(Expression::from(0))
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
         .map_or(None, |solution| {
             let weights: Box<[f64]> = place_weights
-                .iter()
-                .map(|&v| solution.value(v))
+                .into_iter()
+                .map(|v| solution.value(v))
                 .collect();
             Some(weights)
         })

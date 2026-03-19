@@ -18,6 +18,12 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SortedSet<T>(Vec<T>);
 
+impl<T> Default for SortedSet<T> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
 impl<T: Ord> SortedSet<T> {
     /// Creates a new empty `SortedSet`.
     pub(crate) fn new() -> Self {
@@ -40,6 +46,18 @@ impl<T: Ord> SortedSet<T> {
     #[must_use]
     pub fn contains(&self, item: &T) -> bool {
         self.0.binary_search(item).is_ok()
+    }
+
+    /// Binary search removal. O(log n) for search, O(n) for removal.
+    /// Returns `true` if the item was present and removed.
+    pub(crate) fn remove(&mut self, item: &T) -> bool {
+        match self.0.binary_search(item) {
+            Ok(pos) => {
+                self.0.remove(pos);
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     /// `self ⊆ other`. O(n + m) merge scan.

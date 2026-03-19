@@ -40,7 +40,7 @@
 use crate::analysis::math::integer_null_space;
 use crate::analysis::model::CommonerHackCriterionResult;
 use crate::marking::Marking;
-use crate::net::{Net, Place, Transition};
+use crate::net::{Net, Place, PlaceMap, Transition};
 use std::collections::HashSet;
 use std::fmt;
 
@@ -136,7 +136,7 @@ impl fmt::Display for IncidenceMatrix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for idx in 0..self.rows {
             write!(f, "[")?;
-            for (t, val) in self.row(Place { idx }).iter().enumerate() {
+            for (t, val) in self.row(Place::from_index(idx)).iter().enumerate() {
                 if t > 0 { write!(f, ", ")?; }
                 write!(f, "{val:>3}")?;
             }
@@ -365,7 +365,7 @@ pub fn minimal_siphons(net: &Net) -> Box<[HashSet<Place>]> {
             continue;
         }
 
-        let mut key: Vec<usize> = siphon.iter().map(|p| p.idx).collect();
+        let mut key: Vec<usize> = siphon.iter().map(|p| p.index()).collect();
         key.sort_unstable();
         if !visited.insert(key) {
             continue;
@@ -460,7 +460,7 @@ pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
             continue;
         }
 
-        let mut key: Vec<usize> = trap.iter().map(|p| p.idx).collect();
+        let mut key: Vec<usize> = trap.iter().map(|p| p.index()).collect();
         key.sort_unstable();
         if !visited.insert(key) {
             continue;
@@ -509,32 +509,29 @@ pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
     let mut results: Vec<HashSet<Place>> = Vec::new();
 
     let mut vars = ProblemVariables::new();
-    let x: Vec<_> = net
+    let x: PlaceMap<_> = net
         .places()
         .map(|_| vars.add(variable().binary()))
         .collect();
 
     let mut constraints = Vec::new();
 
-    // At least one place must be in the siphon.
-    let at_least_one: Expression = x.iter().sum();
+    let at_least_one: Expression = x.values().copied().sum();
     constraints.push(constraint!(at_least_one >= 1.0));
 
-    // Siphon property: for each place p and each transition t ∈ •p,
-    // if p is in the siphon then at least one input place of t is too.
-    // Encoding: x[p] ≤ Σ_{q ∈ •t} x[q]  for all p, t ∈ •p
+    // Siphon property: x[p] ≤ Σ_{q ∈ •t} x[q]  for all p, t ∈ •p
     for p in net.places() {
         for &t in net.preset_p(p) {
             let sum_preset: Expression = net
                 .preset_t(t)
                 .iter()
-                .map(|&q| x[q.idx])
+                .map(|&q| x[q])
                 .sum();
-            constraints.push(constraint!(x[p.idx] <= sum_preset));
+            constraints.push(constraint!(x[p] <= sum_preset));
         }
     }
 
-    let objective: Expression = x.iter().copied().sum();
+    let objective: Expression = x.values().copied().sum();
     while let Ok(solution) = vars.clone()
         .minimise(&objective)
         .using(good_lp::microlp)
@@ -542,11 +539,10 @@ pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
         .solve() {
 
         let siphon: HashSet<Place> = net
-            .places() // x[p] > 0.5 => binary variable is 1, p is in the siphon
-            .filter(|p| solution.value(x[p.idx]) > 0.5)
+            .places()
+            .filter(|&p| solution.value(x[p]) > 0.5)
             .collect();
 
-        // Should not happen since we require at least one place >= 1
         if siphon.is_empty() {
             break;
         }
@@ -557,8 +553,7 @@ pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
             results.push(siphon.clone());
         }
 
-        // the sum of those exact variables must be ≤ |siphon| - 1 to exclude this siphon and all supersets
-        let prev_sum: Expression = siphon.iter().map(|&p| x[p.idx]).sum();
+        let prev_sum: Expression = siphon.iter().map(|&p| x[p]).sum();
         constraints.push(constraint!(prev_sum <= siphon.len() as f64 - 1.0));
     }
 
@@ -570,8 +565,7 @@ pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
-    let n_p = net.place_count();
-    if n_p == 0 {
+    if net.place_count() == 0 {
         return Box::new([]);
     }
 
@@ -580,30 +574,29 @@ pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 
     loop {
         let mut vars = ProblemVariables::new();
-        let x: Vec<_> = (0..n_p)
+        let x: PlaceMap<_> = net
+            .places()
             .map(|_| vars.add(variable().binary()))
             .collect();
 
-        let objective: Expression = x.iter().copied().sum();
+        let objective: Expression = x.values().copied().sum();
 
         let mut constraints = Vec::new();
-        let at_least_one: Expression = x.iter().copied().sum();
+        let at_least_one: Expression = x.values().copied().sum();
         constraints.push(constraint!(at_least_one >= 1.0));
 
-        // Trap property: for each place p and each transition t ∈ p•,
-        // if p is in the trap then at least one output place of t is too.
-        // Encoding: x[p] ≤ Σ_{q ∈ t•} x[q]  for all p, t ∈ p•
+        // Trap property: x[p] ≤ Σ_{q ∈ t•} x[q]  for all p, t ∈ p•
         for p in net.places() {
             for &t in net.postset_p(p) {
                 let sum_postset: Expression = net.postset_t(t).iter()
-                    .map(|&q| x[q.idx])
+                    .map(|&q| x[q])
                     .sum();
-                constraints.push(constraint!(x[p.idx] <= sum_postset));
+                constraints.push(constraint!(x[p] <= sum_postset));
             }
         }
 
         for prev in &no_good_sets {
-            let prev_sum: Expression = prev.iter().map(|&p| x[p.idx]).sum();
+            let prev_sum: Expression = prev.iter().map(|&p| x[p]).sum();
             constraints.push(constraint!(prev_sum <= (prev.len() as f64 - 1.0)));
         }
 
@@ -613,9 +606,9 @@ pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
             .with_all(constraints)
             .solve() else { break };
 
-        let trap: HashSet<Place> = (0..n_p)
-            .filter(|&i| solution.value(x[i]) > 0.5)
-            .map(|i| Place { idx: i })
+        let trap: HashSet<Place> = net
+            .places()
+            .filter(|&p| solution.value(x[p]) > 0.5)
             .collect();
 
         if trap.is_empty() {

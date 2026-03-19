@@ -9,7 +9,7 @@
 //! let m: Marking = [1, 0, 3].into();
 //! ```
 
-use crate::net::Place;
+use crate::net::{Place, PlaceMap};
 use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::{Index, IndexMut};
@@ -27,9 +27,8 @@ use std::{fmt, iter};
 /// let m = Marking::from([1, 0, 3]);
 /// let m: Marking = vec![1, 0, 3].into();
 /// ```
-/// todo: consider replacing Box with Rc or Arc?
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Marking<T = u32>(Box<[T]>);
+pub struct Marking<T = u32>(PlaceMap<T>);
 
 /// An ω-marking: a marking where token counts can be finite or "infinity" (ω).
 /// Used to construct the Karp-Miller coverability tree, where ω represents unbounded growth of tokens.
@@ -43,14 +42,14 @@ impl<T> Marking<T> {
         self.0.len()
     }
 
-    /// Iterator over token counts.
+    /// Iterator over token counts in place-index order.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.0.iter()
+        self.0.values()
     }
 
-    /// Mutable iterator over token counts.
+    /// Mutable iterator over token counts in place-index order.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
-        self.0.iter_mut()
+        self.0.values_mut()
     }
 }
 
@@ -58,20 +57,18 @@ impl Marking<u32> {
     /// Whether all places have zero tokens.
     #[must_use]
     pub fn is_zero(&self) -> bool {
-        self.0.iter().all(|&t| t == 0)
+        self.0.values().all(|&t| t == 0)
     }
 
     /// Total number of tokens across all places.
     #[must_use]
     pub fn total_tokens(&self) -> u64 {
-        self.0.iter().map(|&t| u64::from(t)).sum()
+        self.0.values().map(|&t| u64::from(t)).sum()
     }
 
     /// Places that have at least one token.
     pub fn support(&self) -> impl Iterator<Item = Place> + '_ {
-        self.0.iter().enumerate().filter_map(|(i, &t)| {
-            if t > 0 { Some(Place { idx: i }) } else { None }
-        })
+        self.0.iter().filter_map(|(p, &t)| if t > 0 { Some(p) } else { None })
     }
 }
 
@@ -80,7 +77,7 @@ impl<T: Default + Clone> Marking<T> {
     /// For `u32` this is 0; for `Omega` this is `Omega::Finite(0)`.
     #[must_use]
     pub fn zeros(n_places: usize) -> Self {
-        Self(vec![T::default(); n_places].into_boxed_slice())
+        Self(PlaceMap::new(n_places))
     }
 }
 
@@ -88,7 +85,7 @@ impl<T: Ord + Copy> Marking<T> {
     /// Element-wise maximum: `self[i] = max(self[i], other[i])`.
     pub fn ceil_assign(&mut self, other: &Self) {
         debug_assert_eq!(self.len(), other.len());
-        for (a, &b) in self.0.iter_mut().zip(other.0.iter()) {
+        for (a, &b) in self.0.values_mut().zip(other.0.values()) {
             *a = (*a).max(b);
         }
     }
@@ -109,31 +106,37 @@ impl<T: PartialEq> PartialEq<&Marking<T>> for Marking<T> {
 impl<T> Index<Place> for Marking<T> {
     type Output = T;
     fn index(&self, p: Place) -> &T {
-        &self.0[p.idx]
+        &self.0[p]
     }
 }
 
 impl<T> IndexMut<Place> for Marking<T> {
     fn index_mut(&mut self, p: Place) -> &mut T {
-        &mut self.0[p.idx]
+        &mut self.0[p]
+    }
+}
+
+impl<T> From<PlaceMap<T>> for Marking<T> {
+    fn from(m: PlaceMap<T>) -> Self {
+        Self(m)
     }
 }
 
 impl<T> From<Vec<T>> for Marking<T> {
     fn from(v: Vec<T>) -> Self {
-        Self(v.into_boxed_slice())
+        Self(PlaceMap::from(v))
     }
 }
 
 impl<T, const N: usize> From<[T; N]> for Marking<T> {
     fn from(a: [T; N]) -> Self {
-        Self(Box::new(a))
+        Self(PlaceMap::from(a))
     }
 }
 
 impl<T> FromIterator<T> for Marking<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        Self(iter.into_iter().collect())
+        Self(PlaceMap::from_iter(iter))
     }
 }
 
@@ -148,7 +151,7 @@ impl<T> IntoIterator for Marking<T> {
 impl<T: fmt::Display> fmt::Display for Marking<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "(")?;
-        for (i, val) in self.0.iter().enumerate() {
+        for (i, val) in self.0.values().enumerate() {
             if i > 0 { write!(f, ", ")?; }
             write!(f, "{val}")?;
         }
@@ -174,7 +177,7 @@ fn merge_ordering(acc: Ordering, next: Ordering) -> Option<Ordering> {
 impl<T: Ord> PartialOrd for Marking<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         debug_assert_eq!(self.len(), other.len());
-        iter::zip(&self.0, &other.0)
+        iter::zip(self.0.values(), other.0.values())
             .map(|(a, b)| a.cmp(b))
             .try_fold(Ordering::Equal, merge_ordering)
     }
@@ -266,7 +269,7 @@ impl Marking<Omega> {
     /// Returns `true` if all components are finite (no ω).
     #[must_use]
     pub fn is_finite(&self) -> bool {
-        self.0.iter().all(|o| o.is_finite())
+        self.0.values().all(|o| o.is_finite())
     }
 }
 
@@ -295,7 +298,7 @@ impl TryFrom<Marking<Omega>> for Marking<u32> {
 impl PartialEq<Marking<Omega>> for Marking<u32> {
     fn eq(&self, other: &Marking<Omega>) -> bool {
         self.len() == other.len()
-            && iter::zip(&self.0, &other.0).all(|(&n, &o)| o == Omega::Finite(n))
+            && iter::zip(self.0.values(), other.0.values()).all(|(&n, &o)| o == Omega::Finite(n))
     }
 }
 
@@ -308,7 +311,7 @@ impl PartialEq<Marking<u32>> for Marking<Omega> {
 impl PartialOrd<Marking<Omega>> for Marking<u32> {
     fn partial_cmp(&self, other: &Marking<Omega>) -> Option<Ordering> {
         debug_assert_eq!(self.len(), other.len());
-        iter::zip(&self.0, &other.0)
+        iter::zip(self.0.values(), other.0.values())
             .map(|(&n, o)| Omega::Finite(n).cmp(o))
             .try_fold(Ordering::Equal, merge_ordering)
     }
@@ -471,5 +474,13 @@ mod tests {
         let m: Marking = [10, 20, 30].into();
         let v: Vec<u32> = m.into_iter().collect();
         assert_eq!(v, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn from_place_map() {
+        let pm: PlaceMap<u32> = vec![1u32, 2, 3].into();
+        let m = Marking::from(pm);
+        assert_eq!(m[Place { idx: 0 }], 1);
+        assert_eq!(m[Place { idx: 2 }], 3);
     }
 }

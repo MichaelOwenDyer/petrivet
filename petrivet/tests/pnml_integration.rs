@@ -205,7 +205,7 @@ fn philo_graphics_extracted_for_all_places() {
 
     // Every place in the philosophers file has a <graphics><position> element.
     let missing: Vec<_> = sys.net().places()
-        .filter(|&p| graphics.place_graphics[p.index()].is_none())
+        .filter(|&p| graphics.place_graphics[p].is_none())
         .collect();
     assert!(missing.is_empty(), "{} places are missing graphics", missing.len());
 }

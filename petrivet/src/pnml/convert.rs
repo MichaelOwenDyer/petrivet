@@ -41,7 +41,7 @@ use std::collections::HashMap;
 
 use crate::labeled::NetLabels;
 use crate::net::builder::{BuildError, NetBuilder};
-use crate::net::{Arc, Net, Place, Transition};
+use crate::net::{Arc, Net, Place, PlaceMap, Transition, TransitionMap};
 use crate::system::System;
 
 use super::{
@@ -122,17 +122,17 @@ impl From<BuildError> for PnmlConversionError {
 /// most arcs carry no graphics and the library has no dense arc index.
 #[derive(Debug, Clone, Default)]
 pub struct PnmlGraphics {
-    /// Node graphics for each place, indexed by `Place::idx`.
-    pub place_graphics: Box<[Option<NodeGraphics>]>,
+    /// Node graphics for each place, indexed by [`Place`].
+    pub place_graphics: PlaceMap<Option<NodeGraphics>>,
     /// Annotation graphics for each place's `<name>` label.
-    pub place_name_graphics: Box<[Option<AnnotationGraphics>]>,
+    pub place_name_graphics: PlaceMap<Option<AnnotationGraphics>>,
     /// Annotation graphics for each place's `<initialMarking>` label.
-    pub place_marking_graphics: Box<[Option<AnnotationGraphics>]>,
+    pub place_marking_graphics: PlaceMap<Option<AnnotationGraphics>>,
 
-    /// Node graphics for each transition, indexed by `Transition::idx`.
-    pub transition_graphics: Box<[Option<NodeGraphics>]>,
+    /// Node graphics for each transition, indexed by [`Transition`].
+    pub transition_graphics: TransitionMap<Option<NodeGraphics>>,
     /// Annotation graphics for each transition's `<name>` label.
-    pub transition_name_graphics: Box<[Option<AnnotationGraphics>]>,
+    pub transition_name_graphics: TransitionMap<Option<AnnotationGraphics>>,
 
     /// Edge graphics for each arc (sparse).
     pub arc_graphics: HashMap<Arc, EdgeGraphics>,
@@ -276,20 +276,18 @@ fn convert_pt_net(
     let n_places = flat.places.len();
     let n_transitions = flat.transitions.len();
 
-    // Maps PNML id → library index handle.
+    // Build the net incrementally, accumulating Place/Transition handles
+    // directly from the builder. This avoids any positional index arithmetic —
+    // handles are stable and valid throughout the rest of this function.
+    let mut builder = NetBuilder::new();
     let place_index: HashMap<&str, Place> = flat.places
         .iter()
-        .enumerate()
-        .map(|(i, p)| (p.id.as_str(), Place::from_index(i)))
+        .map(|p| (p.id.as_str(), builder.add_place()))
         .collect();
-
     let trans_index: HashMap<&str, Transition> = flat.transitions
         .iter()
-        .enumerate()
-        .map(|(i, t)| (t.id.as_str(), Transition::from_index(i)))
+        .map(|t| (t.id.as_str(), builder.add_transition()))
         .collect();
-
-    let mut builder = NetBuilder::with_capacity(n_places, n_transitions);
 
     for pnml_arc in &flat.arcs {
         let src_id = flat.resolve(&pnml_arc.source).ok_or_else(|| {
@@ -310,8 +308,6 @@ fn convert_pt_net(
             (Some(&p), None, None, Some(&t)) => { builder.add_arc((p, t)); }
             (None, Some(&t), Some(&p), None) => { builder.add_arc((t, p)); }
             _ => {
-                // Arc connects two places, two transitions, or has an endpoint
-                // that resolves to neither — treat as unresolved.
                 let bad = if place_index.contains_key(src_id) || trans_index.contains_key(src_id) {
                     pnml_arc.target.clone()
                 } else {
@@ -327,39 +323,38 @@ fn convert_pt_net(
 
     let net = builder.build()?;
 
-    let mut tokens = vec![0u32; n_places];
+    // Initial marking: index by the Place handle directly.
+    let mut tokens: PlaceMap<u32> = PlaceMap::new(n_places);
     for pnml_place in &flat.places {
         if let Some(marking) = &pnml_place.initial_marking
             && let Some(count) = marking.text
         {
-            let idx = place_index[pnml_place.id.as_str()].idx;
-            tokens[idx] = u32::try_from(count).unwrap_or(u32::MAX);
+            let p = place_index[pnml_place.id.as_str()];
+            tokens[p] = u32::try_from(count).unwrap_or(u32::MAX);
         }
     }
     let system = System::new(net, tokens);
 
-    let mut place_names = vec![None; n_places].into_boxed_slice();
-    let mut place_ids   = vec![None; n_places].into_boxed_slice();
+    // Labels
+    let mut place_names: PlaceMap<Option<String>> = PlaceMap::new(n_places);
+    let mut place_ids_map: PlaceMap<Option<String>> = PlaceMap::new(n_places);
     for pnml_place in &flat.places {
-        let idx = place_index[pnml_place.id.as_str()].idx;
-        place_ids[idx]   = Some(pnml_place.id.clone());
-        place_names[idx] = pnml_place.name.as_ref()
-            .and_then(|n| n.text.clone());
+        let p = place_index[pnml_place.id.as_str()];
+        place_ids_map[p] = Some(pnml_place.id.clone());
+        place_names[p] = pnml_place.name.as_ref().and_then(|n| n.text.clone());
     }
 
-    let mut transition_names = vec![None; n_transitions].into_boxed_slice();
-    let mut transition_ids   = vec![None; n_transitions].into_boxed_slice();
+    let mut transition_names: TransitionMap<Option<String>> = TransitionMap::new(n_transitions);
+    let mut transition_ids_map: TransitionMap<Option<String>> = TransitionMap::new(n_transitions);
     for pnml_trans in &flat.transitions {
-        let idx = trans_index[pnml_trans.id.as_str()].idx;
-        transition_ids[idx]   = Some(pnml_trans.id.clone());
-        transition_names[idx] = pnml_trans.name.as_ref()
-            .and_then(|n| n.text.clone());
+        let t = trans_index[pnml_trans.id.as_str()];
+        transition_ids_map[t] = Some(pnml_trans.id.clone());
+        transition_names[t] = pnml_trans.name.as_ref().and_then(|n| n.text.clone());
     }
 
     let mut arc_names: HashMap<Arc, String> = HashMap::new();
-    let mut arc_ids:   HashMap<Arc, String> = HashMap::new();
+    let mut arc_ids: HashMap<Arc, String> = HashMap::new();
     for pnml_arc in &flat.arcs {
-        // We only populate arc labels for arcs that resolved successfully.
         let Some(src_id) = flat.resolve(&pnml_arc.source) else { continue };
         let Some(tgt_id) = flat.resolve(&pnml_arc.target) else { continue };
         let arc = match (place_index.get(src_id), trans_index.get(src_id),
@@ -376,37 +371,36 @@ fn convert_pt_net(
 
     let labels = NetLabels::from_raw(
         place_names,
-        place_ids,
+        place_ids_map,
         transition_names,
-        transition_ids,
+        transition_ids_map,
         arc_names,
         arc_ids,
         pnml_net.name.as_ref().and_then(|n| n.text.clone()),
         Some(pnml_net.id.clone()),
     );
 
-    let mut place_graphics        = vec![None; n_places];
-    let mut place_name_graphics   = vec![None; n_places];
-    let mut place_marking_graphics = vec![None; n_places];
+    // Graphics
+    let mut place_graphics: PlaceMap<Option<NodeGraphics>> = PlaceMap::new(n_places);
+    let mut place_name_graphics: PlaceMap<Option<AnnotationGraphics>> = PlaceMap::new(n_places);
+    let mut place_marking_graphics: PlaceMap<Option<AnnotationGraphics>> = PlaceMap::new(n_places);
     for pnml_place in &flat.places {
-        let idx = place_index[pnml_place.id.as_str()].idx;
-        place_graphics[idx].clone_from(&pnml_place.graphics);
-        place_name_graphics[idx] = pnml_place.name.as_ref()
-            .and_then(|n| n.graphics.clone());
-        place_marking_graphics[idx] = pnml_place.initial_marking.as_ref()
+        let p = place_index[pnml_place.id.as_str()];
+        place_graphics[p].clone_from(&pnml_place.graphics);
+        place_name_graphics[p] = pnml_place.name.as_ref().and_then(|n| n.graphics.clone());
+        place_marking_graphics[p] = pnml_place.initial_marking.as_ref()
             .and_then(|m| m.graphics.clone());
     }
 
-    let mut transition_graphics      = vec![None; n_transitions];
-    let mut transition_name_graphics = vec![None; n_transitions];
+    let mut transition_graphics: TransitionMap<Option<NodeGraphics>> = TransitionMap::new(n_transitions);
+    let mut transition_name_graphics: TransitionMap<Option<AnnotationGraphics>> = TransitionMap::new(n_transitions);
     for pnml_trans in &flat.transitions {
-        let idx = trans_index[pnml_trans.id.as_str()].idx;
-        transition_graphics[idx].clone_from(&pnml_trans.graphics);
-        transition_name_graphics[idx] = pnml_trans.name.as_ref()
-            .and_then(|n| n.graphics.clone());
+        let t = trans_index[pnml_trans.id.as_str()];
+        transition_graphics[t].clone_from(&pnml_trans.graphics);
+        transition_name_graphics[t] = pnml_trans.name.as_ref().and_then(|n| n.graphics.clone());
     }
 
-    let mut arc_graphics             = HashMap::new();
+    let mut arc_graphics = HashMap::new();
     let mut arc_inscription_graphics = HashMap::new();
     for pnml_arc in &flat.arcs {
         let Some(src_id) = flat.resolve(&pnml_arc.source) else { continue };
@@ -426,11 +420,11 @@ fn convert_pt_net(
     }
 
     let graphics = PnmlGraphics {
-        place_graphics:          place_graphics.into_boxed_slice(),
-        place_name_graphics:     place_name_graphics.into_boxed_slice(),
-        place_marking_graphics:  place_marking_graphics.into_boxed_slice(),
-        transition_graphics:     transition_graphics.into_boxed_slice(),
-        transition_name_graphics: transition_name_graphics.into_boxed_slice(),
+        place_graphics,
+        place_name_graphics,
+        place_marking_graphics,
+        transition_graphics,
+        transition_name_graphics,
         arc_graphics,
         arc_inscription_graphics,
     };
@@ -730,19 +724,19 @@ mod tests {
         // Place position
         #[allow(clippy::float_cmp)]
         {
-            let pos = graphics.place_graphics[pl0.idx]
+            let pos = graphics.place_graphics[pl0]
                 .as_ref().and_then(|g| g.position.as_ref()).unwrap();
             assert_eq!(pos.x, 10.0);
             assert_eq!(pos.y, 20.0);
         }
 
         // Marking annotation graphics
-        assert!(graphics.place_marking_graphics[pl0.idx].is_some());
+        assert!(graphics.place_marking_graphics[pl0].is_some());
 
         // Transition position
         #[allow(clippy::float_cmp)]
         {
-            let pos = graphics.transition_graphics[t0.idx]
+            let pos = graphics.transition_graphics[t0]
                 .as_ref().and_then(|g| g.position.as_ref()).unwrap();
             assert_eq!(pos.x, 50.0);
         }

@@ -7,8 +7,10 @@
 
 pub mod builder;
 pub mod class;
+pub mod node_map;
 pub mod sorted_set;
 
+pub use node_map::{NodeKey, NodeMap, PlaceMap, TransitionMap};
 pub use sorted_set::SortedSet;
 
 use crate::analysis;
