@@ -18,7 +18,7 @@
 use crate::marking::Marking;
 use crate::marking::OmegaMarking;
 use crate::net::{Place, Transition};
-use crate::Omega;
+use crate::{Omega, PlaceMap, TransitionMap};
 use std::collections::HashSet;
 
 pub type Siphon = HashSet<Place>;
@@ -73,21 +73,16 @@ pub struct SiphonTrapPair {
 #[derive(Debug, Clone)]
 pub struct BoundednessAnalysis {
     /// Per-place bounds, indexed by place index.
-    pub place_bounds: Box<[Omega]>,
+    pub place_bounds: PlaceMap<Omega>,
     /// How the result was obtained.
     pub method: BoundednessAnalysisMethod,
 }
 
 impl BoundednessAnalysis {
-    /// Whether the system is bounded.
-    /// 
-    /// # Panics
-    /// 
-    /// Panics for the degenerate net which consists of a single lone transition.
+    /// Returns the bound of the system as a whole: the maximum over all places.
     #[must_use]
-    pub fn of_system(&self) -> Omega {
-        // unwrap safety: degenerate nets are not constructable via builder
-        self.place_bounds.iter().max().copied().expect("at least one place")
+    pub fn system_bound(&self) -> Omega {
+        self.place_bounds.values().max().copied().unwrap_or_default()
     }
 
     /// Returns the bound for a specific place.
@@ -96,8 +91,14 @@ impl BoundednessAnalysis {
     /// 
     /// Panics if the provided place is not found in the net.
     #[must_use]
-    pub fn of_place(&self, p: Place) -> Omega {
-        self.place_bounds[p.index()]
+    pub fn place_bound(&self, p: Place) -> Omega {
+        self.place_bounds[p]
+    }
+
+    /// Per-place bounds in dense index order.
+    #[must_use]
+    pub fn place_bounds_dense(&self) -> Vec<Omega> {
+        self.place_bounds.values().copied().collect()
     }
 }
 
@@ -108,7 +109,7 @@ pub enum BoundednessAnalysisMethod {
     /// Structural LP found a positive vector y with yᵀN ≤ 0.
     /// Bounds are derived as M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋: valid but
     /// potentially loose.
-    PositivePlaceSubvariant(Box<[f64]>),
+    PositivePlaceSubvariant(PlaceMap<f64>),
     /// Full coverability graph explored. Bounds are exact.
     CoverabilityGraph,
 }
@@ -167,8 +168,8 @@ impl LivenessLevel {
 /// individually computed.
 #[derive(Debug, Clone)]
 pub struct LivenessAnalysis {
-    /// Per-transition liveness level, indexed by transition index.
-    pub levels: Box<[LivenessLevel]>,
+    /// Per-transition liveness levels.
+    pub levels: TransitionMap<LivenessLevel>,
     /// How the result was obtained.
     pub method: LivenessMethod,
 }
@@ -178,7 +179,7 @@ impl LivenessAnalysis {
     #[must_use]
     pub fn net_level(&self) -> LivenessLevel {
         self.levels
-            .iter()
+            .values()
             .copied()
             .min()
             .unwrap_or(LivenessLevel::L4)
@@ -187,7 +188,13 @@ impl LivenessAnalysis {
     /// Liveness level of a specific transition.
     #[must_use]
     pub fn transition_level(&self, t: Transition) -> LivenessLevel {
-        self.levels[t.index()]
+        self.levels[t]
+    }
+
+    /// Per-transition liveness levels in dense index order.
+    #[must_use]
+    pub fn levels_dense(&self) -> Vec<LivenessLevel> {
+        self.levels.values().copied().collect()
     }
 }
 
@@ -297,7 +304,7 @@ pub enum LivenessMethod {
     ///
     /// Reference: [Primer Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc), [Murata 1989 Theorem 12](crate::literature#theorem-12--commonerhack-criterion).
     FreeChoice(CommonerHackCriterionResult),
-    /// SCC analysis on the full reachability graph (bounded net).
+    /// Strongly-connected component analysis on the full reachability graph (bounded net).
     ReachabilityGraphSCC,
     /// Current algorithms could not decide (unbounded general net).
     Inconclusive,
@@ -310,6 +317,15 @@ pub struct Deadlock {
     pub firing_sequence: Box<[Transition]>,
     /// The marking reached at the end of the firing sequence where no transitions are enabled.
     pub marking: Marking,
+}
+
+impl Deadlock {
+    /// The firing sequence as dense transition indices (`u32`), for FFI and other callers that
+    /// cannot name [`Transition`].
+    #[must_use]
+    pub fn firing_sequence_indices(&self) -> Vec<u32> {
+        firing_sequence_to_indices(&self.firing_sequence)
+    }
 }
 
 /// Evidence for a deadlock-freedom result.
@@ -386,21 +402,53 @@ impl ReachabilityResult {
     }
 }
 
+pub type FiringSequence = Box<[Transition]>;
+
+/// Converts a firing sequence of dense [`Transition`] handles to a vector of
+/// raw `u32` indices. Useful for external crates that cannot name [`Transition`].
+#[must_use]
+pub fn firing_sequence_to_indices(seq: &[Transition]) -> Vec<u32> {
+    seq.iter().map(|t| t.index()).collect()
+}
+
 /// Witness that a marking is reachable: a firing sequence from M₀ to the target.
 #[derive(Debug, Clone)]
 pub struct ReachabilityWitness {
     /// The firing sequence from M₀ to the target marking.
-    pub firing_sequence: Box<[Transition]>,
+    pub firing_sequence: FiringSequence,
 }
+
+pub type ParikhVector<T> = TransitionMap<T>;
 
 #[derive(Debug, Clone)]
 pub enum ReachabilityProof {
     StronglyConnectedSNetTokenConservation {
         marking_sum: u32,
     },
-    SNetMarkingEquationRationalSolution(Box<[f64]>),
-    TNetMarkingEquationIntegerSolution(Box<[u32]>),
-    FiringSequence(Box<[Transition]>),
+    SNetMarkingEquationRationalSolution(ParikhVector<f64>),
+    TNetMarkingEquationIntegerSolution(ParikhVector<u32>),
+    FiringSequence(FiringSequence),
+}
+
+impl ReachabilityProof {
+    /// If this is a `FiringSequence` proof, returns the sequence as dense
+    /// transition indices. Returns `None` for structural proofs.
+    #[must_use]
+    pub fn firing_sequence_indices(&self) -> Option<Vec<u32>> {
+        match self {
+            Self::FiringSequence(seq) => Some(firing_sequence_to_indices(seq)),
+            _ => None,
+        }
+    }
+
+    /// Token-conservation marking sum (only for `StronglyConnectedSNetTokenConservation`).
+    #[must_use]
+    pub fn marking_sum(&self) -> Option<u32> {
+        match self {
+            Self::StronglyConnectedSNetTokenConservation { marking_sum } => Some(*marking_sum),
+            _ => None,
+        }
+    }
 }
 
 /// Proof that a marking is unreachable.
@@ -483,9 +531,17 @@ impl CoverabilityResult {
 #[non_exhaustive]
 pub struct CoverabilityProof {
     /// A firing sequence from M₀ to a node whose marking covers the target.
-    pub firing_sequence: Box<[Transition]>,
+    pub firing_sequence: FiringSequence,
     /// The node marking M″ with M″ ≥ target (may contain ω).
     pub covering_marking: OmegaMarking,
+}
+
+impl CoverabilityProof {
+    /// The firing sequence as dense transition indices.
+    #[must_use]
+    pub fn firing_sequence_indices(&self) -> Vec<u32> {
+        firing_sequence_to_indices(&self.firing_sequence)
+    }
 }
 
 /// Various methods to demonstrate that a marking is not coverable

@@ -213,3 +213,63 @@ pub enum WasmNonCoverabilityProof {
     MarkingEquationNoIntegerSolution,
     ExhaustiveSearch,
 }
+
+// ---------------------------------------------------------------------------
+// Builder types
+// ---------------------------------------------------------------------------
+
+/// A place as seen by `WasmNetBuilder.structure()`.
+///
+/// The `id` field is the stable builder ID — it never changes while the
+/// builder is alive and is never reused after the place is removed.
+/// Arcs in `WasmBuilderStructure` reference nodes by this ID.
+#[derive(Debug, Clone, Serialize, Tsify)]
+#[tsify(into_wasm_abi)]
+pub struct WasmBuilderPlace {
+    /// Stable builder ID (use this as the Cytoscape node ID during editing).
+    pub id: u32,
+    pub name: Option<String>,
+    /// X coordinate stored in the builder (may be 0 if not yet placed).
+    pub x: f64,
+    /// Y coordinate stored in the builder.
+    pub y: f64,
+    /// Initial token count for this place.
+    pub initial_tokens: u32,
+}
+
+/// A transition as seen by `WasmNetBuilder.structure()`.
+#[derive(Debug, Clone, Serialize, Tsify)]
+#[tsify(into_wasm_abi)]
+pub struct WasmBuilderTransition {
+    pub id: u32,
+    pub name: Option<String>,
+    pub x: f64,
+    pub y: f64,
+}
+
+/// A directed arc between two nodes, using builder IDs.
+///
+/// For `pt_arcs`: `source_id` is a place builder ID, `target_id` is a transition builder ID.
+/// For `tp_arcs`: `source_id` is a transition builder ID, `target_id` is a place builder ID.
+#[derive(Debug, Clone, Serialize, Tsify)]
+#[tsify(into_wasm_abi)]
+pub struct WasmBuilderArc {
+    pub source_id: u32,
+    pub target_id: u32,
+}
+
+/// Complete snapshot of a `WasmNetBuilder`'s current state.
+///
+/// All node references in arcs use stable builder IDs, not compact net indices.
+/// Call `WasmNetBuilder.build()` to get a `WasmSystem` with dense 0-indexed nodes.
+#[derive(Debug, Clone, Serialize, Tsify)]
+#[tsify(into_wasm_abi)]
+pub struct WasmBuilderStructure {
+    pub places: Vec<WasmBuilderPlace>,
+    pub transitions: Vec<WasmBuilderTransition>,
+    /// Place-to-transition arcs (source = place id, target = transition id).
+    pub pt_arcs: Vec<WasmBuilderArc>,
+    /// Transition-to-place arcs (source = transition id, target = place id).
+    pub tp_arcs: Vec<WasmBuilderArc>,
+    pub net_name: Option<String>,
+}

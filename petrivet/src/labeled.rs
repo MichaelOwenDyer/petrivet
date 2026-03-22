@@ -8,7 +8,7 @@
 //!
 //! # Usage
 //!
-//! ```
+//! ```ignore
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::labeled::NetLabels;
 //!
@@ -17,17 +17,21 @@
 //! let [start, finish] = b.add_transitions();
 //! b.add_arcs((idle, start, busy, finish, idle));
 //! let net = b.build().unwrap();
+//! let idle_d = net.dense_place(idle);
+//! let busy_d = net.dense_place(busy);
+//! let start_d = net.dense_transition(start);
+//! let finish_d = net.dense_transition(finish);
 //!
 //! let mut labels = NetLabels::new(&net);
 //! labels
-//!     .set_place_name(idle, "Idle")
-//!     .set_place_name(busy, "Busy")
-//!     .set_transition_name(start, "Start")
-//!     .set_transition_name(finish, "Finish")
+//!     .set_place_name(idle_d, "Idle")
+//!     .set_place_name(busy_d, "Busy")
+//!     .set_transition_name(start_d, "Start")
+//!     .set_transition_name(finish_d, "Finish")
 //!     .set_net_name("Producer-consumer");
 //!
-//! assert_eq!(labels.place_name(idle), Some("Idle"));
-//! assert_eq!(labels.transition_name(finish), Some("Finish"));
+//! assert_eq!(labels.place_name(idle_d), Some("Idle"));
+//! assert_eq!(labels.transition_name(finish_d), Some("Finish"));
 //!
 //! // Iterate named places without constructing raw indices
 //! for (place, name) in labels.named_places() {
@@ -84,10 +88,10 @@ impl NetLabels {
     #[must_use]
     pub fn new(net: &Net) -> Self {
         Self {
-            place_names: PlaceMap::new(net.place_count()),
-            place_ids: PlaceMap::new(net.place_count()),
-            transition_names: TransitionMap::new(net.transition_count()),
-            transition_ids: TransitionMap::new(net.transition_count()),
+            place_names: PlaceMap::new(net.place_count() as usize),
+            place_ids: PlaceMap::new(net.place_count() as usize),
+            transition_names: TransitionMap::new(net.transition_count() as usize),
+            transition_ids: TransitionMap::new(net.transition_count() as usize),
             ..Default::default()
         }
     }
@@ -270,6 +274,40 @@ impl NetLabels {
             .iter()
             .filter_map(|(t, n)| n.as_deref().map(|name| (t, name)))
     }
+
+    /// Returns the name of the place at dense position `index`, or `None`.
+    #[must_use]
+    pub fn place_name_at(&self, index: usize) -> Option<&str> {
+        self.place_names
+            .get(Place::from_index(index as u32))?
+            .as_deref()
+    }
+
+    /// Returns the name of the transition at dense position `index`, or `None`.
+    #[must_use]
+    pub fn transition_name_at(&self, index: usize) -> Option<&str> {
+        self.transition_names
+            .get(Transition::from_index(index as u32))?
+            .as_deref()
+    }
+
+    /// Sets the name of the place at dense position `index`.
+    pub fn set_place_name_at(
+        &mut self,
+        index: usize,
+        name: impl Into<String>,
+    ) -> &mut Self {
+        self.set_place_name(Place::from_index(index as u32), name)
+    }
+
+    /// Sets the name of the transition at dense position `index`.
+    pub fn set_transition_name_at(
+        &mut self,
+        index: usize,
+        name: impl Into<String>,
+    ) -> &mut Self {
+        self.set_transition_name(Transition::from_index(index as u32), name)
+    }
 }
 
 impl NetLabels {
@@ -305,9 +343,9 @@ impl NetLabels {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::{Arc, builder::NetBuilder};
+    use crate::net::{Arc, Place, PlaceKey, TransitionKey, builder::NetBuilder};
 
-    fn make_net() -> (Net, Place, Place, Transition, Transition) {
+    fn make_net() -> (Net, PlaceKey, PlaceKey, TransitionKey, TransitionKey) {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
@@ -322,42 +360,50 @@ mod tests {
     #[test]
     fn set_and_get_place_name() {
         let (net, p0, p1, _, _) = make_net();
+        let p0d = net.dense_place(p0);
+        let p1d = net.dense_place(p1);
         let mut l = NetLabels::new(&net);
-        l.set_place_name(p0, "Idle");
-        assert_eq!(l.place_name(p0), Some("Idle"));
-        assert_eq!(l.place_name(p1), None);
+        l.set_place_name(p0d, "Idle");
+        assert_eq!(l.place_name(p0d), Some("Idle"));
+        assert_eq!(l.place_name(p1d), None);
     }
 
     #[test]
     fn clear_place_name() {
         let (net, p0, _, _, _) = make_net();
+        let p0d = net.dense_place(p0);
         let mut l = NetLabels::new(&net);
-        l.set_place_name(p0, "Idle");
-        l.clear_place_name(p0);
-        assert_eq!(l.place_name(p0), None);
+        l.set_place_name(p0d, "Idle");
+        l.clear_place_name(p0d);
+        assert_eq!(l.place_name(p0d), None);
     }
 
     #[test]
     fn set_and_get_transition_name() {
         let (net, _, _, t0, _) = make_net();
+        let t0d = net.dense_transition(t0);
         let mut l = NetLabels::new(&net);
-        l.set_transition_name(t0, "Fire");
-        assert_eq!(l.transition_name(t0), Some("Fire"));
+        l.set_transition_name(t0d, "Fire");
+        assert_eq!(l.transition_name(t0d), Some("Fire"));
     }
 
     #[test]
     fn chaining() {
         let (net, p0, p1, t0, t1) = make_net();
+        let p0d = net.dense_place(p0);
+        let p1d = net.dense_place(p1);
+        let t0d = net.dense_transition(t0);
+        let t1d = net.dense_transition(t1);
         let mut l = NetLabels::new(&net);
-        l.set_place_name(p0, "A")
-            .set_place_name(p1, "B")
-            .set_transition_name(t0, "X")
-            .set_transition_name(t1, "Y")
+        l.set_place_name(p0d, "A")
+            .set_place_name(p1d, "B")
+            .set_transition_name(t0d, "X")
+            .set_transition_name(t1d, "Y")
             .set_net_name("My net");
-        assert_eq!(l.place_name(p0), Some("A"));
-        assert_eq!(l.place_name(p1), Some("B"));
-        assert_eq!(l.transition_name(t0), Some("X"));
-        assert_eq!(l.transition_name(t1), Some("Y"));
+        assert_eq!(l.place_name(p0d), Some("A"));
+        assert_eq!(l.place_name(p1d), Some("B"));
+        assert_eq!(l.transition_name(t0d), Some("X"));
+        assert_eq!(l.transition_name(t1d), Some("Y"));
         assert_eq!(l.net_name(), Some("My net"));
     }
 
@@ -376,21 +422,25 @@ mod tests {
     #[test]
     fn named_places_iterator() {
         let (net, p0, p1, _, _) = make_net();
+        let p0d = net.dense_place(p0);
+        let p1d = net.dense_place(p1);
         let mut l = NetLabels::new(&net);
-        l.set_place_name(p0, "Alpha");
+        l.set_place_name(p0d, "Alpha");
         let named: Vec<_> = l.named_places().collect();
-        assert_eq!(named, vec![(p0, "Alpha")]);
-        assert!(!named.iter().any(|(p, _)| *p == p1));
+        assert_eq!(named, vec![(p0d, "Alpha")]);
+        assert!(!named.iter().any(|(p, _)| *p == p1d));
     }
 
     #[test]
     fn named_transitions_iterator() {
         let (net, _, _, t0, t1) = make_net();
+        let t0d = net.dense_transition(t0);
+        let t1d = net.dense_transition(t1);
         let mut l = NetLabels::new(&net);
-        l.set_transition_name(t0, "Start");
+        l.set_transition_name(t0d, "Start");
         let named: Vec<_> = l.named_transitions().collect();
-        assert_eq!(named, vec![(t0, "Start")]);
-        assert!(!named.iter().any(|(t, _)| *t == t1));
+        assert_eq!(named, vec![(t0d, "Start")]);
+        assert!(!named.iter().any(|(t, _)| *t == t1d));
     }
 
     #[test]

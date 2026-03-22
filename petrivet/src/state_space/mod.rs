@@ -2,7 +2,8 @@ pub mod explorer;
 pub mod coverability;
 pub mod reachability;
 
-use crate::{Net, System, Transition};
+use crate::net::Transition;
+use crate::{Net, System, TransitionKey};
 pub use coverability::*;
 pub use explorer::ExplorationOrder;
 pub use reachability::*;
@@ -15,9 +16,16 @@ impl<N: AsRef<Net>> System<N> {
     /// A transition t is enabled if every input place p in its preset has
     /// at least one token.
     #[must_use]
-    pub fn is_enabled(&self, t: Transition) -> bool {
+    pub fn is_enabled(&self, t: TransitionKey) -> bool {
         let net = self.net.as_ref();
-        net.preset_t(t).iter().all(|&p| self.marking[p] >= 1)
+        let dt = net.dense_transition(t);
+        net.dense_input_places(dt).iter().all(|&p| self.marking[p] >= 1)
+    }
+
+    /// Dense-index firing for internal use by the state-space explorer.
+    pub(crate) fn is_enabled_dense(&self, t: Transition) -> bool {
+        let net = self.net.as_ref();
+        net.dense_input_places(t).iter().all(|&p| self.marking[p] >= 1)
     }
 
     /// Returns the set of currently enabled transitions.
@@ -25,24 +33,24 @@ impl<N: AsRef<Net>> System<N> {
     /// This is a read-only query. To fire one of these, use [`try_fire`](Self::try_fire)
     /// or [`choose_and_fire`](Self::choose_and_fire).
     #[must_use]
-    pub fn enabled_transitions(&self) -> Box<[Transition]> {
+    pub fn enabled_transitions(&self) -> Box<[TransitionKey]> {
         let net = self.net.as_ref();
-        net.transitions().filter(|&t| self.is_enabled(t)).collect()
+        net.transition_keys().filter(|&t| self.is_enabled(t)).collect()
     }
 
     /// Whether the system is in a deadlock state (no transitions are enabled).
     #[must_use]
     pub fn is_deadlocked(&self) -> bool {
         let net = self.net.as_ref();
-        net.transitions().all(|t| !self.is_enabled(t))
+        net.transitions().all(|t| !self.is_enabled_dense(t))
     }
 
     /// Check-and-fire a specific transition.
     ///
     /// Returns `Ok(())` if the transition was enabled and has been fired.
     /// # Errors
-    /// Returns `Err(FireError::NotEnabled)` if it was not enabled.
-    pub fn try_fire(&mut self, t: Transition) -> Result<(), NotEnabled> {
+    /// Returns `Err(NotEnabled)` if it was not enabled.
+    pub fn try_fire(&mut self, t: TransitionKey) -> Result<(), NotEnabled> {
         if self.is_enabled(t) {
             self.fire_unchecked(t);
             Ok(())
@@ -55,9 +63,9 @@ impl<N: AsRef<Net>> System<N> {
     ///
     /// Returns the transition that was fired, or `None` if no transition is
     /// enabled (deadlock).
-    pub fn fire_any(&mut self) -> Option<Transition> {
+    pub fn fire_any(&mut self) -> Option<TransitionKey> {
         let net = self.net.as_ref();
-        let t = net.transitions().find(|&t| self.is_enabled(t))?;
+        let t = net.transition_keys().find(|&t| self.is_enabled(t))?;
         self.fire_unchecked(t);
         Some(t)
     }
@@ -97,7 +105,7 @@ impl<N: AsRef<Net>> System<N> {
     /// });
     /// assert_eq!(fired, Some(t1));
     /// ```
-    pub fn choose_and_fire<F>(&mut self, choose: F) -> Option<Transition>
+    pub fn choose_and_fire<F>(&mut self, choose: F) -> Option<TransitionKey>
     where
         F: for<'a> FnOnce(EnabledSet<'a>) -> Option<EnabledTransition<'a>>,
     {
@@ -112,12 +120,13 @@ impl<N: AsRef<Net>> System<N> {
     ///
     /// The caller must guarantee the transition is enabled. Underflow will
     /// panic in debug mode and wrap in release mode.
-    pub fn fire_unchecked(&mut self, t: Transition) {
+    pub fn fire_unchecked(&mut self, t: TransitionKey) {
         let net = self.net.as_ref();
-        for &p in net.preset_t(t) {
+        let dt = net.dense_transition(t);
+        for &p in net.dense_input_places(dt) {
             self.marking[p] -= 1;
         }
-        for &p in net.postset_t(t) {
+        for &p in net.dense_output_places(dt) {
             self.marking[p] += 1;
         }
     }
@@ -128,22 +137,22 @@ impl<N: AsRef<Net>> System<N> {
 /// Cannot be constructed outside this module (private fields), cannot be
 /// copied or cloned, and cannot escape the [`choose_and_fire`](System::choose_and_fire)
 /// closure (higher-ranked lifetime bound).
-pub struct EnabledTransition<'a>(Transition, PhantomData<&'a ()>);
+pub struct EnabledTransition<'a>(TransitionKey, PhantomData<&'a ()>);
 
 impl std::ops::Deref for EnabledTransition<'_> {
-    type Target = Transition;
-    fn deref(&self) -> &Transition {
+    type Target = TransitionKey;
+    fn deref(&self) -> &TransitionKey {
         &self.0
     }
 }
 
-impl PartialEq<Transition> for EnabledTransition<'_> {
-    fn eq(&self, other: &Transition) -> bool {
+impl PartialEq<TransitionKey> for EnabledTransition<'_> {
+    fn eq(&self, other: &TransitionKey) -> bool {
         self.0 == *other
     }
 }
 
-impl PartialEq<EnabledTransition<'_>> for Transition {
+impl PartialEq<EnabledTransition<'_>> for TransitionKey {
     fn eq(&self, other: &EnabledTransition<'_>) -> bool {
         *self == other.0
     }
@@ -151,14 +160,14 @@ impl PartialEq<EnabledTransition<'_>> for Transition {
 
 impl fmt::Debug for EnabledTransition<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "EnabledTransition({})", self.idx)
+        write!(f, "EnabledTransition({:?})", self.0)
     }
 }
 
 /// The set of transitions enabled in a specific marking.
 ///
 /// Only exists inside the [`choose_and_fire`](System::choose_and_fire) closure.
-pub struct EnabledSet<'a>(Box<[Transition]>, PhantomData<&'a ()>);
+pub struct EnabledSet<'a>(Box<[TransitionKey]>, PhantomData<&'a ()>);
 
 impl<'a> EnabledSet<'a> {
     /// Returns the first enabled transition, if any.
@@ -199,7 +208,7 @@ impl fmt::Debug for EnabledSet<'_> {
 
 /// Error returned when attempting to fire a transition that is not enabled.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NotEnabled(Transition);
+pub struct NotEnabled(TransitionKey);
 
 impl fmt::Display for NotEnabled {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

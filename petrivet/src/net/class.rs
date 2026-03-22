@@ -1,5 +1,6 @@
 use std::fmt;
 use crate::{Place, Transition};
+use crate::net::{PlaceMap, TransitionMap};
 use super::sorted_set::SortedSet;
 
 /// TODO: Add examples of each class of net with doctests asserting the classification correctly identifies the class.
@@ -303,10 +304,10 @@ impl fmt::Display for NetClass {
 
 #[must_use]
 pub fn classify(
-    preset_t: &[SortedSet<Place>],
-    postset_t: &[SortedSet<Place>],
-    preset_p: &[SortedSet<Transition>],
-    postset_p: &[SortedSet<Transition>],
+    preset_t: &TransitionMap<SortedSet<Place>>,
+    postset_t: &TransitionMap<SortedSet<Place>>,
+    preset_p: &PlaceMap<SortedSet<Transition>>,
+    postset_p: &PlaceMap<SortedSet<Transition>>,
 ) -> NetClass {
     let is_s = is_s_net(preset_t, postset_t);
     let is_t = is_t_net(preset_p, postset_p);
@@ -321,33 +322,31 @@ pub fn classify(
 }
 
 /// S-net: |•t| = 1 and |t•| = 1 for every transition t.
-fn is_s_net(transition_presets: &[SortedSet<Place>], transition_postsets: &[SortedSet<Place>]) -> bool {
-    std::iter::zip(transition_presets, transition_postsets).all(|(pre, post)| {
-        pre.len() == 1 && post.len() == 1
-    })
+fn is_s_net(transition_presets: &TransitionMap<SortedSet<Place>>, transition_postsets: &TransitionMap<SortedSet<Place>>) -> bool {
+    transition_presets.values().all(|preset| preset.len() == 1) &&
+    transition_postsets.values().all(|postset| postset.len() == 1)
 }
 
 /// T-net: |•p| = 1 and |p•| = 1 for every place p.
-fn is_t_net(place_presets: &[SortedSet<Transition>], place_postsets: &[SortedSet<Transition>]) -> bool {
-    std::iter::zip(place_presets, place_postsets).all(|(pre, post)| {
-        pre.len() == 1 && post.len() == 1
-    })
+fn is_t_net(place_presets: &PlaceMap<SortedSet<Transition>>, place_postsets: &PlaceMap<SortedSet<Transition>>) -> bool {
+    place_presets.values().all(|preset| preset.len() == 1) &&
+    place_postsets.values().all(|postset| postset.len() == 1)
 }
 
 /// Free-choice: ∀ p1, p2: p1• ∩ p2• ≠ ∅ ⟹ p1• = p2•.
 /// Equivalently: for every place p, all transitions in p• share the same preset.
-fn is_free_choice_net(place_postsets: &[SortedSet<Transition>], preset_t: &[SortedSet<Place>]) -> bool {
-    place_postsets.iter().all(|postset| {
-        postset.windows(2).all(|t| {
-            preset_t[t[0].idx] == preset_t[t[1].idx]
+fn is_free_choice_net(place_postsets: &PlaceMap<SortedSet<Transition>>, preset_t: &TransitionMap<SortedSet<Place>>) -> bool {
+    place_postsets.iter().all(|(_p, postset)| {
+        postset.array_windows().all(|&[t0, t1]| {
+            preset_t[t0] == preset_t[t1]
         })
     })
 }
 
 /// Asymmetric-choice: ∀ p1, p2: p1• ∩ p2• ≠ ∅ ⟹ p1• ⊆ p2• ∨ p2• ⊆ p1•.
-fn is_asymmetric_choice_net(place_postsets: &[SortedSet<Transition>]) -> bool {
-    place_postsets.iter().all(|a| {
-        place_postsets.iter().all(|b| {
+fn is_asymmetric_choice_net(place_postsets: &PlaceMap<SortedSet<Transition>>) -> bool {
+    place_postsets.values().all(|a| {
+        place_postsets.values().all(|b| {
             !a.intersects(b) || a.is_subset_of(b) || b.is_subset_of(a)
         })
     })

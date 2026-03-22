@@ -30,19 +30,17 @@
 //! let inv = structural::compute_invariants(&net);
 //! // One S-invariant: tokens are conserved (p0 + p1 = const)
 //! assert_eq!(inv.s_invariants.len(), 1);
-//! assert!(inv.is_covered_by_s_invariants(net.place_count()));
-//!
-//! // One minimal siphon = one minimal trap = {p0, p1}
-//! let siphons = structural::minimal_siphons(&net);
-//! assert_eq!(siphons.len(), 1);
+//! assert!(inv.is_covered_by_s_invariants(net.place_count() as usize));
 //! ```
 
 use crate::analysis::math::integer_null_space;
-use crate::analysis::model::CommonerHackCriterionResult;
+use crate::analysis::model::{CommonerHackCriterionResult, LivenessAnalysis, LivenessMethod, SNetComponent, SNetLivenessEvidence, TNetComponent, TNetLivenessEvidence};
 use crate::marking::Marking;
 use crate::net::{Net, Place, PlaceMap, Transition};
 use std::collections::HashSet;
 use std::fmt;
+use crate::{LivenessLevel, TransitionMap};
+use crate::analysis::has_zero_token_cycle;
 
 /// The incidence matrix N of a Petri net.
 ///
@@ -67,15 +65,15 @@ impl IncidenceMatrix {
     /// Constructs the |P| × |T| incidence matrix for a given net.
     #[must_use]
     pub fn new(net: &Net) -> Self {
-        let rows = net.place_count();
-        let cols = net.transition_count();
+        let rows = net.place_count() as usize;
+        let cols = net.transition_count() as usize;
         let mut data = vec![0; rows * cols];
         for t in net.transitions() {
-            for &p in net.preset_t(t) {
-                data[p.idx * cols + t.idx] -= 1;
+            for &p in net.dense_input_places(t) {
+                data[p.usize_index() * cols + t.usize_index()] -= 1;
             }
-            for &p in net.postset_t(t) {
-                data[p.idx * cols + t.idx] += 1;
+            for &p in net.dense_output_places(t) {
+                data[p.usize_index() * cols + t.usize_index()] += 1;
             }
         }
         IncidenceMatrix { data, rows, cols }
@@ -103,20 +101,20 @@ impl IncidenceMatrix {
     /// Entry at (row, col) = N\[place\]\[transition\].
     #[must_use]
     pub fn get(&self, row: Place, col: Transition) -> i32 {
-        self.data[row.idx * self.cols + col.idx]
+        self.data[row.usize_index() * self.cols + col.usize_index()]
     }
 
     /// Row slice for a given place.
     #[must_use]
     pub fn row(&self, p: Place) -> &[i32] {
-        let start = p.idx * self.cols;
+        let start = p.usize_index() * self.cols;
         &self.data[start..start + self.cols]
     }
 
     /// Returns a column vector (extracting one transition across all places).
     #[must_use]
     pub fn col(&self, t: Transition) -> Vec<i32> {
-        (0..self.rows).map(|p| self.data[p * self.cols + t.idx]).collect()
+        (0..self.rows).map(|p| self.data[p * self.cols + t.usize_index()]).collect()
     }
 
     /// Returns the transpose (|T| × |P| matrix).
@@ -136,7 +134,7 @@ impl fmt::Display for IncidenceMatrix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for idx in 0..self.rows {
             write!(f, "[")?;
-            for (t, val) in self.row(Place::from_index(idx)).iter().enumerate() {
+            for (t, val) in self.row(Place::from_index(idx as u32)).iter().enumerate() {
                 if t > 0 { write!(f, ", ")?; }
                 write!(f, "{val:>3}")?;
             }
@@ -286,7 +284,7 @@ impl Invariants {
 /// let inv = compute_invariants(&net);
 /// // 3 S-invariants: idle1+wait1+crit1, idle2+wait2+crit2, crit1+crit2+mutex
 /// assert_eq!(inv.s_invariants.len(), 3);
-/// assert!(inv.is_covered_by_s_invariants(net.place_count()));
+/// assert!(inv.is_covered_by_s_invariants(net.place_count() as usize));
 /// // 2 T-invariants: complete cycle for each process
 /// assert_eq!(inv.t_invariants.len(), 2);
 /// ```
@@ -325,11 +323,11 @@ pub fn maximal_siphon_in(
         let mut removed = false;
         let to_remove: Vec<Place> = d.iter().copied().filter(|&p| {
             // Check if some t ∈ •p has no input place in D.
-            net.preset_p(p).iter().any(|&t| {
+            net.dense_input_transitions(p).iter().any(|&t| {
                 // t ∈ •p. For the siphon property, we need t ∈ D•,
                 // i.e. t consumes from some place in D.
                 // If it doesn't, then p cannot be in the siphon.
-                net.preset_t(t).iter().all(|&q| !d.contains(&q))
+                net.dense_input_places(t).iter().all(|&q| !d.contains(&q))
             })
         }).collect();
         for p in to_remove {
@@ -357,7 +355,7 @@ pub fn minimal_siphons(net: &Net) -> Box<[HashSet<Place>]> {
     let all_places: HashSet<Place> = net.places().collect();
     let mut results: Vec<HashSet<Place>> = Vec::new();
     let mut stack: Vec<HashSet<Place>> = vec![all_places];
-    let mut visited: HashSet<Vec<usize>> = HashSet::new();
+    let mut visited: HashSet<Vec<u32>> = HashSet::new();
 
     while let Some(candidate_set) = stack.pop() {
         let siphon = maximal_siphon_in(net, &candidate_set);
@@ -365,7 +363,7 @@ pub fn minimal_siphons(net: &Net) -> Box<[HashSet<Place>]> {
             continue;
         }
 
-        let mut key: Vec<usize> = siphon.iter().map(|p| p.index()).collect();
+        let mut key: Vec<u32> = siphon.iter().map(|p| p.index()).collect();
         key.sort_unstable();
         if !visited.insert(key) {
             continue;
@@ -418,11 +416,11 @@ pub fn maximal_trap_in<S: std::hash::BuildHasher + Clone>(
             .filter(|&&p| {
                 // Check if some t ∈ p• has no output place in Q.
                 // p• = transitions that consume from p = postset_p(p)
-                net.postset_p(p).iter().any(|&t| {
+                net.dense_output_transitions(p).iter().any(|&t| {
                     // t ∈ p•. For the trap property, we need t ∈ •Q,
                     // i.e. t produces into some place in Q.
                     // t• = postset_t(t) = output places of t.
-                    !net.postset_t(t).iter().any(|&r| maximal_trap.contains(&r))
+                    !net.dense_output_places(t).iter().any(|&r| maximal_trap.contains(&r))
                 })
             })
             .copied()
@@ -452,7 +450,7 @@ pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
     let all_places: HashSet<Place> = net.places().collect();
     let mut results: Vec<HashSet<Place>> = Vec::new();
     let mut stack: Vec<HashSet<Place>> = vec![all_places];
-    let mut visited: HashSet<Vec<usize>> = HashSet::new();
+    let mut visited: HashSet<Vec<u32>> = HashSet::new();
 
     while let Some(candidate_set) = stack.pop() {
         let trap = maximal_trap_in(net, &candidate_set);
@@ -460,7 +458,7 @@ pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
             continue;
         }
 
-        let mut key: Vec<usize> = trap.iter().map(|p| p.index()).collect();
+        let mut key: Vec<u32> = trap.iter().map(|p| p.index()).collect();
         key.sort_unstable();
         if !visited.insert(key) {
             continue;
@@ -521,9 +519,9 @@ pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 
     // Siphon property: x[p] ≤ Σ_{q ∈ •t} x[q]  for all p, t ∈ •p
     for p in net.places() {
-        for &t in net.preset_p(p) {
+        for &t in net.dense_input_transitions(p) {
             let sum_preset: Expression = net
-                .preset_t(t)
+                .dense_input_places(t)
                 .iter()
                 .map(|&q| x[q])
                 .sum();
@@ -587,8 +585,8 @@ pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 
         // Trap property: x[p] ≤ Σ_{q ∈ t•} x[q]  for all p, t ∈ p•
         for p in net.places() {
-            for &t in net.postset_p(p) {
-                let sum_postset: Expression = net.postset_t(t).iter()
+            for &t in net.dense_output_transitions(p) {
+                let sum_postset: Expression = net.dense_output_places(t).iter()
                     .map(|&q| x[q])
                     .sum();
                 constraints.push(constraint!(x[p] <= sum_postset));
@@ -752,30 +750,36 @@ pub fn s_components(net: &Net) -> Vec<SComponent> {
     }
 
     let mut components = Vec::new();
-    let mut found_supports: HashSet<Vec<usize>> = HashSet::new();
+    let mut found_supports: HashSet<Vec<u32>> = HashSet::new();
 
     // A place can belong to multiple S-components (e.g. crit1 in both the
     // process cycle and the mutex cycle). Query every place to find all
     // distinct components.
     for p in net.places() {
-        let Some(support) = find_nonneg_invariant_support(&inv.s_invariants, p.index(), net.place_count())
-        else {
+        let Some(support) = find_nonneg_invariant_support(
+            &inv.s_invariants,
+            p.usize_index(),
+            net.place_count() as usize
+        ) else {
             continue;
         };
 
-        let mut key: Vec<usize> = support.iter().copied().collect();
+        let mut key: Vec<u32> = support.iter().map(|&i| i as u32).collect();
         key.sort_unstable();
         if !found_supports.insert(key) {
             continue;
         }
 
-        let places: HashSet<Place> = support.into_iter().map(Place::from_index).collect();
+        let places: HashSet<Place> = support
+            .into_iter()
+            .map(|i| Place::from_index(i as u32))
+            .collect();
 
         let transitions: HashSet<Transition> = net
             .transitions()
             .filter(|&t| {
-                let pre_count = net.preset_t(t).iter().filter(|p| places.contains(p)).count();
-                let post_count = net.postset_t(t).iter().filter(|p| places.contains(p)).count();
+                let pre_count = net.dense_input_places(t).iter().filter(|p| places.contains(p)).count();
+                let post_count = net.dense_output_places(t).iter().filter(|p| places.contains(p)).count();
                 pre_count == 1 && post_count == 1
             })
             .collect();
@@ -868,13 +872,16 @@ pub fn t_components(net: &Net) -> Vec<TComponent> {
     for t in net.transitions() {
         let Some(support) = find_nonneg_invariant_support(
             &inv.t_invariants,
-            t.index(),
-            net.transition_count(),
+            t.usize_index(),
+            net.transition_count() as usize,
         ) else {
             continue;
         };
 
-        let transitions: HashSet<Transition> = support.into_iter().map(Transition::from_index).collect();
+        let transitions: HashSet<Transition> = support
+            .into_iter()
+            .map(|i| Transition::from_index(i as u32))
+            .collect();
 
         if components.iter().any(|c: &TComponent| c.transitions == transitions) {
             continue;
@@ -883,8 +890,8 @@ pub fn t_components(net: &Net) -> Vec<TComponent> {
         let places: HashSet<Place> = net
             .places()
             .filter(|&p| {
-                let pre_count = net.preset_p(p).iter().filter(|t| transitions.contains(t)).count();
-                let post_count = net.postset_p(p).iter().filter(|t| transitions.contains(t)).count();
+                let pre_count = net.dense_input_transitions(p).iter().filter(|t| transitions.contains(t)).count();
+                let post_count = net.dense_output_transitions(p).iter().filter(|t| transitions.contains(t)).count();
                 pre_count == 1 && post_count == 1
             })
             .collect();
@@ -955,12 +962,12 @@ fn is_subnet_strongly_connected(
     }
 
     for &t in transitions {
-        for &p in net.preset_t(t) {
+        for &p in net.dense_input_places(t) {
             if let Some(&p_idx) = p_map.get(&p) {
                 graph.add_edge(p_idx, t_map[&t], ());
             }
         }
-        for &p in net.postset_t(t) {
+        for &p in net.dense_output_places(t) {
             if let Some(&p_idx) = p_map.get(&p) {
                 graph.add_edge(t_map[&t], p_idx, ());
             }
@@ -968,6 +975,283 @@ fn is_subnet_strongly_connected(
     }
 
     petgraph::algo::kosaraju_scc(&graph).len() == 1
+}
+
+/// Liveness analysis for S-nets via SCC decomposition of the place graph.
+///
+/// In an S-net each transition has exactly one input place and one output place,
+/// so transitions are directed edges in the "place graph." The SCC decomposition
+/// of this graph determines per-transition liveness:
+///
+/// - Sink SCC, marked (token sum > 0): internal transitions are **L4**.
+/// - Non-sink SCC, marked: internal transitions are **L3** (tokens *can* stay
+///   cycling forever but *can also* escape, preventing L4).
+/// - Inter-SCC transitions (connecting different SCCs): **L1** if the source
+///   SCC is reachable by tokens, **L0** otherwise.
+/// - Transitions whose source SCC has no tokens and cannot receive any: **L0**.
+///
+/// References: [Murata 1989 Theorem 4](crate::literature#theorem-4--liveness-of-s-nets-state-machines),
+/// [Primer Corollary 5.30](crate::literature#corollary-530--liveness-of-s-systems).
+pub fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
+    use petgraph::graph::NodeIndex;
+
+    let place_count = net.place_count() as usize;
+    let transition_count = net.transition_count() as usize;
+
+    // Build the place graph: places are nodes, transitions are directed edges
+    // from their single input place to their single output place.
+    let mut place_graph = petgraph::Graph::<Place, Transition>::with_capacity(place_count, transition_count);
+    let p_nodes: Vec<NodeIndex> = net.places()
+        .map(|p| place_graph.add_node(p))
+        .collect();
+
+    for t in net.transitions() {
+        let src = net.dense_input_places(t)[0];
+        let dst = net.dense_output_places(t)[0];
+        place_graph.add_edge(p_nodes[src.usize_index()], p_nodes[dst.usize_index()], t);
+    }
+
+    // Compute SCCs (Kosaraju returns them in reverse topological order).
+    let sccs = petgraph::algo::kosaraju_scc(&place_graph);
+
+    // Map each place to its SCC index (we'll reverse the order to get
+    // topological order with sources first).
+    let n_sccs = sccs.len();
+    let mut place_to_scc = vec![0usize; place_count];
+    for (rev_idx, scc) in sccs.iter().enumerate() {
+        let scc_idx = n_sccs - 1 - rev_idx;
+        for &node_idx in scc {
+            let place = place_graph[node_idx];
+            place_to_scc[place.usize_index()] = scc_idx;
+        }
+    }
+
+    // Build component info in topological order (sources first).
+    let mut components: Vec<SNetComponent> = Vec::with_capacity(n_sccs);
+    let mut scc_has_outgoing = vec![false; n_sccs];
+
+    // Classify each transition as internal (same SCC) or inter-SCC,
+    // and track which SCCs have outgoing transitions.
+    let mut transition_scc: Vec<Option<usize>> = vec![None; transition_count];
+    for t in net.transitions() {
+        let src = net.dense_input_places(t)[0];
+        let dst = net.dense_output_places(t)[0];
+        let src_scc = place_to_scc[src.usize_index()];
+        let dst_scc = place_to_scc[dst.usize_index()];
+        if src_scc == dst_scc {
+            transition_scc[t.usize_index()] = Some(src_scc);
+        } else {
+            scc_has_outgoing[src_scc] = true;
+        }
+    }
+
+    // Build components in topological order.
+    for (rev_idx, scc) in sccs.iter().enumerate() {
+        let scc_idx = n_sccs - 1 - rev_idx;
+        let places: Box<[Place]> = scc.iter()
+            .map(|&ni| place_graph[ni])
+            .collect();
+        let token_sum: u32 = places.iter()
+            .map(|&p| marking[p])
+            .sum();
+        let transitions: Box<[Transition]> = net.transitions()
+            .filter(|t| transition_scc[t.usize_index()] == Some(scc_idx))
+            .collect();
+        let is_sink = !scc_has_outgoing[scc_idx];
+
+        components.push(SNetComponent {
+            places,
+            transitions,
+            token_sum,
+            is_sink,
+        });
+    }
+
+    // Sort components into topological order (sources first).
+    // kosaraju_scc returns reverse topological, so we built them reversed above,
+    // but pushed in reverse order. Let's just reverse the vec.
+    components.reverse();
+
+    // Determine which SCCs can receive tokens (transitively from marked SCCs).
+    let mut scc_reachable = vec![false; n_sccs];
+    for scc_idx in 0..n_sccs {
+        if components[scc_idx].token_sum > 0 {
+            scc_reachable[scc_idx] = true;
+        }
+    }
+    // Propagate reachability along inter-SCC transitions (topological order).
+    for t in net.transitions() {
+        let src = net.dense_input_places(t)[0];
+        let dst = net.dense_output_places(t)[0];
+        let src_scc = place_to_scc[src.usize_index()];
+        let dst_scc = place_to_scc[dst.usize_index()];
+        if src_scc != dst_scc && scc_reachable[src_scc] {
+            scc_reachable[dst_scc] = true;
+        }
+    }
+
+    // Assign liveness levels.
+    let mut levels = vec![LivenessLevel::L0; transition_count];
+    for t in net.transitions() {
+        let src = net.dense_input_places(t)[0];
+        let dst = net.dense_output_places(t)[0];
+        let src_scc = place_to_scc[src.usize_index()];
+        let dst_scc = place_to_scc[dst.usize_index()];
+
+        if src_scc == dst_scc {
+            // Internal transition
+            let comp = &components[src_scc];
+            if comp.token_sum > 0 || scc_reachable[src_scc] {
+                if comp.is_sink {
+                    levels[t.usize_index()] = LivenessLevel::L4;
+                } else {
+                    levels[t.usize_index()] = LivenessLevel::L3;
+                }
+            }
+        } else {
+            // Inter-SCC transition: L1 if the source SCC has/receives tokens
+            if scc_reachable[src_scc] {
+                levels[t.usize_index()] = LivenessLevel::L1;
+            }
+        }
+    }
+
+    LivenessAnalysis {
+        levels: TransitionMap::from(levels),
+        method: LivenessMethod::SNet(SNetLivenessEvidence {
+            components: components.into_boxed_slice(),
+        }),
+    }
+}
+
+/// Liveness analysis for T-nets via SCC decomposition of the transition graph.
+///
+/// In a T-net each place has exactly one input and one output transition,
+/// so places are directed edges in the "transition graph." The circuit token
+/// invariance property ([Murata Theorem 26](crate::literature#theorem-26--circuit-token-invariance-in-t-nets)) guarantees that every transition
+/// is either **L0** or **L4** — no intermediate levels are possible.
+///
+/// Algorithm:
+/// 1. Build the transition graph (transitions as nodes, places as edges).
+/// 2. Compute SCCs.
+/// 3. For each SCC, check if all internal circuits are marked.
+///    Within a strongly connected T-net sub-graph, this is equivalent to
+///    checking that every cycle of places has at least one token (Theorem 7).
+///    A practical check: the SCC sub-T-net is live iff it has no token-free
+///    cycle, which we verify by checking for empty-marked places that form
+///    a cycle (DFS for a zero-token cycle).
+/// 4. Process SCCs in topological order: an SCC is L4 iff all internal
+///    circuits are marked AND all predecessor SCCs are L4.
+///
+/// References: [Murata 1989 Theorems 7 & 26](crate::literature#theorem-7--liveness-of-t-nets-marked-graphs), [Primer Theorem 5.31](crate::literature#theorem-531--liveness-and-realisability-in-t-systems).
+pub fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
+    use petgraph::graph::NodeIndex;
+
+    let place_count = net.place_count() as usize;
+    let transition_count = net.transition_count() as usize;
+
+    // Build the transition graph: transitions are nodes, places are directed
+    // edges from their single input transition to their single output transition.
+    let mut trans_graph = petgraph::Graph::<Transition, Place>::with_capacity(transition_count, place_count);
+    let t_nodes: Vec<NodeIndex> = net.transitions()
+        .map(|t| trans_graph.add_node(t))
+        .collect();
+
+    for p in net.places() {
+        let src = net.dense_input_transitions(p)[0];
+        let dst = net.dense_output_transitions(p)[0];
+        trans_graph.add_edge(t_nodes[src.usize_index()], t_nodes[dst.usize_index()], p);
+    }
+
+    // Compute SCCs (Kosaraju returns reverse topological order).
+    let sccs = petgraph::algo::kosaraju_scc(&trans_graph);
+    let n_sccs = sccs.len();
+
+    // Map each transition to its SCC index (topological order, sources first).
+    let mut trans_to_scc = vec![0usize; transition_count];
+    for (rev_idx, scc) in sccs.iter().enumerate() {
+        let scc_idx = n_sccs - 1 - rev_idx;
+        for &node_idx in scc {
+            let transition = trans_graph[node_idx];
+            trans_to_scc[transition.usize_index()] = scc_idx;
+        }
+    }
+
+    // For each SCC, find internal places and check if all circuits are marked.
+    // A place is internal if both its input and output transitions are in the same SCC.
+    // Within a strongly connected sub-T-net, all circuits are marked iff
+    // there is no cycle consisting entirely of zero-token places.
+    // Since the circuit token sum is invariant, an unmarked circuit means some
+    // subset of internal places has total tokens = 0 AND forms a cycle.
+    // Efficient check: if any internal place has 0 tokens, check if there's a
+    // zero-token cycle through it using DFS on zero-token internal places.
+    let mut components: Vec<TNetComponent> = Vec::with_capacity(n_sccs);
+
+    for (rev_idx, scc) in sccs.iter().enumerate() {
+        let scc_idx = n_sccs - 1 - rev_idx;
+        let transitions: Box<[Transition]> = scc.iter()
+            .map(|&ni| trans_graph[ni])
+            .collect();
+
+        let places: Box<[Place]> = net.places()
+            .filter(|&p| {
+                let src = net.dense_input_transitions(p)[0];
+                let dst = net.dense_output_transitions(p)[0];
+                trans_to_scc[src.usize_index()] == scc_idx && trans_to_scc[dst.usize_index()] == scc_idx
+            })
+            .collect();
+
+        // For singleton or acyclic SCCs (no internal places forming cycles),
+        // all_circuits_marked is vacuously true.
+        let all_circuits_marked = if places.is_empty() {
+            true
+        } else {
+            !has_zero_token_cycle(net, marking, &places, &trans_to_scc, scc_idx)
+        };
+
+        components.push(TNetComponent {
+            transitions,
+            places,
+            all_circuits_marked,
+            predecessors_live: false, // filled in below
+        });
+    }
+
+    // Reverse to get topological order (sources first).
+    components.reverse();
+
+    // Propagate predecessor liveness in topological order.
+    // Also track which SCCs have all predecessors live.
+    let mut scc_live = vec![false; n_sccs];
+    for scc_idx in 0..n_sccs {
+        // Check all predecessor SCCs via inter-SCC places.
+        let all_preds_live = components[scc_idx].transitions.iter().all(|&t| {
+            net.dense_input_places(t).iter().all(|&p| {
+                let src_t = net.dense_input_transitions(p)[0];
+                let src_scc = trans_to_scc[src_t.usize_index()];
+                src_scc == scc_idx || scc_live[src_scc]
+            })
+        });
+
+        components[scc_idx].predecessors_live = all_preds_live;
+        scc_live[scc_idx] = components[scc_idx].all_circuits_marked && all_preds_live;
+    }
+
+    // Assign liveness levels: L4 if SCC is live, L0 otherwise.
+    let mut levels = vec![LivenessLevel::L0; transition_count];
+    for t in net.transitions() {
+        let scc_idx = trans_to_scc[t.usize_index()];
+        if scc_live[scc_idx] {
+            levels[t.usize_index()] = LivenessLevel::L4;
+        }
+    }
+
+    LivenessAnalysis {
+        levels: TransitionMap::from(levels),
+        method: LivenessMethod::TNet(TNetLivenessEvidence {
+            components: components.into_boxed_slice(),
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -997,8 +1281,8 @@ mod tests {
         assert_eq!(inv.s_invariants[0][0], inv.s_invariants[0][1]);
         // T-invariant: equal firing counts (full cycle)
         assert_eq!(inv.t_invariants[0][0], inv.t_invariants[0][1]);
-        assert!(inv.is_covered_by_s_invariants(net.place_count()));
-        assert!(inv.is_covered_by_t_invariants(net.transition_count()));
+        assert!(inv.is_covered_by_s_invariants(net.place_count() as usize));
+        assert!(inv.is_covered_by_t_invariants(net.transition_count() as usize));
     }
 
     #[test]
@@ -1039,11 +1323,11 @@ mod tests {
 
         // 3 S-invariants for mutex net (7 places, rank 4 → dim 3)
         assert_eq!(inv.s_invariants.len(), 3);
-        assert!(inv.is_covered_by_s_invariants(net.place_count()));
+        assert!(inv.is_covered_by_s_invariants(net.place_count() as usize));
 
         // 2 T-invariants (6 transitions, rank 4 → dim 2)
         assert_eq!(inv.t_invariants.len(), 2);
-        assert!(inv.is_covered_by_t_invariants(net.transition_count()));
+        assert!(inv.is_covered_by_t_invariants(net.transition_count() as usize));
     }
 
     #[test]
@@ -1096,6 +1380,8 @@ mod tests {
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p0, t1)); b.add_arc((t1, p2));
         let net = b.build().unwrap();
+        let p1 = net.dense_place(p1);
+        let p2 = net.dense_place(p2);
 
         let all: HashSet<Place> = net.places().collect();
         let max = maximal_siphon_in(&net, &all);
@@ -1226,6 +1512,13 @@ mod tests {
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
         let net = b.build().unwrap();
+        let idle1 = net.dense_place(idle1);
+        let wait1 = net.dense_place(wait1);
+        let crit1 = net.dense_place(crit1);
+        let idle2 = net.dense_place(idle2);
+        let wait2 = net.dense_place(wait2);
+        let crit2 = net.dense_place(crit2);
+        let mutex = net.dense_place(mutex);
         let s_comps = s_components(&net);
 
         // 3 S-components: process 1 cycle, process 2 cycle, mutex cycle
@@ -1260,6 +1553,12 @@ mod tests {
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
         let net = b.build().unwrap();
+        let t_req1 = net.dense_transition(t_req1);
+        let t_enter1 = net.dense_transition(t_enter1);
+        let t_exit1 = net.dense_transition(t_exit1);
+        let t_req2 = net.dense_transition(t_req2);
+        let t_enter2 = net.dense_transition(t_enter2);
+        let t_exit2 = net.dense_transition(t_exit2);
         let t_comps = t_components(&net);
 
         // 2 T-components: one per process (req, enter, exit)
@@ -1309,6 +1608,8 @@ mod tests {
         b.add_arc((p0, t1)); b.add_arc((t1, p2));
         b.add_arc((p2, t2)); b.add_arc((t2, p0));
         let net = b.build().unwrap();
+        let p0 = net.dense_place(p0);
+        let p2 = net.dense_place(p2);
         assert!(net.is_free_choice_net());
 
         let marking = Marking::from([1u32, 0, 0]);

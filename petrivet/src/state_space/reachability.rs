@@ -48,6 +48,7 @@ use crate::net::{Net, Transition};
 use crate::state_space::explorer::StateGraph;
 use crate::state_space::{explorer::StateSpaceExplorer, CoverabilityGraph, ExplorationOrder};
 use crate::system::System;
+use crate::TransitionMap;
 
 /// An incremental exploration handle for a Petri net's reachability graph.
 ///
@@ -262,7 +263,6 @@ impl std::fmt::Debug for ReachabilityExplorer<'_> {
 /// ```
 /// use petrivet::net::builder::NetBuilder;
 /// use petrivet::system::System;
-/// use petrivet::LivenessLevel;
 /// use petrivet::{ReachabilityGraph, ExplorationOrder};
 /// use petrivet::marking::Marking;
 ///
@@ -280,10 +280,7 @@ impl std::fmt::Debug for ReachabilityExplorer<'_> {
 /// assert_eq!(rg.state_count(), 2);
 /// assert!(rg.is_reachable(&Marking::from([0u32, 1])));
 /// assert!(rg.is_deadlock_free());
-///
-/// // Liveness analysis
-/// let levels = rg.liveness_levels();
-/// assert!(levels.iter().all(|&l| l == LivenessLevel::L4));
+/// assert!(rg.is_live());
 /// ```
 pub struct ReachabilityGraph<'a> {
     state_space: StateGraph<'a, u32>,
@@ -383,15 +380,15 @@ impl<'a> ReachabilityGraph<'a> {
     /// Returns an owned `Box<[LivenessLevel]>` indexed by transition index.
     /// Store the result if you need to query it multiple times.
     #[must_use]
-    pub fn liveness_levels(&self) -> Box<[LivenessLevel]> {
+    pub fn liveness_levels(&self) -> TransitionMap<LivenessLevel> {
         use petgraph::visit::EdgeRef;
 
-        let n_transitions = self.state_space.net.transition_count();
+        let n_transitions = self.state_space.net.transition_count() as usize;
         let graph = &self.state_space.graph;
         let sccs = petgraph::algo::kosaraju_scc(graph);
 
         if sccs.is_empty() || n_transitions == 0 {
-            return vec![LivenessLevel::L0; n_transitions].into_boxed_slice();
+            return std::iter::repeat_n(LivenessLevel::L0, n_transitions).collect();
         }
 
         let mut node_to_scc = vec![0usize; graph.node_count()];
@@ -412,11 +409,11 @@ impl<'a> ReachabilityGraph<'a> {
             let src_scc = node_to_scc[edge.source().index()];
             let dst_scc = node_to_scc[edge.target().index()];
 
-            t_fires_anywhere[t.idx] = true;
+            t_fires_anywhere[t.usize_index()] = true;
 
             if src_scc == dst_scc {
                 scc_is_nontrivial[src_scc] = true;
-                scc_has_t[src_scc][t.idx] = true;
+                scc_has_t[src_scc][t.usize_index()] = true;
             } else {
                 has_external_edge[src_scc] = true;
             }
@@ -442,7 +439,7 @@ impl<'a> ReachabilityGraph<'a> {
             }
         }
 
-        levels.into_boxed_slice()
+        TransitionMap::from(levels)
     }
 
     /// Convenience: checks L4-liveness for all transitions.
@@ -452,7 +449,7 @@ impl<'a> ReachabilityGraph<'a> {
     /// inspect the result instead.
     #[must_use]
     pub fn is_live(&self) -> bool {
-        self.liveness_levels().iter().all(|&l| l == LivenessLevel::L4)
+        self.liveness_levels().values().all(|&l| l == LivenessLevel::L4)
     }
 }
 
@@ -742,6 +739,8 @@ mod tests {
         b.add_arc((t_exit2, mutex));
 
         let net = b.build().expect("valid net");
+        let crit1 = net.dense_place(crit1);
+        let crit2 = net.dense_place(crit2);
         assert_eq!(net.class(), NetClass::AsymmetricChoice);
         let sys = System::new(net, [1, 0, 0, 1, 0, 0, 1]);
 
@@ -777,8 +776,9 @@ mod tests {
         let path = rg.path_to(&target).expect("reachable");
 
         let mut replay = sys;
-        for t in &path {
-            replay.try_fire(*t).expect("path should be valid");
+        let keys: Vec<_> = path.iter().map(|t| replay.net().as_ref().transition_key(*t)).collect();
+        for key in keys {
+            replay.try_fire(key).expect("path should be valid");
         }
         assert_eq!(replay.current_marking(), &target);
     }
@@ -813,8 +813,8 @@ mod tests {
         assert_eq!(net.class(), NetClass::AsymmetricChoice);
         let mut initial = vec![0u32; 4 * n];
         for i in 0..n {
-            initial[forks[i].index()] = 1;
-            initial[thinking[i].index()] = 1;
+            initial[net.dense_place(forks[i]).usize_index()] = 1;
+            initial[net.dense_place(thinking[i]).usize_index()] = 1;
         }
         let sys = System::new(net, initial);
 
@@ -837,7 +837,7 @@ mod tests {
         let sys = two_place_cycle();
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
         let levels = rg.liveness_levels();
-        assert!(levels.iter().all(|&l| l == LivenessLevel::L4));
+        assert!(levels.values().all(|&l| l == LivenessLevel::L4));
         assert!(rg.is_live());
     }
 
@@ -846,7 +846,7 @@ mod tests {
         let sys = System::new(two_place_cycle().into_parts().0, [0u32, 0]);
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
         let levels = rg.liveness_levels();
-        assert!(levels.iter().all(|&l| l == LivenessLevel::L0));
+        assert!(levels.values().all(|&l| l == LivenessLevel::L0));
         assert!(!rg.is_live());
     }
 
@@ -859,13 +859,16 @@ mod tests {
         b.add_arc((p0, t1)); b.add_arc((t1, p2));
         b.add_arc((p2, t2)); b.add_arc((t2, p0));
         let net = b.build().unwrap();
+        let t0 = net.dense_transition(t0);
+        let t1 = net.dense_transition(t1);
+        let t2 = net.dense_transition(t2);
         let sys = System::new(net, [1u32, 0, 0]);
         let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-        let levels = rg.liveness_levels();
+        let liveness = rg.liveness_levels();
 
-        assert_eq!(levels[t0.idx], LivenessLevel::L1);
-        assert_eq!(levels[t1.idx], LivenessLevel::L3);
-        assert_eq!(levels[t2.idx], LivenessLevel::L3);
+        assert_eq!(liveness[t0], LivenessLevel::L1);
+        assert_eq!(liveness[t1], LivenessLevel::L3);
+        assert_eq!(liveness[t2], LivenessLevel::L3);
         assert!(!rg.is_live());
     }
 
@@ -891,9 +894,9 @@ mod tests {
         let sys = System::new(net, [1u32, 0, 0, 1, 0, 0, 1]);
         let cg = sys.build_coverability_graph();
         let rg = cg.into_reachability_graph().unwrap();
-        let levels = rg.liveness_levels();
+        let liveness = rg.liveness_levels();
 
-        assert!(levels.iter().all(|&l| l == LivenessLevel::L4));
+        assert!(liveness.values().all(|&l| l == LivenessLevel::L4));
         assert!(rg.is_live());
     }
 

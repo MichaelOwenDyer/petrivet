@@ -88,7 +88,7 @@ impl<N: AsRef<Net>> System<N> {
         let initial_marking = initial_marking.into();
         assert_eq!(
             initial_marking.len(),
-            net.as_ref().place_count(),
+            net.as_ref().place_count() as usize,
             "marking length ({}) must equal number of places ({})",
             initial_marking.len(),
             net.as_ref().place_count(),
@@ -106,6 +106,13 @@ impl<N: AsRef<Net>> System<N> {
     #[must_use]
     pub fn current_marking(&self) -> &Marking {
         &self.marking
+    }
+
+    /// Returns the token count at a place identified by its [`PlaceKey`].
+    #[must_use]
+    pub fn tokens(&self, p: crate::net::PlaceKey) -> u32 {
+        let dense = self.net.as_ref().dense_place(p);
+        self.marking[dense]
     }
 
     /// Consumes the system and returns (`net`, `marking`).
@@ -160,13 +167,13 @@ mod tests {
     use super::*;
     use crate::marking::Marking;
     use crate::net::builder::NetBuilder;
-    use crate::net::Transition;
+    use crate::net::TransitionKey;
 
     /// Shorthand for creating a `Marking<u32>` in tests.
     fn m(val: impl Into<Marking>) -> Marking { val.into() }
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
-    fn two_place_cycle() -> (Net, Transition, Transition) {
+    fn two_place_cycle() -> (Net, TransitionKey, TransitionKey) {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
@@ -293,20 +300,24 @@ mod tests {
     #[test]
     fn dead_transition_detection() {
         let (net, t0, t1) = two_place_cycle();
+        let t0d = net.dense_transition(t0);
+        let t1d = net.dense_transition(t1);
         // With [0, 0], both transitions are dead (never fireable)
         let sys = System::new(net, [0, 0]);
         let liveness = sys.analyze_liveness();
-        assert!(liveness.transition_level(t0).is_dead());
-        assert!(liveness.transition_level(t1).is_dead());
+        assert!(liveness.transition_level(t0d).is_dead());
+        assert!(liveness.transition_level(t1d).is_dead());
     }
 
     #[test]
     fn alive_transitions_not_dead() {
         let (net, t0, t1) = two_place_cycle();
+        let t0d = net.dense_transition(t0);
+        let t1d = net.dense_transition(t1);
         let sys = System::new(net, [1, 0]);
         let liveness = sys.analyze_liveness();
-        assert!(!liveness.transition_level(t0).is_dead());
-        assert!(!liveness.transition_level(t1).is_dead());
+        assert!(!liveness.transition_level(t0d).is_dead());
+        assert!(!liveness.transition_level(t1d).is_dead());
     }
 
     #[test]

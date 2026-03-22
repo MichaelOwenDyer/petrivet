@@ -19,7 +19,7 @@
 //! ```
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::marking::Marking;
-//! use petrivet::analysis::semi_decision::find_marking_equation_rational_solution;
+//! use petrivet::system::System;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -27,16 +27,18 @@
 //! b.add_arc((p0, t0)); b.add_arc((t0, p1));
 //! b.add_arc((p1, t1)); b.add_arc((t1, p0));
 //! let net = b.build().unwrap();
+//! let sys = System::new(net, [1u32, 0]);
 //!
-//! let m0 = Marking::from([1u32, 0]);
+//! // Can we reach (0, 1)? The marking equation says: feasible
+//! let result = sys.analyze_reachability(&Marking::from([0u32, 1]));
+//! assert!(result.is_reachable());
 //!
-//! // Can we reach (0, 1)? LP says: feasible (and it truly is)
-//! assert!(find_marking_equation_rational_solution(&net, &m0, &Marking::from([0u32, 1])).is_some());
-//!
-//! // Can we reach (2, 0)? LP says: infeasible (conservation law violated)
-//! assert!(find_marking_equation_rational_solution(&net, &m0, &Marking::from([2u32, 0])).is_none());
+//! // Can we reach (2, 0)? Conservation law violated — definitely not
+//! let result = sys.analyze_reachability(&Marking::from([2u32, 0]));
+//! assert!(!result.is_reachable());
 //! ```
 
+use crate::analysis::model::ParikhVector;
 use crate::marking::Marking;
 use crate::net::{Net, Place, PlaceMap, TransitionMap};
 use good_lp::{
@@ -65,7 +67,7 @@ pub fn find_marking_equation_rational_solution(
     net: &Net,
     initial: &Marking,
     target: &Marking,
-) -> Option<Box<[f64]>> {
+) -> Option<ParikhVector<f64>> {
     let incidence = net.incidence_matrix();
 
     let mut variables = ProblemVariables::new();
@@ -92,12 +94,12 @@ pub fn find_marking_equation_rational_solution(
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
-        .map_or(None, |solution| {
-            let rational_solution: Box<[f64]> = firing_counts
+        .ok()
+        .map(|solution| {
+            firing_counts
                 .into_iter()
                 .map(|v| solution.value(v))
-                .collect();
-            Some(rational_solution)
+                .collect()
         })
 }
 
@@ -121,7 +123,7 @@ pub fn find_marking_equation_integer_solution(
     net: &Net,
     initial: &Marking,
     target: &Marking,
-) -> Option<Box<[u32]>> {
+) -> Option<ParikhVector<u32>> {
     let mut variables = ProblemVariables::new();
     let firing_counts: TransitionMap<Variable> = net
         .transitions()
@@ -147,11 +149,11 @@ pub fn find_marking_equation_integer_solution(
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
-        .map_or(None, |solution| {
-            let integer_solution: Box<[u32]> = firing_counts.values()
+        .ok()
+        .map(|solution| {
+            firing_counts.values()
                 .map(|&v| solution.value(v).round() as u32)
-                .collect();
-            Some(integer_solution)
+                .collect()
         })
 }
 
@@ -171,7 +173,7 @@ pub fn find_covering_equation_rational_solution(
     net: &Net,
     initial: &Marking,
     threshold: &Marking,
-) -> Option<Box<[f64]>> {
+) -> Option<ParikhVector<f64>> {
     let mut variables = ProblemVariables::new();
     let parikh_vector: TransitionMap<Variable> = net
         .transitions()
@@ -197,12 +199,12 @@ pub fn find_covering_equation_rational_solution(
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
-        .map_or(None, |solution| {
-            let firing_counts: Box<[f64]> = parikh_vector
+        .ok()
+        .map(|solution| {
+            parikh_vector
                 .into_iter()
                 .map(|v| solution.value(v))
-                .collect();
-            Some(firing_counts)
+                .collect()
         })
 }
 
@@ -220,8 +222,7 @@ pub fn find_covering_equation_integer_solution(
     net: &Net,
     initial: &Marking,
     threshold: &Marking,
-) -> Option<Box<[u32]>> {
-
+) -> Option<ParikhVector<u32>> {
     let mut variables = ProblemVariables::new();
     let parikh_vector: TransitionMap<Variable> = net
         .transitions()
@@ -247,12 +248,12 @@ pub fn find_covering_equation_integer_solution(
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
-        .map_or(None, |solution| {
-            let firing_counts: Box<[u32]> = parikh_vector
+        .ok()
+        .map(|solution| {
+            parikh_vector
                 .into_iter()
                 .map(|v| solution.value(v).round() as u32)
-                .collect();
-            Some(firing_counts)
+                .collect()
         })
 }
 
@@ -281,9 +282,9 @@ pub fn find_covering_equation_integer_solution(
 /// returns the weight vector y. Given a specific initial marking M₀,
 /// per-place upper bounds can be derived: M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋.
 #[must_use]
-pub fn find_positive_place_subvariant(net: &Net) -> Option<Box<[f64]>> {
+pub fn find_positive_place_subvariant(net: &Net) -> Option<PlaceMap<f64>> {
     if net.place_count() == 0 {
-        return Some(Box::new([]));
+        return Some(PlaceMap::from([]));
     }
 
     let mut variables = ProblemVariables::new();
@@ -312,8 +313,7 @@ pub fn find_positive_place_subvariant(net: &Net) -> Option<Box<[f64]>> {
             place_weights
                 .into_iter()
                 .map(|v| solution.value(v))
-                .collect::<Vec<_>>()
-                .into_boxed_slice()
+                .collect()
         })
 }
 
@@ -335,7 +335,7 @@ pub fn is_structurally_bounded(net: &Net) -> bool {
 /// Feasible → place is structurally bounded; Infeasible → structurally
 /// unbounded (there exists an initial marking under which it is unbounded).
 #[must_use]
-pub fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<Box<[f64]>> {
+pub fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<PlaceMap<f64>> {
     let mut variables = ProblemVariables::new();
     let place_weights: PlaceMap<Variable> = net.places()
         .map(|p| {
@@ -363,12 +363,12 @@ pub fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<Box<[f6
         .using(good_lp::microlp)
         .with_all(constraints)
         .solve()
-        .map_or(None, |solution| {
-            let weights: Box<[f64]> = place_weights
+        .ok()
+        .map(|solution| {
+            place_weights
                 .into_iter()
                 .map(|v| solution.value(v))
-                .collect();
-            Some(weights)
+                .collect()
         })
 }
 
@@ -395,6 +395,7 @@ pub fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<Box<[f6
 /// - [Murata 1989, Theorem 21](crate::literature#theorem-21--reachability-in-s-nets): for S-nets, the marking equation is
 ///   necessary and sufficient for reachability.
 /// - Lautenbach & Thiagarajan 1979 (original result)
+/// todo: reconsider whether methods like these belong here
 #[must_use]
 pub fn is_reachable_s_net(net: &Net, initial: &Marking, target: &Marking) -> bool {
     debug_assert!(net.is_s_net(), "is_reachable_s_net called on non-S-net");
@@ -489,6 +490,7 @@ mod tests {
         let t0 = b.add_transition();
         b.add_arc((t0, p0));
         let net = b.build().unwrap();
+        let p0 = net.dense_place(p0);
         assert!(!is_structurally_bounded(&net));
         assert!(find_place_subvariant_covering(&net, p0).is_none());
     }
@@ -528,7 +530,7 @@ mod tests {
         let result = find_marking_equation_rational_solution(&net, &m0, &m0);
         assert!(result.is_some());
         if let Some(x) = &result {
-            assert!(x.iter().all(|&v| v >= -1e-9));
+            assert!(x.values().all(|&v| v >= -1e-9));
         }
     }
 

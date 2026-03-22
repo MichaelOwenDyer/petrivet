@@ -1,5 +1,5 @@
-import { WasmSystem } from 'petrivet-wasm';
-import type { WasmNetStructure, WasmPosition } from 'petrivet-wasm';
+import { WasmSystem, WasmNetBuilder } from 'petrivet-wasm';
+import type { WasmNetStructure, WasmPosition, WasmBuilderStructure } from 'petrivet-wasm';
 import cytoscape from 'cytoscape';
 import type { Core, ElementDefinition, NodeSingular } from 'cytoscape';
 import cola from 'cytoscape-cola';
@@ -22,6 +22,16 @@ let activeLayout: ReturnType<Core['layout']> | null = null;
 // Marking vector at which analysis was last run, so we can show a stale badge
 let lastAnalyzedMarking: number[] | null = null;
 
+// Edit mode
+let editMode = false;
+let builder: WasmNetBuilder | null = null;
+
+interface ArcDrawState {
+  sourceId: string;
+  sourceType: 'place' | 'transition';
+}
+let arcDrawState: ArcDrawState | null = null;
+
 // Bootstrap
 
 function main(): void {
@@ -34,7 +44,7 @@ function main(): void {
   });
 
   cy.on('tap', 'node[type="transition"]', (evt) => {
-    if (!sys || animating) return;
+    if (!sys || animating || editMode) return;
     const idx = evt.target.data('index') as number;
     if (sys.enabledTransitions().includes(idx)) {
       void animateFire(idx);
@@ -44,11 +54,18 @@ function main(): void {
   cy.on('tap', 'node', (evt) => showNodeInfo(evt.target as NodeSingular));
   cy.on('tap', (evt) => { if (evt.target === cy) clearNodeInfo(); });
 
+  // Ghost arc canvas — overlays the cy container; created here so Cytoscape
+  // has already applied `position: relative` to the container.
+  const ghost = document.createElement('canvas');
+  ghost.id = 'arc-ghost';
+  el('cy').appendChild(ghost);
+
   setupFileInput();
   setupDropzone();
   setupToolbar();
   setupAnimSlider();
   setupLayoutSelector();
+  setupEditMode();
 }
 
 // PNML loading
@@ -420,13 +437,20 @@ function setupDropzone(): void {
 
 function setupToolbar(): void {
   el('btn-open').addEventListener('click', () => el('file-input').click());
+  el('btn-new').addEventListener('click', () => {
+    if (!editMode) enterEditMode(true);
+  });
   el('btn-reset').addEventListener('click', () => {
-    if (animating) return;
+    if (animating || editMode) return;
     sys?.reset();
     syncMarking();
   });
   el('btn-fit').addEventListener('click', () => cy?.fit(undefined, 60));
   el('btn-analyze').addEventListener('click', () => runAnalysis());
+  el('btn-edit').addEventListener('click', () => {
+    if (editMode) exitEditMode();
+    else enterEditMode(false);
+  });
 }
 
 type LayoutOpts = Parameters<Core['layout']>[0];
@@ -559,6 +583,403 @@ function setupLayoutSelector(): void {
         btnFreeze.title = 'Freeze physics';
       }
     }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Edit mode
+// ---------------------------------------------------------------------------
+
+function enterEditMode(newNet: boolean): void {
+  editMode = true;
+  builder?.free();
+
+  if (newNet || !sys) {
+    builder = new WasmNetBuilder();
+    sys?.free();
+    sys = null;
+  } else {
+    builder = sys.toBuilder();
+  }
+
+  el('btn-edit').textContent = 'Simulate';
+  el('btn-edit').classList.add('active');
+  el('btn-reset').setAttribute('disabled', '');
+  document.body.classList.add('edit-mode');
+  el('sim-hint').style.display = 'none';
+  el('edit-hint').style.display = '';
+  el('analysis-content').innerHTML = '<p class="hint">Exit edit mode to run analysis.</p>';
+  el('btn-analyze').setAttribute('disabled', '');
+
+  lastAnalyzedMarking = null;
+  renderBuilderNet();
+}
+
+function exitEditMode(): void {
+  editMode = false;
+  el('btn-edit').textContent = 'Edit';
+  el('btn-edit').classList.remove('active');
+  document.body.classList.remove('edit-mode');
+  el('sim-hint').style.display = '';
+  el('edit-hint').style.display = 'none';
+  cancelArcDraw();
+
+  if (builder) {
+    try {
+      const newSys = builder.build();
+      sys?.free();
+      sys = newSys;
+      builder.free();
+      builder = null;
+      renderNet();
+      el('btn-reset').removeAttribute('disabled');
+      el('btn-analyze').removeAttribute('disabled');
+      setStatus('');
+    } catch (err) {
+      setStatus(`Net invalid — ${err instanceof Error ? err.message : String(err)}`);
+      // Stay in edit mode if the net is invalid
+      editMode = true;
+      el('btn-edit').textContent = 'Simulate';
+      el('btn-edit').classList.add('active');
+      document.body.classList.add('edit-mode');
+      el('sim-hint').style.display = 'none';
+      el('edit-hint').style.display = '';
+    }
+  }
+}
+
+function renderBuilderNet(): void {
+  if (!builder || !cy) return;
+  const s: WasmBuilderStructure = builder.structure();
+
+  const elements: ElementDefinition[] = [];
+
+  for (const p of s.places) {
+    elements.push({
+      data: {
+        id: `p${p.id}`,
+        type: 'place',
+        index: p.id,
+        name: p.name ?? `p${p.id}`,
+        tokens: p.initial_tokens,
+        label: p.initial_tokens > 0 ? tokenLabel(p.initial_tokens) : '',
+        enabled: false,
+      },
+      position: { x: p.x, y: p.y },
+    });
+  }
+
+  for (const t of s.transitions) {
+    elements.push({
+      data: {
+        id: `t${t.id}`,
+        type: 'transition',
+        index: t.id,
+        name: t.name ?? `t${t.id}`,
+        label: t.name ?? `t${t.id}`,
+        enabled: false,
+      },
+      position: { x: t.x, y: t.y },
+    });
+  }
+
+  for (const arc of s.pt_arcs) {
+    elements.push({
+      data: {
+        id: `arc_p${arc.source_id}_t${arc.target_id}`,
+        source: `p${arc.source_id}`,
+        target: `t${arc.target_id}`,
+      },
+    });
+  }
+
+  for (const arc of s.tp_arcs) {
+    elements.push({
+      data: {
+        id: `arc_t${arc.source_id}_p${arc.target_id}`,
+        source: `t${arc.source_id}`,
+        target: `p${arc.target_id}`,
+      },
+    });
+  }
+
+  activeLayout?.stop();
+  activeLayout = null;
+
+  // Preserve positions for existing nodes, add new ones at their stored pos.
+  const existingIds = new Set(cy.elements().map((e) => e.id()));
+  const newElements = elements.filter((e) => !existingIds.has(e.data.id as string));
+  const removedIds = new Set(
+    cy.elements().map((e) => e.id()).filter((id) => !elements.some((e) => e.data.id === id))
+  );
+
+  cy.elements().filter((e) => removedIds.has(e.id())).remove();
+  if (newElements.length > 0) cy.add(newElements);
+
+  // Update labels/tokens for existing nodes
+  for (const p of s.places) {
+    cy.$(`#p${p.id}`).data({
+      tokens: p.initial_tokens,
+      label: p.initial_tokens > 0 ? tokenLabel(p.initial_tokens) : '',
+      name: p.name ?? `p${p.id}`,
+    });
+  }
+  for (const t of s.transitions) {
+    const label = t.name ?? `t${t.id}`;
+    cy.$(`#t${t.id}`).data({ label, name: label });
+  }
+
+  tryBuildFromBuilder();
+}
+
+function tryBuildFromBuilder(): void {
+  if (!builder) return;
+  try {
+    const newSys = builder.build();
+    sys?.free();
+    sys = newSys;
+    setStatus(`Edit mode — ${builder.placeCount()} places, ${builder.transitionCount()} transitions`);
+  } catch (err) {
+    setStatus(`Edit mode — ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Arc drawing (right-click drag)
+// ---------------------------------------------------------------------------
+
+function ghostCanvas(): HTMLCanvasElement {
+  return document.getElementById('arc-ghost') as HTMLCanvasElement;
+}
+
+function startArcDraw(node: NodeSingular): void {
+  arcDrawState = {
+    sourceId: node.id(),
+    sourceType: node.data('type') as 'place' | 'transition',
+  };
+  const canvas = ghostCanvas();
+  canvas.width = el('cy').clientWidth;
+  canvas.height = el('cy').clientHeight;
+  canvas.style.display = '';
+}
+
+function updateArcGhost(clientX: number, clientY: number): void {
+  if (!arcDrawState || !cy) return;
+  const srcNode = cy.$(`#${arcDrawState.sourceId}`).nodes().first();
+  if (srcNode.empty()) return;
+
+  const canvas = ghostCanvas();
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const rect = el('cy').getBoundingClientRect();
+  const from = srcNode.renderedPosition();
+  const to = { x: clientX - rect.left, y: clientY - rect.top };
+
+  ctx.beginPath();
+  ctx.setLineDash([6, 4]);
+  ctx.strokeStyle = '#3b82f6';
+  ctx.lineWidth = 2;
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.stroke();
+
+  // Arrowhead
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  const sz = 10;
+  ctx.beginPath();
+  ctx.setLineDash([]);
+  ctx.moveTo(to.x, to.y);
+  ctx.lineTo(to.x - sz * Math.cos(angle - Math.PI / 6), to.y - sz * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(to.x - sz * Math.cos(angle + Math.PI / 6), to.y - sz * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fillStyle = '#3b82f6';
+  ctx.fill();
+}
+
+function finishArcDraw(clientX: number, clientY: number): void {
+  if (!arcDrawState || !builder || !cy) { arcDrawState = null; return; }
+  const state = arcDrawState;
+  arcDrawState = null;
+  cancelArcDraw();
+
+  // Find node under cursor (excluding source)
+  const rect = el('cy').getBoundingClientRect();
+  const rendered = { x: clientX - rect.left, y: clientY - rect.top };
+
+  const targetNode = cy.nodes().filter((n) => {
+    if (n.id() === state.sourceId) return false;
+    if (n.data('type') === 'token-ghost') return false;
+    const nPos = n.renderedPosition();
+    const hw = n.renderedOuterWidth() / 2 + 4;
+    const hh = n.renderedOuterHeight() / 2 + 4;
+    return Math.abs(nPos.x - rendered.x) <= hw && Math.abs(nPos.y - rendered.y) <= hh;
+  }).first();
+
+  const sourceBuilderID = parseInt(state.sourceId.slice(1));
+  const modelPos = clientToModelPos(clientX, clientY);
+
+  if (!targetNode.empty()) {
+    const targetType = targetNode.data('type') as string;
+    const targetBuilderID = targetNode.data('index') as number;
+    if (state.sourceType === 'place' && targetType === 'transition') {
+      builder.addArcPT(sourceBuilderID, targetBuilderID);
+    } else if (state.sourceType === 'transition' && targetType === 'place') {
+      builder.addArcTP(sourceBuilderID, targetBuilderID);
+    }
+    // same-type drop: no-op
+  } else {
+    // Create new opposite-type node + arc
+    if (state.sourceType === 'place') {
+      const newId = builder.addTransition(modelPos.x, modelPos.y, null);
+      builder.addArcPT(sourceBuilderID, newId);
+    } else {
+      const newId = builder.addPlace(modelPos.x, modelPos.y, null);
+      builder.addArcTP(sourceBuilderID, newId);
+    }
+  }
+
+  renderBuilderNet();
+}
+
+function cancelArcDraw(): void {
+  arcDrawState = null;
+  const canvas = ghostCanvas();
+  canvas.style.display = 'none';
+  const ctx = canvas.getContext('2d');
+  if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function clientToModelPos(clientX: number, clientY: number): { x: number; y: number } {
+  if (!cy) return { x: 0, y: 0 };
+  const rect = el('cy').getBoundingClientRect();
+  const pan = cy.pan();
+  const zoom = cy.zoom();
+  return {
+    x: (clientX - rect.left - pan.x) / zoom,
+    y: (clientY - rect.top - pan.y) / zoom,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Edit mode event wiring
+// ---------------------------------------------------------------------------
+
+function setupEditMode(): void {
+  if (!cy) return;
+  const container = el('cy');
+
+  // Right-click drag from node: start arc drawing
+  cy.on('cxttapstart', 'node[type="place"], node[type="transition"]', (evt) => {
+    if (!editMode) return;
+    startArcDraw(evt.target as NodeSingular);
+  });
+
+  // Track cursor for ghost arc
+  container.addEventListener('mousemove', (evt) => {
+    if (arcDrawState) updateArcGhost(evt.clientX, evt.clientY);
+  });
+
+  // End arc drawing on mouse-up anywhere
+  container.addEventListener('mouseup', (evt) => {
+    if (!editMode || !arcDrawState) return;
+    if (evt.button === 2) finishArcDraw(evt.clientX, evt.clientY);
+  });
+
+  // Escape cancels arc drawing
+  window.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Escape' && arcDrawState) cancelArcDraw();
+  });
+
+  // Right-click on empty canvas: add place (Shift = add transition)
+  cy.on('cxttap', (evt) => {
+    if (!editMode || arcDrawState) return;
+    if (evt.target !== cy) return; // only on background
+    const pos = (evt as cytoscape.EventObject & { position: { x: number; y: number } }).position;
+    if ((evt.originalEvent as MouseEvent).shiftKey) {
+      builder?.addTransition(pos.x, pos.y, null);
+    } else {
+      builder?.addPlace(pos.x, pos.y, null);
+    }
+    renderBuilderNet();
+    cy!.fit(undefined, 60);
+  });
+
+  // Delete key: remove selected elements
+  document.addEventListener('keydown', (evt) => {
+    if (!editMode || !builder || !cy) return;
+    if (evt.key !== 'Delete' && evt.key !== 'Backspace') return;
+    const graph = cy;
+    const selected = graph.elements(':selected');
+    selected.forEach((ele) => {
+      const eleAny = ele as cytoscape.SingularElementReturnValue;
+      if (eleAny.isNode()) {
+        const type = eleAny.data('type') as string;
+        const id = eleAny.data('index') as number;
+        if (type === 'place') builder!.removePlace(id);
+        else if (type === 'transition') builder!.removeTransition(id);
+      } else {
+        // Edge — parse arc ID: arc_p{srcId}_t{tgtId} or arc_t{srcId}_p{tgtId}
+        const arcId = (ele as cytoscape.EdgeSingular).id();
+        const m = arcId.match(/^arc_([pt])(\d+)_([pt])(\d+)$/);
+        if (m) {
+          const [, aType, aId, , bId] = m;
+          if (aType === 'p') builder!.removeArcPT(parseInt(aId), parseInt(bId));
+          else builder!.removeArcTP(parseInt(aId), parseInt(bId));
+        }
+      }
+    });
+    renderBuilderNet();
+  });
+
+  // Double-click node in edit mode: combined rename + token editor
+  cy.on('dblclick', 'node[type="place"], node[type="transition"]', (evt) => {
+    if (!editMode || !builder) return;
+    const node = evt.target as NodeSingular;
+    const type = node.data('type') as string;
+    const id = node.data('index') as number;
+
+    if (type === 'place') {
+      // Rename
+      const newName = window.prompt(`Name for place (leave blank for default):`, node.data('name') as string);
+      if (newName !== null) {
+        builder.setPlaceName(id, newName);
+        node.data('name', newName || `p${id}`);
+      }
+      // Tokens
+      const input = window.prompt(`Initial tokens:`, String(node.data('tokens') as number));
+      if (input !== null) {
+        const n = Math.max(0, parseInt(input, 10) || 0);
+        builder.setInitialTokens(id, n);
+        node.data('tokens', n);
+        node.data('label', n > 0 ? tokenLabel(n) : '');
+      }
+    } else {
+      const newName = window.prompt(`Name for transition:`, node.data('name') as string);
+      if (newName !== null) {
+        builder.setTransitionName(id, newName);
+        const label = newName || `t${id}`;
+        node.data('name', label);
+        node.data('label', label);
+      }
+    }
+    tryBuildFromBuilder();
+  });
+
+  // Sync drag positions back to builder
+  cy.on('dragend', 'node', (evt) => {
+    if (!editMode || !builder) return;
+    const node = evt.target as NodeSingular;
+    const type = node.data('type') as string;
+    const id = node.data('index') as number;
+    const pos = node.position();
+    if (type === 'place') builder.setPlacePosition(id, pos.x, pos.y);
+    else if (type === 'transition') builder.setTransitionPosition(id, pos.x, pos.y);
+  });
+
+  // Prevent browser context menu in edit mode
+  container.addEventListener('contextmenu', (evt) => {
+    if (editMode) evt.preventDefault();
   });
 }
 

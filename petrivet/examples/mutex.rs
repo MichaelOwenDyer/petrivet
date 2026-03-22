@@ -28,9 +28,11 @@
 //!
 //! Run: `cargo run --example mutex`
 
+use std::collections::HashMap;
 use petrivet::net::builder::NetBuilder;
+use petrivet::net::{PlaceKey, TransitionKey};
 use petrivet::system::System;
-use petrivet::{Net, Place};
+use petrivet::Net;
 
 fn main() {
     println!("=== Mutual Exclusion Protocol ===\n");
@@ -71,20 +73,30 @@ fn main() {
     let net = b.build().expect("valid net");
     println!("Structural class: {}", net.class());
 
+    // Name lookups by key
+    let transition_names: HashMap<TransitionKey, &str> = HashMap::from([
+        (t_req1, "req1"), (t_enter1, "enter1"), (t_exit1, "exit1"),
+        (t_req2, "req2"), (t_enter2, "enter2"), (t_exit2, "exit2"),
+    ]);
+
+    let place_names: HashMap<PlaceKey, &str> = HashMap::from([
+        (idle1, "idle1"), (wait1, "wait1"), (crit1, "crit1"),
+        (idle2, "idle2"), (wait2, "wait2"), (crit2, "crit2"),
+        (mutex, "mutex"),
+    ]);
+
     // Initial marking: both processes idle, mutex available
     // Places: idle1, wait1, crit1, idle2, wait2, crit2, mutex
     let mut sys = System::new(&net, [1, 0, 0, 1, 0, 0, 1]);
 
-    let names = ["req1", "enter1", "exit1", "req2", "enter2", "exit2"];
-    let place_names = ["idle1", "wait1", "crit1", "idle2", "wait2", "crit2", "mutex"];
-
     println!();
-    print_state(&sys, &place_names);
+    print_state(&sys, &net, &place_names);
 
     // Simulate 12 steps, always picking the first enabled transition
     for step in 1..=12 {
         if let Some(t) = sys.fire_any() {
-            println!("Step {step:>2}: fire {:<8} → {}", names[t.index()], sys.current_marking());
+            let name = transition_names[&t];
+            println!("Step {step:>2}: fire {name:<8} → {}", sys.current_marking());
         } else {
             println!("Step {step:>2}: DEADLOCK");
             break;
@@ -92,17 +104,17 @@ fn main() {
 
         // Safety check: both processes must never be in critical section at once
         assert!(
-            sys.current_marking()[crit1] == 0 || sys.current_marking()[crit2] == 0,
+            sys.tokens(crit1) == 0 || sys.tokens(crit2) == 0,
             "mutual exclusion violated!"
         );
     }
 
     println!();
-    print_state(&sys, &place_names);
+    print_state(&sys, &net, &place_names);
 
     println!("\n--- Priority simulation: process 2 has priority ---\n");
     let mut sys = System::new(&net, [1, 0, 0, 1, 0, 0, 1]);
-    print_state(&sys, &place_names);
+    print_state(&sys, &net, &place_names);
 
     for step in 1..=12 {
         // Prefer process 2 transitions (indices 3, 4, 5) over process 1
@@ -114,7 +126,8 @@ fn main() {
         });
 
         if let Some(t) = fired {
-            println!("Step {step:>2}: fire {:<8} → {}", names[t.index()], sys.current_marking());
+            let name = transition_names[&t];
+            println!("Step {step:>2}: fire {name:<8} → {}", sys.current_marking());
         } else {
             println!("Step {step:>2}: DEADLOCK");
             break;
@@ -156,11 +169,12 @@ fn main() {
     println!("\n=== Done ===");
 }
 
-fn print_state(sys: &System<impl AsRef<Net>>, names: &[&str]) {
+fn print_state(sys: &System<impl AsRef<Net>>, net: &Net, names: &HashMap<PlaceKey, &str>) {
     print!("State: ");
-    for (i, &name) in names.iter().enumerate() {
-        let tokens = sys.current_marking()[Place::from_index(i)];
+    for pk in net.place_keys() {
+        let tokens = sys.tokens(pk);
         if tokens > 0 {
+            let name = names[&pk];
             print!("{name}={tokens} ");
         }
     }

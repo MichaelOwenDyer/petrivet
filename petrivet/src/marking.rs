@@ -67,7 +67,7 @@ impl Marking<u32> {
     }
 
     /// Places that have at least one token.
-    pub fn support(&self) -> impl Iterator<Item = Place> + '_ {
+    pub fn support(&self) -> impl Iterator<Item =Place> + '_ {
         self.0.iter().filter_map(|(p, &t)| if t > 0 { Some(p) } else { None })
     }
 }

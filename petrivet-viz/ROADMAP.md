@@ -34,7 +34,7 @@ crates before the UI work can begin.
 
 ## Tier 2 — UX polish  _(good value, moderate effort)_
 
-- [ ] **Elastic / physics layout mode** — a toolbar toggle that starts a live
+- [x] **Elastic / physics layout mode** — a toolbar toggle that starts a live
       force-directed layout (`cose` with `infinite: true` or the `cola`
       plugin). Nodes bounce apart naturally. A "Freeze" button halts the
       simulation so the user can lock a layout for export.

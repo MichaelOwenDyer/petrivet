@@ -41,7 +41,9 @@ use std::collections::HashMap;
 
 use crate::labeled::NetLabels;
 use crate::net::builder::{BuildError, NetBuilder};
-use crate::net::{Arc, Net, Place, PlaceMap, Transition, TransitionMap};
+use crate::net::{
+    Arc, Net, Place, PlaceKey, PlaceMap, Transition, TransitionKey, TransitionMap,
+};
 use crate::system::System;
 
 use super::{
@@ -138,6 +140,28 @@ pub struct PnmlGraphics {
     pub arc_graphics: HashMap<Arc, EdgeGraphics>,
     /// Annotation graphics for each arc's inscription label (sparse).
     pub arc_inscription_graphics: HashMap<Arc, AnnotationGraphics>,
+}
+
+impl PnmlGraphics {
+    /// Returns the PNML position of the place at dense index `index`, if present.
+    #[must_use]
+    pub fn place_position_at(&self, index: usize) -> Option<&super::Coordinates> {
+        self.place_graphics
+            .get(Place::from_index(index as u32))?
+            .as_ref()?
+            .position
+            .as_ref()
+    }
+
+    /// Returns the PNML position of the transition at dense index `index`, if present.
+    #[must_use]
+    pub fn transition_position_at(&self, index: usize) -> Option<&super::Coordinates> {
+        self.transition_graphics
+            .get(Transition::from_index(index as u32))?
+            .as_ref()?
+            .position
+            .as_ref()
+    }
 }
 
 /// The result of a URI-dispatched PNML conversion.
@@ -276,15 +300,18 @@ fn convert_pt_net(
     let n_places = flat.places.len();
     let n_transitions = flat.transitions.len();
 
-    // Build the net incrementally, accumulating Place/Transition handles
-    // directly from the builder. This avoids any positional index arithmetic —
-    // handles are stable and valid throughout the rest of this function.
+    // Build the net incrementally, accumulating stable [`PlaceKey`] /
+    // [`TransitionKey`] handles from the builder. Dense [`Place`] /
+    // [`Transition`] values are filled in after [`NetBuilder::build`] via
+    // [`Net::place_for_key`] / [`Net::transition_for_key`].
     let mut builder = NetBuilder::new();
-    let place_index: HashMap<&str, Place> = flat.places
+    let place_keys: HashMap<&str, PlaceKey> = flat
+        .places
         .iter()
         .map(|p| (p.id.as_str(), builder.add_place()))
         .collect();
-    let trans_index: HashMap<&str, Transition> = flat.transitions
+    let trans_keys: HashMap<&str, TransitionKey> = flat
+        .transitions
         .iter()
         .map(|t| (t.id.as_str(), builder.add_transition()))
         .collect();
@@ -303,12 +330,20 @@ fn convert_pt_net(
             }
         })?;
 
-        match (place_index.get(src_id), trans_index.get(src_id),
-               place_index.get(tgt_id), trans_index.get(tgt_id)) {
-            (Some(&p), None, None, Some(&t)) => { builder.add_arc((p, t)); }
-            (None, Some(&t), Some(&p), None) => { builder.add_arc((t, p)); }
+        match (
+            place_keys.get(src_id),
+            trans_keys.get(src_id),
+            place_keys.get(tgt_id),
+            trans_keys.get(tgt_id),
+        ) {
+            (Some(&p), None, None, Some(&t)) => {
+                builder.add_arc((p, t));
+            }
+            (None, Some(&t), Some(&p), None) => {
+                builder.add_arc((t, p));
+            }
             _ => {
-                let bad = if place_index.contains_key(src_id) || trans_index.contains_key(src_id) {
+                let bad = if place_keys.contains_key(src_id) || trans_keys.contains_key(src_id) {
                     pnml_arc.target.clone()
                 } else {
                     pnml_arc.source.clone()
@@ -323,23 +358,37 @@ fn convert_pt_net(
 
     let net = builder.build()?;
 
-    // Initial marking: index by the Place handle directly.
+    // Map PNML string IDs to both PlaceKey/TransitionKey and dense Place/Transition
+    let mut place_key_index: HashMap<&str, PlaceKey> = HashMap::with_capacity(n_places);
+    let mut place_dense_index: HashMap<&str, Place> = HashMap::with_capacity(n_places);
+    for (id, k) in place_keys {
+        place_key_index.insert(id, k);
+        place_dense_index.insert(id, net.dense_place(k));
+    }
+    let mut trans_key_index: HashMap<&str, TransitionKey> = HashMap::with_capacity(n_transitions);
+    let mut trans_dense_index: HashMap<&str, Transition> = HashMap::with_capacity(n_transitions);
+    for (id, k) in trans_keys {
+        trans_key_index.insert(id, k);
+        trans_dense_index.insert(id, net.dense_transition(k));
+    }
+
+    // Initial marking: index by the dense Place handle.
     let mut tokens: PlaceMap<u32> = PlaceMap::new(n_places);
     for pnml_place in &flat.places {
         if let Some(marking) = &pnml_place.initial_marking
             && let Some(count) = marking.text
         {
-            let p = place_index[pnml_place.id.as_str()];
+            let p = place_dense_index[pnml_place.id.as_str()];
             tokens[p] = u32::try_from(count).unwrap_or(u32::MAX);
         }
     }
     let system = System::new(net, tokens);
 
-    // Labels
+    // Labels (indexed by dense Place/Transition for internal PlaceMap/TransitionMap)
     let mut place_names: PlaceMap<Option<String>> = PlaceMap::new(n_places);
     let mut place_ids_map: PlaceMap<Option<String>> = PlaceMap::new(n_places);
     for pnml_place in &flat.places {
-        let p = place_index[pnml_place.id.as_str()];
+        let p = place_dense_index[pnml_place.id.as_str()];
         place_ids_map[p] = Some(pnml_place.id.clone());
         place_names[p] = pnml_place.name.as_ref().and_then(|n| n.text.clone());
     }
@@ -347,18 +396,19 @@ fn convert_pt_net(
     let mut transition_names: TransitionMap<Option<String>> = TransitionMap::new(n_transitions);
     let mut transition_ids_map: TransitionMap<Option<String>> = TransitionMap::new(n_transitions);
     for pnml_trans in &flat.transitions {
-        let t = trans_index[pnml_trans.id.as_str()];
+        let t = trans_dense_index[pnml_trans.id.as_str()];
         transition_ids_map[t] = Some(pnml_trans.id.clone());
         transition_names[t] = pnml_trans.name.as_ref().and_then(|n| n.text.clone());
     }
 
+    // Arc labels: Arc enum uses PlaceKey/TransitionKey
     let mut arc_names: HashMap<Arc, String> = HashMap::new();
     let mut arc_ids: HashMap<Arc, String> = HashMap::new();
     for pnml_arc in &flat.arcs {
         let Some(src_id) = flat.resolve(&pnml_arc.source) else { continue };
         let Some(tgt_id) = flat.resolve(&pnml_arc.target) else { continue };
-        let arc = match (place_index.get(src_id), trans_index.get(src_id),
-                         place_index.get(tgt_id), trans_index.get(tgt_id)) {
+        let arc = match (place_key_index.get(src_id), trans_key_index.get(src_id),
+                         place_key_index.get(tgt_id), trans_key_index.get(tgt_id)) {
             (Some(&p), None, None, Some(&t)) => Arc::PlaceToTransition(p, t),
             (None, Some(&t), Some(&p), None) => Arc::TransitionToPlace(t, p),
             _ => continue,
@@ -385,7 +435,7 @@ fn convert_pt_net(
     let mut place_name_graphics: PlaceMap<Option<AnnotationGraphics>> = PlaceMap::new(n_places);
     let mut place_marking_graphics: PlaceMap<Option<AnnotationGraphics>> = PlaceMap::new(n_places);
     for pnml_place in &flat.places {
-        let p = place_index[pnml_place.id.as_str()];
+        let p = place_dense_index[pnml_place.id.as_str()];
         place_graphics[p].clone_from(&pnml_place.graphics);
         place_name_graphics[p] = pnml_place.name.as_ref().and_then(|n| n.graphics.clone());
         place_marking_graphics[p] = pnml_place.initial_marking.as_ref()
@@ -395,7 +445,7 @@ fn convert_pt_net(
     let mut transition_graphics: TransitionMap<Option<NodeGraphics>> = TransitionMap::new(n_transitions);
     let mut transition_name_graphics: TransitionMap<Option<AnnotationGraphics>> = TransitionMap::new(n_transitions);
     for pnml_trans in &flat.transitions {
-        let t = trans_index[pnml_trans.id.as_str()];
+        let t = trans_dense_index[pnml_trans.id.as_str()];
         transition_graphics[t].clone_from(&pnml_trans.graphics);
         transition_name_graphics[t] = pnml_trans.name.as_ref().and_then(|n| n.graphics.clone());
     }
@@ -405,8 +455,8 @@ fn convert_pt_net(
     for pnml_arc in &flat.arcs {
         let Some(src_id) = flat.resolve(&pnml_arc.source) else { continue };
         let Some(tgt_id) = flat.resolve(&pnml_arc.target) else { continue };
-        let arc = match (place_index.get(src_id), trans_index.get(src_id),
-                         place_index.get(tgt_id), trans_index.get(tgt_id)) {
+        let arc = match (place_key_index.get(src_id), trans_key_index.get(src_id),
+                         place_key_index.get(tgt_id), trans_key_index.get(tgt_id)) {
             (Some(&p), None, None, Some(&t)) => Arc::PlaceToTransition(p, t),
             (None, Some(&t), Some(&p), None) => Arc::TransitionToPlace(t, p),
             _ => continue,
@@ -559,7 +609,8 @@ mod tests {
         assert_eq!(labels.transition_id(t0), Some("t0"));
 
         // Arc IDs are stored in the labels map.
-        let arc_pt = Arc::PlaceToTransition(p0, sys.net().postset_p(p0).iter().copied().next().unwrap());
+        let p0k = sys.net().place_key(p0);
+        let arc_pt = Arc::PlaceToTransition(p0k, sys.net().output_transitions(p0k).next().unwrap());
         assert!(labels.arc_id(arc_pt).is_some());
     }
 
@@ -743,8 +794,9 @@ mod tests {
 
         // Arc graphics (sparse map)
         let p_sink = Place::from_index(1);
-        let arc = Arc::PlaceToTransition(pl0, sys.net().postset_p(pl0).iter().copied()
-            .find(|&t| t == t0).unwrap());
+        let pl0k = sys.net().place_key(pl0);
+        let t0k = sys.net().transition_key(t0);
+        let arc = Arc::PlaceToTransition(pl0k, sys.net().output_transitions(pl0k).find(|&t| t == t0k).unwrap());
         assert!(graphics.arc_graphics.contains_key(&arc));
         let _ = p_sink;
     }

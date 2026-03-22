@@ -11,8 +11,10 @@
     <header class="toolbar">
       <span class="toolbar-brand">petrivet</span>
       <button id="btn-open">Open PNML…</button>
+      <button id="btn-new">New net</button>
       <button id="btn-reset" disabled>Reset</button>
       <button id="btn-fit">Fit</button>
+      <button id="btn-edit" class="btn-edit" title="Enter edit mode">Edit</button>
       <div class="toolbar-sep"></div>
       <label class="toolbar-label" for="layout-select">Layout</label>
       <select id="layout-select">
@@ -57,11 +59,23 @@
       </div>
 
       <div class="sidebar-section">
-        <p class="hint">
-          Click an enabled (green) transition to fire it.<br>
-          Drag &amp; drop a <code>.pnml</code> file onto the canvas,
-          or use <em>Open PNML…</em>
-        </p>
+        <div id="edit-hint" style="display:none">
+          <p class="hint">
+            <strong>Edit mode</strong><br>
+            Right-drag from a node to draw an arc.<br>
+            Right-click empty space to add a place.<br>
+            Right-click empty space with Shift to add a transition.<br>
+            <kbd>Del</kbd> removes selected elements.<br>
+            Double-click a node to rename it.
+          </p>
+        </div>
+        <div id="sim-hint">
+          <p class="hint">
+            Click an enabled (green) transition to fire it.<br>
+            Drag &amp; drop a <code>.pnml</code> file onto the canvas,
+            or use <em>Open PNML…</em>
+          </p>
+        </div>
       </div>
     </aside>
   </div>

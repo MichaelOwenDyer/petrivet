@@ -82,6 +82,57 @@ html, body {
   max-width: 360px;
 }
 
+.btn-edit {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.btn-edit:hover {
+  background: #334155;
+  color: #e2e8f0;
+}
+
+.btn-edit.active {
+  background: #1d4ed8;
+  color: #bfdbfe;
+  border-color: #3b82f6;
+}
+
+.btn-edit.active:hover {
+  background: #2563eb;
+}
+
+/* Edit mode: show a hairline ring around the canvas area */
+body.edit-mode #cy {
+  outline: 2px solid #1d4ed8;
+  outline-offset: -2px;
+}
+
+/* Ghost arc canvas — created programmatically, positioned absolute inside #cy */
+#arc-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  display: none;
+  z-index: 100;
+}
+
+kbd {
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 11px;
+  font-family: monospace;
+}
+
 .toolbar-sep {
   width: 1px;
   height: 20px;

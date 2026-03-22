@@ -34,14 +34,12 @@
 //!
 //! Run: `cargo run --example workflow_analysis`
 
-use petrivet::analysis::semi_decision;
 use petrivet::analysis::structural;
 use petrivet::marking::Marking;
 use petrivet::net::builder::NetBuilder;
 use petrivet::state_space::ExplorationOrder;
-use petrivet::state_space::{ReachabilityExplorer, ReachabilityGraph};
 use petrivet::system::System;
-use petrivet::OmegaMarking;
+use petrivet::{OmegaMarking, ReachabilityExplorer, ReachabilityGraph};
 
 fn main() {
     println!("=== PCB Assembly Line Analysis ===\n");
@@ -109,7 +107,7 @@ fn main() {
     }
     println!(
         "  Covered by S-invariants (conservative): {}",
-        inv.is_covered_by_s_invariants(net.place_count())
+        inv.is_covered_by_s_invariants(net.place_count() as usize)
     );
 
     println!(
@@ -131,60 +129,50 @@ fn main() {
         net.is_structurally_bounded()
     );
 
-    let siphons = structural::minimal_siphons(&net);
-    let traps = structural::minimal_traps(&net);
-    println!("\nMinimal siphons: {}", siphons.len());
-    for s in &siphons {
-        let names: Vec<&str> = s.iter().map(|p| place_names[p.index()]).collect();
-        println!("  {{{}}}", names.join(", "));
-    }
-    println!("Minimal traps: {}", traps.len());
-    for t in &traps {
-        let names: Vec<&str> = t.iter().map(|p| place_names[p.index()]).collect();
-        println!("  {{{}}}", names.join(", "));
-    }
+    // TODO: need public key-based API for siphon/trap iteration
+    // minimal_siphons/minimal_traps return HashSet<Place> where Place is pub(crate),
+    // so we cannot call them or display their contents from an example.
+    // let siphons = structural::minimal_siphons(&net);
+    // let traps = structural::minimal_traps(&net);
 
     println!("\n--- Behavioral Analysis (3 boards, 1 station) ---\n");
 
     // 3 raw boards, 1 station slot, everything else empty
     let sys = System::new(&net, Marking::from([3, 1, 0, 0, 0, 0]));
-    let liveness = sys.analyze_liveness();
     let boundedness = sys.analyze_boundedness();
 
-    println!("Bounded: {}", boundedness.of_system());
+    println!("Bounded: {}", boundedness.system_bound());
     println!("Live (every transition always eventually firable): {}", sys.is_live());
 
-    println!("\nPer-transition liveness levels:");
-    for (i, name) in trans_names.iter().enumerate() {
-        let t = petrivet::net::Transition::from_index(i);
-        let level = liveness.transition_level(t);
-        println!("  {}: {:?} (dead: {})", name, level, level.is_dead());
-    }
+    // TODO: need public key-based API for analysis results
+    // LivenessAnalysis::transition_level takes dense Transition, not accessible from examples
+    // println!("\nPer-transition liveness levels:");
+    // for (i, name) in trans_names.iter().enumerate() {
+    //     let t = petrivet::net::Transition::from_index(i as u32);
+    //     let level = liveness.transition_level(t);
+    //     println!("  {}: {:?} (dead: {})", name, level, level.is_dead());
+    // }
 
-    println!("\n--- Semi-Decision Procedures ---\n");
-
-    let initial = Marking::from([3u32, 1, 0, 0, 0, 0]);
+    println!("\n--- Reachability Analysis ---\n");
 
     // Can all 3 boards reach "done"?
     let target_all_done = Marking::from([0u32, 1, 0, 0, 0, 3]);
-    let me = semi_decision::find_marking_equation_rational_solution(&net, &initial, &target_all_done);
+    let result = sys.analyze_reachability(&target_all_done);
     println!(
-        "All 3 boards done? LP says: {}",
-        if me.is_some() { "possibly reachable" } else { "definitely unreachable" }
-    );
-
-    let me_ilp = semi_decision::find_marking_equation_integer_solution(&net, &initial, &target_all_done);
-    println!(
-        "All 3 boards done? ILP says: {}",
-        if me_ilp.is_some() { "possibly reachable (integer solution exists)" } else { "definitely unreachable" }
+        "All 3 boards done? {}",
+        if result.is_reachable() { "reachable" }
+        else if result.is_unreachable() { "definitely unreachable" }
+        else { "inconclusive" }
     );
 
     // Can we magically get 4 boards done from 3?
     let impossible = Marking::from([0u32, 1, 0, 0, 0, 4]);
-    let me2 = semi_decision::find_marking_equation_rational_solution(&net, &initial, &impossible);
+    let result2 = sys.analyze_reachability(&impossible);
     println!(
-        "4 boards done from 3? LP says: {}",
-        if me2.is_some() { "possibly reachable" } else { "definitely unreachable" }
+        "4 boards done from 3? {}",
+        if result2.is_reachable() { "reachable" }
+        else if result2.is_unreachable() { "definitely unreachable" }
+        else { "inconclusive" }
     );
 
     println!("\n--- Coverability Graph ---\n");
@@ -193,7 +181,6 @@ fn main() {
     println!("Markings: {}, Edges: {}", cg.marking_count(), cg.edge_count());
     println!("Bounded: {}", cg.is_bounded());
 
-    // todo: make this more ergonomic:
     let threshold = OmegaMarking::from([0u32.into(), 1.into(), 0.into(), 0.into(), 0.into(), 3.into()]);
     println!(
         "All-done marking coverable: {}",
@@ -222,22 +209,27 @@ fn main() {
         }
     }
 
-    let target = Marking::from([0u32, 1, 0, 0, 0, 3]);
-    if let Some(path) = rg.path_to(&target) {
-        println!(
-            "\nShortest path to all-done ({} steps):",
-            path.len()
-        );
-        for (i, t) in path.iter().enumerate() {
-            println!("  {}: {}", i + 1, trans_names[t.index()]);
-        }
-    }
+    // TODO: need public key-based API for path_to results
+    // ReachabilityGraph::path_to returns Box<[Transition]> where Transition is pub(crate)
+    // let target = Marking::from([0u32, 1, 0, 0, 0, 3]);
+    // if let Some(path) = rg.path_to(&target) {
+    //     println!(
+    //         "\nShortest path to all-done ({} steps):",
+    //         path.len()
+    //     );
+    //     for (i, t) in path.iter().enumerate() {
+    //         println!("  {}: {}", i + 1, trans_names[t.usize_index()]);
+    //     }
+    // }
 
     println!("\nLiveness (from RG): {}", rg.is_live());
-    let levels = rg.liveness_levels();
-    for (i, level) in levels.iter().enumerate() {
-        println!("  {}: {:?}", trans_names[i], level);
-    }
+
+    // TODO: need public key-based API for liveness_levels results
+    // ReachabilityGraph::liveness_levels returns TransitionMap<LivenessLevel> which is pub(crate)
+    // let levels = rg.liveness_levels();
+    // for (i, level) in levels.iter().enumerate() {
+    //     println!("  {}: {:?}", trans_names[i], level);
+    // }
 
     println!("\n--- Incremental Exploration ---\n");
 

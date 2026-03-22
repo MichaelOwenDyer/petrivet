@@ -88,12 +88,12 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
 
         let source_transitions: Box<[Transition]> = net
             .transitions()
-            .filter(|&t| net.preset_t(t).is_empty())
+            .filter(|&t| net.dense_input_places(t).is_empty())
             .collect();
 
         let frontier: VecDeque<_> = net.places()
             .filter(|&p| initial_marking[p].at_least_one())
-            .flat_map(|p| net.postset_p(p).iter().copied())
+            .flat_map(|p| net.dense_output_transitions(p).iter().copied())
             .chain(source_transitions.iter().copied())
             .collect::<HashSet<Transition>>()
             .into_iter()
@@ -126,11 +126,10 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
         }
     }
 
-    // todo: relocate is_enabled() and fire()?
     /// Whether a transition is enabled at the marking stored in `node`.
     pub fn is_enabled(&self, node: NodeIndex, t: Transition) -> bool {
         let marking = &self.state_space.graph[node];
-        self.state_space.net.preset_t(t).iter().all(|&p| marking[p].at_least_one())
+        self.state_space.net.dense_input_places(t).iter().all(|&p| marking[p].at_least_one())
     }
 
     /// Compute the marking that results from firing `t` at `node`.
@@ -138,10 +137,10 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     /// Caller must ensure the transition is enabled.
     pub fn fire(&self, node: NodeIndex, t: Transition) -> Marking<T> {
         let mut result = self.state_space.graph[node].clone();
-        for &p in self.state_space.net.preset_t(t) {
+        for &p in self.state_space.net.dense_input_places(t) {
             result[p].decrement();
         }
-        for &p in self.state_space.net.postset_t(t) {
+        for &p in self.state_space.net.dense_output_places(t) {
             result[p].increment();
         }
         result
@@ -170,7 +169,7 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
         self.state_space.net
             .places()
             .filter(|&p| marking[p].at_least_one())
-            .flat_map(|p| self.state_space.net.postset_p(p).iter().copied())
+            .flat_map(|p| self.state_space.net.dense_output_transitions(p).iter().copied())
             .chain(self.source_transitions.iter().copied())
             .collect::<HashSet<Transition>>()
             .into_iter()
