@@ -29,8 +29,6 @@ html, body {
   overflow: hidden;
 }
 
-/* ── Toolbar ─────────────────────────────────────────────────────────────── */
-
 .toolbar {
   grid-column: 1 / -1;
   background: #020617;

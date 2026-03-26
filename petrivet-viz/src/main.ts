@@ -48,6 +48,17 @@ interface ArcDrawState {
 }
 let arcDrawState: ArcDrawState | null = null;
 
+const ARC_PREVIEW_NODE = '__arc-preview-node';
+const ARC_PREVIEW_EDGE_EMPTY = '__arc-preview-edge-empty';
+const ARC_PREVIEW_EDGE_TARGET = '__arc-preview-edge-target';
+
+function removeArcPreviewElements(): void {
+  if (!cy) return;
+  cy.remove(`#${ARC_PREVIEW_NODE}`);
+  cy.remove(`#${ARC_PREVIEW_EDGE_EMPTY}`);
+  cy.remove(`#${ARC_PREVIEW_EDGE_TARGET}`);
+}
+
 // Bootstrap
 
 function main(): void {
@@ -531,8 +542,6 @@ function clearNodeInfo(): void {
   el('node-info').textContent = '';
 }
 
-// File I/O
-
 function setupFileInput(): void {
   const input = el('file-input') as HTMLInputElement;
   input.addEventListener('change', async () => {
@@ -547,11 +556,11 @@ function setupDropzone(): void {
   el('cy').addEventListener('drop', async (e) => {
     e.preventDefault();
     const file = (e as DragEvent).dataTransfer?.files[0];
-    if (file?.name.endsWith('.pnml')) loadPnml(await file.text());
+    if (file?.name.endsWith('.pnml')) {
+      loadPnml(await file.text());
+    }
   });
 }
-
-// Toolbar & slider
 
 function setupToolbar(): void {
   el('btn-open').addEventListener('click', () => el('file-input').click());
@@ -1138,10 +1147,6 @@ function applyTokensFromEditTools(): void {
   updateEditSelectionUi();
 }
 
-// ---------------------------------------------------------------------------
-// Arc drawing (right-click drag)
-// ---------------------------------------------------------------------------
-
 function ghostCanvas(): HTMLCanvasElement {
   return document.getElementById('arc-ghost') as HTMLCanvasElement;
 }
@@ -1152,11 +1157,39 @@ function startArcDraw(node: NodeSingular): void {
     sourceId: node.id(),
     sourceType: node.data('type') as 'place' | 'transition',
   };
+  removeArcPreviewElements();
   const canvas = ghostCanvas();
-  canvas.width = el('cy').clientWidth;
-  canvas.height = el('cy').clientHeight;
-  canvas.style.display = '';
-  el('cy').appendChild(canvas);
+  const container = el('cy');
+  canvas.width = container.clientWidth;
+  canvas.height = container.clientHeight;
+  // Must override #arc-ghost { display: none } in CSS — clearing inline style
+  // would fall back to display:none.
+  canvas.style.display = 'block';
+  container.appendChild(canvas);
+
+  const srcPos = node.position();
+  const previewType =
+    node.data('type') === 'place' ? 'arc-preview-transition' : 'arc-preview-place';
+  cy!.add({
+    group: 'nodes',
+    classes: 'arc-preview',
+    data: {
+      id: ARC_PREVIEW_NODE,
+      type: previewType,
+      label: '',
+    },
+    position: { x: srcPos.x, y: srcPos.y },
+  });
+  cy!.add({
+    group: 'edges',
+    classes: 'arc-preview',
+    data: {
+      id: ARC_PREVIEW_EDGE_EMPTY,
+      source: node.id(),
+      target: ARC_PREVIEW_NODE,
+    },
+  });
+
   clearArcDrawHintClasses();
   node.addClass('arc-draw-source');
 }
@@ -1176,6 +1209,17 @@ function clearGhostCanvas(): void {
   canvas.style.display = 'none';
   const ctx = canvas.getContext('2d');
   if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function resizeGhostCanvasIfNeeded(): void {
+  const canvas = ghostCanvas();
+  const container = el('cy');
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
 }
 
 function clearArcDrawHintClasses(): void {
@@ -1199,6 +1243,8 @@ function updateArcGhost(clientX: number, clientY: number): void {
   const srcNode = cy.$(`#${state.sourceId}`).filter('node').first();
   if (srcNode.empty()) return;
 
+  resizeGhostCanvasIfNeeded();
+
   clearArcDrawHintClasses();
   srcNode.addClass('arc-draw-source');
 
@@ -1214,11 +1260,15 @@ function updateArcGhost(clientX: number, clientY: number): void {
   let stroke = '#3b82f6';
   let previewNew = false;
 
+  const modelAtPointer = clientToModelPos(clientX, clientY);
+
   if (isPointerOverNode(clientX, clientY, srcSingular)) {
     stroke = '#ef4444';
+    removeArcPreviewElements();
   } else {
     const targetNode = cy.nodes().filter((n) => {
       if (n.id() === state.sourceId) return false;
+      if (n.id() === ARC_PREVIEW_NODE) return false;
       if (n.data('type') === 'token-ghost') return false;
       const nPos = n.renderedPosition();
       const hw = n.renderedOuterWidth() / 2 + 4;
@@ -1231,50 +1281,100 @@ function updateArcGhost(clientX: number, clientY: number): void {
       if (validArcEndpoints(state.sourceType, tgtType)) {
         targetNode.addClass('arc-draw-target');
         stroke = '#22c55e';
+        cy.$(`#${ARC_PREVIEW_NODE}`).remove();
+        cy.$(`#${ARC_PREVIEW_EDGE_EMPTY}`).remove();
+        const existing = cy.$(`#${ARC_PREVIEW_EDGE_TARGET}`);
+        if (existing.empty()) {
+          cy.add({
+            group: 'edges',
+            classes: 'arc-preview',
+            data: {
+              id: ARC_PREVIEW_EDGE_TARGET,
+              source: state.sourceId,
+              target: targetNode.id(),
+            },
+          });
+        } else {
+          existing.move({ source: state.sourceId, target: targetNode.id() });
+        }
       } else {
         targetNode.addClass('arc-draw-invalid');
         stroke = '#f97316';
+        removeArcPreviewElements();
       }
     } else {
       previewNew = true;
+      cy.$(`#${ARC_PREVIEW_EDGE_TARGET}`).remove();
+      const preview = cy.$(`#${ARC_PREVIEW_NODE}`);
+      if (preview.empty()) {
+        const previewType =
+          state.sourceType === 'place' ? 'arc-preview-transition' : 'arc-preview-place';
+        cy.add({
+          group: 'nodes',
+          classes: 'arc-preview',
+          data: {
+            id: ARC_PREVIEW_NODE,
+            type: previewType,
+            label: '',
+          },
+          position: { ...modelAtPointer },
+        });
+        cy.add({
+          group: 'edges',
+          classes: 'arc-preview',
+          data: {
+            id: ARC_PREVIEW_EDGE_EMPTY,
+            source: state.sourceId,
+            target: ARC_PREVIEW_NODE,
+          },
+        });
+      } else {
+        preview.position(modelAtPointer);
+      }
     }
   }
 
-  const lw = 1.5;
-  ctx.beginPath();
-  ctx.setLineDash(previewNew ? [6, 4] : []);
-  ctx.strokeStyle = stroke;
-  ctx.lineWidth = lw;
-  ctx.lineCap = 'round';
-  ctx.moveTo(from.x, from.y);
-  ctx.lineTo(to.x, to.y);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  const angle = Math.atan2(to.y - from.y, to.x - from.x);
-  const sz = 9;
-  ctx.beginPath();
-  ctx.moveTo(to.x, to.y);
-  ctx.lineTo(to.x - sz * Math.cos(angle - Math.PI / 6), to.y - sz * Math.sin(angle - Math.PI / 6));
-  ctx.lineTo(to.x - sz * Math.cos(angle + Math.PI / 6), to.y - sz * Math.sin(angle + Math.PI / 6));
-  ctx.closePath();
-  ctx.fillStyle = stroke;
-  ctx.fill();
-
-  if (previewNew && !isPointerOverNode(clientX, clientY, srcSingular)) {
+  const cyShowsArc =
+    !cy.$(`#${ARC_PREVIEW_EDGE_TARGET}`).empty()
+    || (!cy.$(`#${ARC_PREVIEW_NODE}`).empty() && previewNew);
+  if (!cyShowsArc) {
+    const lw = 1.5;
     ctx.beginPath();
+    ctx.setLineDash(previewNew ? [6, 4] : []);
     ctx.strokeStyle = stroke;
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 4]);
-    ctx.arc(to.x, to.y, 14, 0, Math.PI * 2);
+    ctx.lineWidth = lw;
+    ctx.lineCap = 'round';
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    const sz = 9;
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(to.x - sz * Math.cos(angle - Math.PI / 6), to.y - sz * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(to.x - sz * Math.cos(angle + Math.PI / 6), to.y - sz * Math.sin(angle + Math.PI / 6));
+    ctx.closePath();
+    ctx.fillStyle = stroke;
+    ctx.fill();
+
+    if (previewNew && !isPointerOverNode(clientX, clientY, srcSingular)) {
+      ctx.beginPath();
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.arc(to.x, to.y, 14, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 }
 
 function finishArcDraw(clientX: number, clientY: number): void {
   if (!arcDrawState || !builder || !cy) {
     arcDrawState = null;
+    removeArcPreviewElements();
     clearGhostCanvas();
     clearArcDrawHintClasses();
     if (!editColaLayout) startEditCola();
@@ -1282,6 +1382,7 @@ function finishArcDraw(clientX: number, clientY: number): void {
   }
   const state = arcDrawState;
   arcDrawState = null;
+  removeArcPreviewElements();
   clearGhostCanvas();
   clearArcDrawHintClasses();
 
@@ -1303,6 +1404,7 @@ function finishArcDraw(clientX: number, clientY: number): void {
 
   const targetNode = cy.nodes().filter((n) => {
     if (n.id() === state.sourceId) return false;
+    if (n.id() === ARC_PREVIEW_NODE) return false;
     if (n.data('type') === 'token-ghost') return false;
     const nPos = n.renderedPosition();
     const hw = n.renderedOuterWidth() / 2 + 4;
@@ -1337,6 +1439,7 @@ function finishArcDraw(clientX: number, clientY: number): void {
 
 function cancelArcDraw(): void {
   arcDrawState = null;
+  removeArcPreviewElements();
   clearGhostCanvas();
   clearArcDrawHintClasses();
   if (!editColaLayout) startEditCola();
@@ -1479,14 +1582,6 @@ function netStyles(): cytoscape.StylesheetStyle[] {
       } as cytoscape.Css.Node,
     },
     {
-      selector: 'node[type="place"][tokens > 0]',
-      style: { 'font-size': 13 } as cytoscape.Css.Node,
-    },
-    {
-      selector: 'node[type="place"][tokens > 5]',
-      style: { 'font-size': 14 } as cytoscape.Css.Node,
-    },
-    {
       selector: 'node[type="place"]:selected',
       style: {
         'border-color': '#3b82f6',
@@ -1497,7 +1592,7 @@ function netStyles(): cytoscape.StylesheetStyle[] {
     {
       selector: 'node.arc-draw-source',
       style: {
-        'border-color': '#9333ea',
+        'border-color': '#33ead5',
         'border-width': 4,
         'background-color': '#faf5ff',
       } as cytoscape.Css.Node,
@@ -1513,10 +1608,65 @@ function netStyles(): cytoscape.StylesheetStyle[] {
     {
       selector: 'node.arc-draw-invalid',
       style: {
-        'border-color': '#ea580c',
+        'border-color': '#ea2a0c',
         'border-width': 4,
         'background-color': '#fff7ed',
       } as cytoscape.Css.Node,
+    },
+    {
+      selector: 'node[type="arc-preview-place"]',
+      style: {
+        shape: 'ellipse',
+        width: 78,
+        height: 78,
+        'background-color': '#f8fafc',
+        'border-width': 2,
+        'border-color': '#3b82f6',
+        'border-style': 'dashed',
+        label: '',
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'font-size': 12,
+        color: '#1e293b',
+        'min-zoomed-font-size': 4,
+        opacity: 0.92,
+        events: 'no',
+        grabbable: false,
+      } as cytoscape.Css.Node,
+    },
+    {
+      selector: 'node[type="arc-preview-transition"]',
+      style: {
+        shape: 'rectangle',
+        width: 22,
+        height: 52,
+        'background-color': '#dbeafe',
+        'border-width': 2,
+        'border-color': '#3b82f6',
+        'border-style': 'dashed',
+        label: '',
+        'text-valign': 'bottom',
+        'text-margin-y': 6,
+        'text-halign': 'center',
+        'font-size': 11,
+        color: '#475569',
+        'min-zoomed-font-size': 4,
+        opacity: 0.92,
+        events: 'no',
+        grabbable: false,
+      } as cytoscape.Css.Node,
+    },
+    {
+      selector: 'edge.arc-preview',
+      style: {
+        width: 2,
+        'line-color': '#3b82f6',
+        'line-style': 'dashed',
+        'target-arrow-color': '#3b82f6',
+        'target-arrow-shape': 'triangle',
+        'curve-style': 'bezier',
+        'arrow-scale': 0.95,
+      } as cytoscape.Css.Edge,
     },
     {
       selector: 'node[type="transition"]',
@@ -1585,8 +1735,6 @@ function netStyles(): cytoscape.StylesheetStyle[] {
     },
   ];
 }
-
-// Helpers
 
 function el(id: string): HTMLElement {
   return document.getElementById(id)!;
