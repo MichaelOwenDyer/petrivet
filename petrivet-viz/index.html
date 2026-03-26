@@ -19,13 +19,18 @@
       <label class="toolbar-label" for="layout-select">Layout</label>
       <select id="layout-select">
         <option value="fcose">fCoSE</option>
-        <option value="cola">Cola ⚡ physics</option>
         <option value="dagre">Dagre</option>
         <option value="breadthfirst">Breadthfirst</option>
         <option value="circle">Circle</option>
         <option value="grid">Grid</option>
       </select>
-      <button id="btn-freeze" title="Freeze physics" style="display:none">⏸</button>
+      <span class="toolbar-physics">
+        <label class="toolbar-label toolbar-label-inline" for="physics-enabled">
+          <input type="checkbox" id="physics-enabled" checked>
+          Physics
+        </label>
+      </span>
+      <button id="btn-freeze" title="Pause physics" style="display:none">⏸</button>
       <div class="toolbar-spacer"></div>
       <label class="anim-label" for="anim-speed">
         Animate
@@ -62,12 +67,23 @@
         <div id="edit-hint" style="display:none">
           <p class="hint">
             <strong>Edit mode</strong><br>
-            Right-drag from a node to draw an arc.<br>
-            Right-click empty space to add a place.<br>
-            Right-click empty space with Shift to add a transition.<br>
-            <kbd>Del</kbd> removes selected elements.<br>
-            Double-click a node to rename it.
+            New net starts as <code>P1 → T1 → P2</code> with one token on <code>P1</code>.<br>
+            Right-drag from a node to draw an arc to another node or to empty space (new node).<br>
+            Add nodes only by extending the graph — no orphan nodes.<br>
+            Use the selection panel for tokens, arc reversal, and removal.<br>
+            <kbd>Delete</kbd> / <kbd>Backspace</kbd> removes the selection (you’ll be asked to confirm node removal).<br>
+            Double-click a node to rename.<br>
+            Press <strong>Simulate</strong> when the net is ready to run.
           </p>
+        </div>
+        <div id="edit-tools" class="edit-tools">
+          <h4>Edit selection</h4>
+          <p id="edit-sel-summary" class="hint">Nothing selected</p>
+          <label for="edit-place-tokens">Initial tokens (single place selected)</label>
+          <input type="number" id="edit-place-tokens" min="0" step="1" value="0" disabled>
+          <button type="button" id="btn-apply-tokens" disabled>Apply tokens</button>
+          <button type="button" id="btn-reverse-arc" disabled>Reverse arc</button>
+          <button type="button" id="btn-delete-selection" class="btn-danger" disabled>Remove selection…</button>
         </div>
         <div id="sim-hint">
           <p class="hint">

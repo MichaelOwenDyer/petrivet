@@ -1,0 +1,9 @@
+{
+  "name": "petrivet-wasm",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "build": "wasm-pack build --target web --out-dir pkg"
+  }
+}

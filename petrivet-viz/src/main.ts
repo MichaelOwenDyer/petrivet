@@ -1,5 +1,10 @@
-import { WasmSystem, WasmNetBuilder } from 'petrivet-wasm';
-import type { WasmNetStructure, WasmPosition, WasmBuilderStructure } from 'petrivet-wasm';
+import initWasm, { WasmSystem, WasmNetBuilder } from 'petrivet-wasm';
+import type {
+  WasmNetStructure,
+  WasmPosition,
+  WasmBuilderStructure,
+  WasmBuilderPlace,
+} from 'petrivet-wasm';
 import cytoscape from 'cytoscape';
 import type { Core, ElementDefinition, NodeSingular } from 'cytoscape';
 import cola from 'cytoscape-cola';
@@ -19,12 +24,23 @@ let cy: Core | null = null;
 let cachedStructure: WasmNetStructure | null = null;
 let animating = false;
 let activeLayout: ReturnType<Core['layout']> | null = null;
+/** Cola physics while in edit mode (separate from simulation layouts). */
+let editColaLayout: ReturnType<Core['layout']> | null = null;
 // Marking vector at which analysis was last run, so we can show a stale badge
 let lastAnalyzedMarking: number[] | null = null;
 
 // Edit mode
 let editMode = false;
 let builder: WasmNetBuilder | null = null;
+/** After "New net", fit the viewport once when the first node(s) appear. */
+let editPendingNewNetFit = false;
+/** Detect topology growth so Cola can restart and pick up new nodes. */
+let lastSyncedEditNodeCount = -1;
+/** Captured from the edit canvas before `build()` so simulation keeps the same layout. */
+let simLayoutSnapshot: Map<string, { x: number; y: number }> | null = null;
+
+/** Simulation mode: run Cola after static layouts when enabled (toolbar checkbox). */
+let simPhysicsEnabled = true;
 
 interface ArcDrawState {
   sourceId: string;
@@ -72,6 +88,7 @@ function main(): void {
 
 function loadPnml(xml: string): void {
   try {
+    simLayoutSnapshot = null;
     const next = WasmSystem.parsePnml(xml);
     sys?.free();
     sys = next;
@@ -87,6 +104,9 @@ function loadPnml(xml: string): void {
 function renderNet(): void {
   if (!sys || !cy) return;
 
+  const snapshot = simLayoutSnapshot;
+  simLayoutSnapshot = null;
+
   cachedStructure = sys.netStructure();
   const s = cachedStructure;
 
@@ -96,35 +116,63 @@ function renderNet(): void {
   const elements: ElementDefinition[] = [];
 
   for (let i = 0; i < s.place_count; i++) {
-    const pos = s.place_positions[i];
+    const id = `p${i}`;
+    const snap = snapshot?.get(id);
+    const pnml = s.place_positions[i];
+    let position: { x: number; y: number } | undefined;
+    if (snap) {
+      position = { x: snap.x, y: snap.y };
+    } else if (pnml != null) {
+      position = { x: pnml.x * scale, y: pnml.y * scale };
+    }
     elements.push({
       data: {
         id: `p${i}`, type: 'place', index: i,
-        name: s.place_names[i] ?? `p${i}`,
+        name: s.place_names[i] ?? defaultPlaceName(i),
         tokens: 0, label: '',
       },
-      ...(pos != null ? { position: { x: pos.x * scale, y: pos.y * scale } } : {}),
+      ...(position != null ? { position } : {}),
     });
   }
 
   for (let i = 0; i < s.transition_count; i++) {
-    const pos = s.transition_positions[i];
+    const id = `t${i}`;
+    const snap = snapshot?.get(id);
+    const pnml = s.transition_positions[i];
+    let position: { x: number; y: number } | undefined;
+    if (snap) {
+      position = { x: snap.x, y: snap.y };
+    } else if (pnml != null) {
+      position = { x: pnml.x * scale, y: pnml.y * scale };
+    }
     elements.push({
       data: {
         id: `t${i}`, type: 'transition', index: i,
-        name: s.transition_names[i] ?? `t${i}`,
-        label: s.transition_names[i] ?? `t${i}`,
+        name: s.transition_names[i] ?? defaultTransitionName(i),
+        label: s.transition_names[i] ?? defaultTransitionName(i),
         enabled: false,
       },
-      ...(pos != null ? { position: { x: pos.x * scale, y: pos.y * scale } } : {}),
+      ...(position != null ? { position } : {}),
     });
   }
 
   for (const arc of s.pt_arcs) {
-    elements.push({ data: { source: `p${arc.source}`, target: `t${arc.target}` } });
+    elements.push({
+      data: {
+        id: `arc_p${arc.source}_t${arc.target}`,
+        source: `p${arc.source}`,
+        target: `t${arc.target}`,
+      },
+    });
   }
   for (const arc of s.tp_arcs) {
-    elements.push({ data: { source: `t${arc.source}`, target: `p${arc.target}` } });
+    elements.push({
+      data: {
+        id: `arc_t${arc.source}_p${arc.target}`,
+        source: `t${arc.source}`,
+        target: `p${arc.target}`,
+      },
+    });
   }
 
   // Stop any running physics before replacing graph elements
@@ -134,7 +182,10 @@ function renderNet(): void {
   cy.elements().remove();
   cy.add(elements);
 
-  const hasPositions = s.place_positions.some((p) => p != null);
+  const hasPositions =
+    (snapshot != null && snapshot.size > 0) ||
+    s.place_positions.some((p) => p != null) ||
+    s.transition_positions.some((p) => p != null);
   if (hasPositions) {
     cy.layout({ name: 'preset' }).run();
     cy.fit(undefined, 60);
@@ -191,33 +242,91 @@ function pnmlPositionScale(
   return Math.min(Math.max(raw, 1.5), 6);
 }
 
+// Labels & tokens (place nodes)
+
+function tokenLabel(n: number): string {
+  if (n === 0) return '';
+  if (n <= 4) return '●'.repeat(n);
+  return String(n);
+}
+
+function defaultPlaceName(index: number): string {
+  return `P${index + 1}`;
+}
+
+function defaultTransitionName(index: number): string {
+  return `T${index + 1}`;
+}
+
+function placeCanvasLabel(name: string | undefined, n: number, index: number): string {
+  const displayName = name && name.trim().length > 0 ? name : defaultPlaceName(index);
+  const tok = tokenLabel(n);
+  return tok ? `${displayName}\n${tok}` : displayName;
+}
+
+function placeDisplayLabel(p: WasmBuilderPlace): string {
+  const name = p.name && p.name.trim().length > 0 ? p.name : defaultPlaceName(p.id);
+  const tok = p.initial_tokens > 0 ? tokenLabel(p.initial_tokens) : '';
+  return tok ? `${name}\n${tok}` : name;
+}
+
 // Marking sync
 
 function syncMarking(): void {
   if (!sys || !cy) return;
+  syncMarkingForPlaces(Array.from(sys.currentMarking()));
+}
 
-  const marking = Array.from(sys.currentMarking());
+/** @param markingForSidebar — if set, sidebar / stale use this vector (e.g. true WASM while canvas uses a display-only merge). */
+function syncMarkingForPlaces(marking: number[], markingForSidebar?: number[]): void {
+  if (!sys || !cy) return;
+
   const enabled = new Set(Array.from(sys.enabledTransitions()));
+  const sidebarVec = markingForSidebar ?? marking;
 
   for (let i = 0; i < marking.length; i++) {
     const t = marking[i]!;
-    cy.$(`#p${i}`).data('tokens', t).data('label', tokenLabel(t));
+    const node = cy.$(`#p${i}`);
+    const dName = node.data('name') as string | undefined;
+    node.data('tokens', t).data('label', placeCanvasLabel(dName, t, i));
   }
 
   cy.$('node[type="transition"]').forEach((node) => {
     node.data('enabled', enabled.has(node.data('index') as number));
   });
 
-  el('marking-row').textContent = `(${marking.join(', ')})`;
+  el('marking-row').textContent = `(${sidebarVec.join(', ')})`;
   el('deadlock-warn').textContent = sys.isDeadlocked() ? '⚠ Deadlocked' : '';
 
-  // Show stale badge if the marking has changed since analysis was last run
   if (lastAnalyzedMarking) {
-    const stale = marking.some((v, i) => v !== lastAnalyzedMarking![i]);
+    const stale = sidebarVec.some((v, i) => v !== lastAnalyzedMarking![i]);
     el('analysis-stale').classList.toggle('visible', stale);
   }
 
   el('btn-reset').removeAttribute('disabled');
+}
+
+function computeInputConsumption(transIdx: number, s: WasmNetStructure): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const a of s.pt_arcs) {
+    if (a.target === transIdx) {
+      m.set(a.source, (m.get(a.source) ?? 0) + 1);
+    }
+  }
+  return m;
+}
+
+function applyInputPlacePreviewAfterConsume(transIdx: number): void {
+  if (!sys || !cy || !cachedStructure) return;
+  const s = cachedStructure;
+  const marking = Array.from(sys.currentMarking());
+  const cons = computeInputConsumption(transIdx, s);
+  for (const [pi, count] of cons) {
+    const newM = Math.max(0, marking[pi]! - count);
+    const node = cy.$(`#p${pi}`);
+    const dName = node.data('name') as string | undefined;
+    node.data('tokens', newM).data('label', placeCanvasLabel(dName, newM, pi));
+  }
 }
 
 // Transition firing with token animation
@@ -247,6 +356,12 @@ async function animateFire(transIdx: number): Promise<void> {
   const transNode = cy.$(`#t${transIdx}`);
   const transPos = transNode.position();
 
+  const markingBeforeFire = Array.from(sys.currentMarking());
+
+  // Input places show post-consumption marking as soon as the animation starts
+  // (tokens are treated as having left for the transition).
+  applyInputPlacePreviewAfterConsume(transIdx);
+
   //  Phase 1: tokens converge onto the transition
   await Promise.all(
     inputPlaces.map((pi) => {
@@ -255,12 +370,15 @@ async function animateFire(transIdx: number): Promise<void> {
     }),
   );
 
-  // Fire (updates WASM state only — no visual change yet, so input tokens
-  // stay visible while the bullets are "inside" the transition)
   sys.fire(transIdx);
 
   const nowEnabled = new Set(Array.from(sys.enabledTransitions()));
   transNode.data('enabled', nowEnabled.has(transIdx));
+
+  const markingAfter = Array.from(sys.currentMarking());
+  const outSet = new Set(outputPlaces);
+  const merged = markingAfter.map((v, i) => (outSet.has(i) ? markingBeforeFire[i] ?? 0 : v));
+  syncMarkingForPlaces(merged, markingAfter);
 
   //  Phase 2: new tokens emanate from the transition
   await Promise.all(
@@ -479,11 +597,11 @@ function layoutOptions(name: string): LayoutOpts {
         name: 'cola',
         infinite: true,
         animate: true,
-        refresh: 1,
-        nodeSpacing: 20,
+        refresh: 2,
+        nodeSpacing: 24,
         edgeLength: 120,
         avoidOverlap: true,
-        unconstrainedIterations: 10,
+        unconstrainedIterations: 50,
         userConstIter: 0,
         allConstIter: 0,
       } as unknown as LayoutOpts;
@@ -530,58 +648,69 @@ function layoutOptions(name: string): LayoutOpts {
   }
 }
 
-/** Apply the selected layout. For cola (physics) the simulation runs
- *  indefinitely until the user freezes it; all other layouts run once. */
+/** Run Cola physics on the current node positions (simulation mode only). */
+function runSimPhysicsCola(fitAfterDelay = true): void {
+  if (!cy || editMode || !simPhysicsEnabled) return;
+  activeLayout?.stop();
+  const layout = cy.layout(layoutOptions('cola'));
+  activeLayout = layout;
+  layout.run();
+  const btnFreeze = el('btn-freeze') as HTMLButtonElement;
+  btnFreeze.style.display = '';
+  btnFreeze.textContent = '⏸';
+  btnFreeze.title = 'Pause physics';
+  if (fitAfterDelay) {
+    setTimeout(() => cy?.fit(undefined, 60), 1200);
+  }
+}
+
+/** Apply a static layout; if physics is on, Cola takes over afterward. */
 function applyLayout(name: string, fitAfter = true): void {
   if (!cy) return;
+  if (editMode) return;
 
-  // Stop any previously running continuous layout
   activeLayout?.stop();
   activeLayout = null;
 
-  const btnFreeze = el('btn-freeze') as HTMLButtonElement;
-  const isCola = name === 'cola';
-  btnFreeze.style.display = isCola ? '' : 'none';
-  btnFreeze.textContent = '⏸';
-  btnFreeze.title = 'Freeze physics';
-
-  const layout = cy.layout(layoutOptions(name));
-
-  if (isCola) {
-    activeLayout = layout;
-    if (fitAfter) {
-      // Cola layoutstop fires only when stopped explicitly; fit after a short
-      // delay once the spring forces have had time to spread the net out.
-      setTimeout(() => cy?.fit(undefined, 60), 1200);
+  const staticLayout = cy.layout(layoutOptions(name));
+  staticLayout.on('layoutstop', () => {
+    if (fitAfter) cy?.fit(undefined, 60);
+    if (simPhysicsEnabled) {
+      runSimPhysicsCola(true);
+    } else {
+      (el('btn-freeze') as HTMLButtonElement).style.display = 'none';
     }
-  } else if (fitAfter) {
-    layout.on('layoutstop', () => cy?.fit(undefined, 60));
-  }
-
-  layout.run();
+  });
+  staticLayout.run();
 }
 
 function setupLayoutSelector(): void {
   const select = el('layout-select') as HTMLSelectElement;
+  const physics = el('physics-enabled') as HTMLInputElement;
+  simPhysicsEnabled = physics.checked;
+
   select.addEventListener('change', () => applyLayout(select.value));
+
+  physics.addEventListener('change', () => {
+    simPhysicsEnabled = physics.checked;
+    if (!simPhysicsEnabled) {
+      activeLayout?.stop();
+      activeLayout = null;
+      (el('btn-freeze') as HTMLButtonElement).style.display = 'none';
+    } else if (cy && !editMode) {
+      runSimPhysicsCola(true);
+    }
+  });
 
   const btnFreeze = el('btn-freeze') as HTMLButtonElement;
   btnFreeze.addEventListener('click', () => {
     if (activeLayout) {
-      // Freeze: stop the physics simulation
       activeLayout.stop();
       activeLayout = null;
       btnFreeze.textContent = '▶';
       btnFreeze.title = 'Resume physics';
-    } else {
-      // Resume: restart cola
-      if (select.value === 'cola') {
-        const layout = cy!.layout(layoutOptions('cola'));
-        activeLayout = layout;
-        layout.run();
-        btnFreeze.textContent = '⏸';
-        btnFreeze.title = 'Freeze physics';
-      }
+    } else if (simPhysicsEnabled && cy && !editMode) {
+      runSimPhysicsCola(false);
     }
   });
 }
@@ -590,17 +719,106 @@ function setupLayoutSelector(): void {
 // Edit mode
 // ---------------------------------------------------------------------------
 
+function captureLayoutFromCy(): Map<string, { x: number; y: number }> {
+  const m = new Map<string, { x: number; y: number }>();
+  if (!cy) return m;
+  cy.nodes().forEach((n) => {
+    const typ = n.data('type');
+    if (typ === 'place' || typ === 'transition') {
+      const p = n.position();
+      m.set(n.id(), { x: p.x, y: p.y });
+    }
+  });
+  return m;
+}
+
+function seedBuilderFromCyLayout(builder: WasmNetBuilder, layout: Map<string, { x: number; y: number }>): void {
+  for (const [nodeId, pos] of layout) {
+    if (nodeId.startsWith('p')) {
+      const id = parseInt(nodeId.slice(1), 10);
+      if (!Number.isNaN(id)) builder.setPlacePosition(id, pos.x, pos.y);
+    } else if (nodeId.startsWith('t')) {
+      const id = parseInt(nodeId.slice(1), 10);
+      if (!Number.isNaN(id)) builder.setTransitionPosition(id, pos.x, pos.y);
+    }
+  }
+}
+
+/** Minimal connected net: P1 → T1 → P2 with one token on P1. */
+function createSeededNetBuilder(): WasmNetBuilder {
+  const b = new WasmNetBuilder();
+  b.setNetName('Untitled net');
+  const p0 = b.addPlace(-140, 0, 'P1');
+  const t0 = b.addTransition(0, 0, 'T1');
+  const p1 = b.addPlace(140, 0, 'P2');
+  b.addArcPT(p0, t0);
+  b.addArcTP(t0, p1);
+  b.setInitialTokens(p0, 1);
+  return b;
+}
+
+function defaultViewportCenter(): { x: number; y: number } {
+  if (!cy) return { x: 0, y: 0 };
+  const ext = cy.extent();
+  return { x: (ext.x1 + ext.x2) / 2, y: (ext.y1 + ext.y2) / 2 };
+}
+
+function maybeFitNewNet(): void {
+  if (!editPendingNewNetFit || !cy || !builder) return;
+  const n = builder.placeCount() + builder.transitionCount();
+  if (n > 0) {
+    cy.fit(undefined, 60);
+    editPendingNewNetFit = false;
+  }
+}
+
+function pauseEditCola(): void {
+  editColaLayout?.stop();
+  editColaLayout = null;
+}
+
+function startEditCola(): void {
+  if (!cy || !editMode) return;
+  const nModel = cy.nodes().filter((node) => {
+    const t = node.data('type');
+    return t === 'place' || t === 'transition';
+  }).length;
+  if (nModel === 0) return;
+  editColaLayout?.stop();
+  const layout = cy.layout(layoutOptions('cola'));
+  editColaLayout = layout;
+  layout.run();
+}
+
 function enterEditMode(newNet: boolean): void {
   editMode = true;
   builder?.free();
 
+  activeLayout?.stop();
+  activeLayout = null;
+
+  const layoutSeed = !newNet && sys && cy ? captureLayoutFromCy() : null;
+
+  lastSyncedEditNodeCount = -1;
+
   if (newNet || !sys) {
-    builder = new WasmNetBuilder();
+    builder = createSeededNetBuilder();
     sys?.free();
     sys = null;
+    editPendingNewNetFit = true;
   } else {
     builder = sys.toBuilder();
+    sys.free();
+    sys = null;
+    editPendingNewNetFit = false;
   }
+
+  if (layoutSeed && builder) {
+    seedBuilderFromCyLayout(builder, layoutSeed);
+  }
+
+  (el('layout-select') as HTMLSelectElement).disabled = true;
+  el('btn-freeze').style.display = 'none';
 
   el('btn-edit').textContent = 'Simulate';
   el('btn-edit').classList.add('active');
@@ -612,11 +830,16 @@ function enterEditMode(newNet: boolean): void {
   el('btn-analyze').setAttribute('disabled', '');
 
   lastAnalyzedMarking = null;
-  renderBuilderNet();
+  syncEditBuilderGraph();
+  maybeFitNewNet();
+  updateEditSelectionUi();
 }
 
 function exitEditMode(): void {
   editMode = false;
+  lastSyncedEditNodeCount = -1;
+  pauseEditCola();
+  (el('layout-select') as HTMLSelectElement).disabled = false;
   el('btn-edit').textContent = 'Edit';
   el('btn-edit').classList.remove('active');
   document.body.classList.remove('edit-mode');
@@ -626,6 +849,9 @@ function exitEditMode(): void {
 
   if (builder) {
     try {
+      if (cy) {
+        simLayoutSnapshot = captureLayoutFromCy();
+      }
       const newSys = builder.build();
       sys?.free();
       sys = newSys;
@@ -648,43 +874,102 @@ function exitEditMode(): void {
   }
 }
 
-function renderBuilderNet(): void {
+/** Incrementally sync Cytoscape with the builder — preserves node positions and edit Cola. */
+function syncEditBuilderGraph(): void {
   if (!builder || !cy) return;
   const s: WasmBuilderStructure = builder.structure();
+  const captured = captureLayoutFromCy();
 
-  const elements: ElementDefinition[] = [];
+  const wantPlace = new Set(s.places.map((p) => `p${p.id}`));
+  const wantTrans = new Set(s.transitions.map((t) => `t${t.id}`));
+  const wantNodes = new Set([...wantPlace, ...wantTrans]);
+
+  cy.nodes().forEach((n) => {
+    const typ = n.data('type');
+    if (typ === 'place' || typ === 'transition') {
+      if (!wantNodes.has(n.id())) n.remove();
+    }
+  });
+
+  cy.edges().remove();
 
   for (const p of s.places) {
-    elements.push({
-      data: {
-        id: `p${p.id}`,
-        type: 'place',
-        index: p.id,
-        name: p.name ?? `p${p.id}`,
+    const id = `p${p.id}`;
+    let pos = captured.get(id);
+    if (!pos) {
+      if (p.x !== 0 || p.y !== 0) {
+        pos = { x: p.x, y: p.y };
+      } else {
+        pos = defaultViewportCenter();
+      }
+    }
+    const label = placeDisplayLabel(p);
+    const existing = cy.$(`#${id}`);
+    if (existing.length > 0) {
+      existing.data({
+        name: p.name ?? defaultPlaceName(p.id),
         tokens: p.initial_tokens,
-        label: p.initial_tokens > 0 ? tokenLabel(p.initial_tokens) : '',
+        label,
+        index: p.id,
+        type: 'place',
         enabled: false,
-      },
-      position: { x: p.x, y: p.y },
-    });
+      });
+    } else {
+      cy.add({
+        group: 'nodes',
+        data: {
+          id,
+          type: 'place',
+          index: p.id,
+          name: p.name ?? defaultPlaceName(p.id),
+          tokens: p.initial_tokens,
+          label,
+          enabled: false,
+        },
+        position: pos,
+      });
+    }
   }
 
   for (const t of s.transitions) {
-    elements.push({
-      data: {
-        id: `t${t.id}`,
-        type: 'transition',
+    const id = `t${t.id}`;
+    let pos = captured.get(id);
+    if (!pos) {
+      if (t.x !== 0 || t.y !== 0) {
+        pos = { x: t.x, y: t.y };
+      } else {
+        pos = defaultViewportCenter();
+      }
+    }
+    const name = t.name ?? defaultTransitionName(t.id);
+    const existing = cy.$(`#${id}`);
+    if (existing.length > 0) {
+      existing.data({
+        name,
+        label: name,
         index: t.id,
-        name: t.name ?? `t${t.id}`,
-        label: t.name ?? `t${t.id}`,
+        type: 'transition',
         enabled: false,
-      },
-      position: { x: t.x, y: t.y },
-    });
+      });
+    } else {
+      cy.add({
+        group: 'nodes',
+        data: {
+          id,
+          type: 'transition',
+          index: t.id,
+          name,
+          label: name,
+          enabled: false,
+        },
+        position: pos,
+      });
+    }
   }
 
   for (const arc of s.pt_arcs) {
-    elements.push({
+    cy.add({
+      group: 'edges',
       data: {
         id: `arc_p${arc.source_id}_t${arc.target_id}`,
         source: `p${arc.source_id}`,
@@ -692,9 +977,9 @@ function renderBuilderNet(): void {
       },
     });
   }
-
   for (const arc of s.tp_arcs) {
-    elements.push({
+    cy.add({
+      group: 'edges',
       data: {
         id: `arc_t${arc.source_id}_p${arc.target_id}`,
         source: `t${arc.source_id}`,
@@ -703,45 +988,149 @@ function renderBuilderNet(): void {
     });
   }
 
-  activeLayout?.stop();
-  activeLayout = null;
+  updateEditStatus();
+  maybeFitNewNet();
 
-  // Preserve positions for existing nodes, add new ones at their stored pos.
-  const existingIds = new Set(cy.elements().map((e) => e.id()));
-  const newElements = elements.filter((e) => !existingIds.has(e.data.id as string));
-  const removedIds = new Set(
-    cy.elements().map((e) => e.id()).filter((id) => !elements.some((e) => e.data.id === id))
-  );
-
-  cy.elements().filter((e) => removedIds.has(e.id())).remove();
-  if (newElements.length > 0) cy.add(newElements);
-
-  // Update labels/tokens for existing nodes
-  for (const p of s.places) {
-    cy.$(`#p${p.id}`).data({
-      tokens: p.initial_tokens,
-      label: p.initial_tokens > 0 ? tokenLabel(p.initial_tokens) : '',
-      name: p.name ?? `p${p.id}`,
-    });
+  const nodeCount = s.places.length + s.transitions.length;
+  if (editMode && !arcDrawState && nodeCount > 0) {
+    if (nodeCount !== lastSyncedEditNodeCount) {
+      lastSyncedEditNodeCount = nodeCount;
+      pauseEditCola();
+      startEditCola();
+    }
   }
-  for (const t of s.transitions) {
-    const label = t.name ?? `t${t.id}`;
-    cy.$(`#t${t.id}`).data({ label, name: label });
-  }
-
-  tryBuildFromBuilder();
+  updateEditSelectionUi();
 }
 
-function tryBuildFromBuilder(): void {
+/** Lightweight status while editing — does not call `build()` (that runs only on Simulate). */
+function updateEditStatus(): void {
   if (!builder) return;
-  try {
-    const newSys = builder.build();
-    sys?.free();
-    sys = newSys;
-    setStatus(`Edit mode — ${builder.placeCount()} places, ${builder.transitionCount()} transitions`);
-  } catch (err) {
-    setStatus(`Edit mode — ${err instanceof Error ? err.message : String(err)}`);
+  const p = builder.placeCount();
+  const t = builder.transitionCount();
+  if (p === 0 || t === 0) {
+    setStatus(
+      `Edit mode — ${p} place(s), ${t} transition(s). Add at least one place and one transition, then connect them with arcs.`,
+    );
+  } else {
+    setStatus(`Edit mode — ${p} places, ${t} transitions. Press Simulate when the net is ready.`);
   }
+}
+
+function updateEditSelectionUi(): void {
+  if (!editMode || !cy || !builder) return;
+  const sel = cy.elements(':selected');
+  const summary = el('edit-sel-summary');
+  const tokensInput = el('edit-place-tokens') as HTMLInputElement;
+  const btnApply = el('btn-apply-tokens') as HTMLButtonElement;
+  const btnRev = el('btn-reverse-arc') as HTMLButtonElement;
+  const btnDel = el('btn-delete-selection') as HTMLButtonElement;
+
+  if (sel.length === 0) {
+    summary.textContent = 'Nothing selected';
+    tokensInput.disabled = true;
+    btnApply.disabled = true;
+    btnRev.disabled = true;
+    btnDel.disabled = true;
+    return;
+  }
+
+  const nodes = sel.nodes();
+  const edges = sel.edges();
+  const places = nodes.filter('[type="place"]');
+  const transitions = nodes.filter('[type="transition"]');
+
+  const parts: string[] = [];
+  if (places.length > 0) parts.push(`${places.length} place(s)`);
+  if (transitions.length > 0) parts.push(`${transitions.length} transition(s)`);
+  if (edges.length > 0) parts.push(`${edges.length} arc(s)`);
+  summary.textContent = parts.join(', ');
+
+  if (places.length === 1 && transitions.length === 0 && edges.length === 0) {
+    tokensInput.disabled = false;
+    tokensInput.value = String(places.first().data('tokens') ?? 0);
+    btnApply.disabled = false;
+  } else {
+    tokensInput.disabled = true;
+    btnApply.disabled = true;
+  }
+
+  btnRev.disabled = !(edges.length === 1 && nodes.length === 0);
+  btnDel.disabled = false;
+}
+
+function deleteEditSelection(): void {
+  if (!editMode || !builder || !cy) return;
+  const sel = cy.elements(':selected');
+  if (sel.length === 0) return;
+  const nodes = sel.nodes();
+  const edges = sel.edges();
+  if (nodes.length > 0) {
+    const n = nodes.length;
+    if (
+      !window.confirm(
+        n === 1 ? 'Remove this node and its incident arcs?' : `Remove ${n} nodes and their incident arcs?`,
+      )
+    ) {
+      return;
+    }
+  }
+
+  edges.forEach((ele) => {
+    const arcId = ele.id();
+    const mPt = arcId.match(/^arc_p(\d+)_t(\d+)$/);
+    if (mPt) {
+      builder!.removeArcPT(parseInt(mPt[1], 10), parseInt(mPt[2], 10));
+      return;
+    }
+    const mTp = arcId.match(/^arc_t(\d+)_p(\d+)$/);
+    if (mTp) {
+      builder!.removeArcTP(parseInt(mTp[1], 10), parseInt(mTp[2], 10));
+    }
+  });
+  nodes.forEach((ele) => {
+    const typ = ele.data('type') as string;
+    const id = ele.data('index') as number;
+    if (typ === 'place') builder!.removePlace(id);
+    else if (typ === 'transition') builder!.removeTransition(id);
+  });
+  syncEditBuilderGraph();
+  updateEditSelectionUi();
+}
+
+function reverseSelectedArc(): void {
+  if (!editMode || !builder || !cy) return;
+  const edges = cy.edges(':selected');
+  if (edges.length !== 1) return;
+  const arcId = edges.first().id();
+  const mPt = arcId.match(/^arc_p(\d+)_t(\d+)$/);
+  if (mPt) {
+    const p = parseInt(mPt[1], 10);
+    const t = parseInt(mPt[2], 10);
+    builder.removeArcPT(p, t);
+    builder.addArcTP(t, p);
+  } else {
+    const mTp = arcId.match(/^arc_t(\d+)_p(\d+)$/);
+    if (mTp) {
+      const t = parseInt(mTp[1], 10);
+      const p = parseInt(mTp[2], 10);
+      builder.removeArcTP(t, p);
+      builder.addArcPT(p, t);
+    }
+  }
+  syncEditBuilderGraph();
+  updateEditSelectionUi();
+}
+
+function applyTokensFromEditTools(): void {
+  if (!editMode || !builder || !cy) return;
+  const places = cy.nodes(':selected[type="place"]');
+  if (places.length !== 1) return;
+  const id = places.first().data('index') as number;
+  const raw = (el('edit-place-tokens') as HTMLInputElement).value;
+  const n = Math.max(0, parseInt(raw, 10) || 0);
+  builder.setInitialTokens(id, n);
+  syncEditBuilderGraph();
+  updateEditSelectionUi();
 }
 
 // ---------------------------------------------------------------------------
@@ -753,6 +1142,7 @@ function ghostCanvas(): HTMLCanvasElement {
 }
 
 function startArcDraw(node: NodeSingular): void {
+  pauseEditCola();
   arcDrawState = {
     sourceId: node.id(),
     sourceType: node.data('type') as 'place' | 'transition',
@@ -761,49 +1151,148 @@ function startArcDraw(node: NodeSingular): void {
   canvas.width = el('cy').clientWidth;
   canvas.height = el('cy').clientHeight;
   canvas.style.display = '';
+  el('cy').appendChild(canvas);
+  clearArcDrawHintClasses();
+  node.addClass('arc-draw-source');
+}
+
+/** Rendered-space hit test (matches edge / node picking style). */
+function isPointerOverNode(clientX: number, clientY: number, node: NodeSingular): boolean {
+  const rect = el('cy').getBoundingClientRect();
+  const rendered = { x: clientX - rect.left, y: clientY - rect.top };
+  const nPos = node.renderedPosition();
+  const hw = node.renderedOuterWidth() / 2 + 4;
+  const hh = node.renderedOuterHeight() / 2 + 4;
+  return Math.abs(nPos.x - rendered.x) <= hw && Math.abs(nPos.y - rendered.y) <= hh;
+}
+
+function clearGhostCanvas(): void {
+  const canvas = ghostCanvas();
+  canvas.style.display = 'none';
+  const ctx = canvas.getContext('2d');
+  if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function clearArcDrawHintClasses(): void {
+  if (!cy) return;
+  cy.nodes().removeClass('arc-draw-source arc-draw-target arc-draw-invalid');
+}
+
+function validArcEndpoints(
+  srcType: 'place' | 'transition',
+  tgtType: string,
+): boolean {
+  return (
+    (srcType === 'place' && tgtType === 'transition')
+    || (srcType === 'transition' && tgtType === 'place')
+  );
 }
 
 function updateArcGhost(clientX: number, clientY: number): void {
   if (!arcDrawState || !cy) return;
-  const srcNode = cy.$(`#${arcDrawState.sourceId}`).nodes().first();
+  const state = arcDrawState;
+  const srcNode = cy.$(`#${state.sourceId}`).filter('node').first();
   if (srcNode.empty()) return;
+
+  clearArcDrawHintClasses();
+  srcNode.addClass('arc-draw-source');
 
   const canvas = ghostCanvas();
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   const rect = el('cy').getBoundingClientRect();
-  const from = srcNode.renderedPosition();
+  const from = (srcNode as NodeSingular).renderedPosition();
   const to = { x: clientX - rect.left, y: clientY - rect.top };
 
+  const srcSingular = srcNode as unknown as NodeSingular;
+  let stroke = '#3b82f6';
+  let previewNew = false;
+
+  if (isPointerOverNode(clientX, clientY, srcSingular)) {
+    stroke = '#ef4444';
+  } else {
+    const targetNode = cy.nodes().filter((n) => {
+      if (n.id() === state.sourceId) return false;
+      if (n.data('type') === 'token-ghost') return false;
+      const nPos = n.renderedPosition();
+      const hw = n.renderedOuterWidth() / 2 + 4;
+      const hh = n.renderedOuterHeight() / 2 + 4;
+      return Math.abs(nPos.x - to.x) <= hw && Math.abs(nPos.y - to.y) <= hh;
+    }).first();
+
+    if (!targetNode.empty()) {
+      const tgtType = targetNode.data('type') as string;
+      if (validArcEndpoints(state.sourceType, tgtType)) {
+        targetNode.addClass('arc-draw-target');
+        stroke = '#22c55e';
+      } else {
+        targetNode.addClass('arc-draw-invalid');
+        stroke = '#f97316';
+      }
+    } else {
+      previewNew = true;
+    }
+  }
+
+  const lw = 1.5;
   ctx.beginPath();
-  ctx.setLineDash([6, 4]);
-  ctx.strokeStyle = '#3b82f6';
-  ctx.lineWidth = 2;
+  ctx.setLineDash(previewNew ? [6, 4] : []);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = lw;
+  ctx.lineCap = 'round';
   ctx.moveTo(from.x, from.y);
   ctx.lineTo(to.x, to.y);
   ctx.stroke();
-
-  // Arrowhead
-  const angle = Math.atan2(to.y - from.y, to.x - from.x);
-  const sz = 10;
-  ctx.beginPath();
   ctx.setLineDash([]);
+
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  const sz = 9;
+  ctx.beginPath();
   ctx.moveTo(to.x, to.y);
   ctx.lineTo(to.x - sz * Math.cos(angle - Math.PI / 6), to.y - sz * Math.sin(angle - Math.PI / 6));
   ctx.lineTo(to.x - sz * Math.cos(angle + Math.PI / 6), to.y - sz * Math.sin(angle + Math.PI / 6));
   ctx.closePath();
-  ctx.fillStyle = '#3b82f6';
+  ctx.fillStyle = stroke;
   ctx.fill();
+
+  if (previewNew && !isPointerOverNode(clientX, clientY, srcSingular)) {
+    ctx.beginPath();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.arc(to.x, to.y, 14, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 }
 
 function finishArcDraw(clientX: number, clientY: number): void {
-  if (!arcDrawState || !builder || !cy) { arcDrawState = null; return; }
+  if (!arcDrawState || !builder || !cy) {
+    arcDrawState = null;
+    clearGhostCanvas();
+    clearArcDrawHintClasses();
+    if (!editColaLayout) startEditCola();
+    return;
+  }
   const state = arcDrawState;
   arcDrawState = null;
-  cancelArcDraw();
+  clearGhostCanvas();
+  clearArcDrawHintClasses();
 
-  // Find node under cursor (excluding source)
+  const srcNode = cy.$(`#${state.sourceId}`).first();
+  if (srcNode.empty()) {
+    if (!editColaLayout) startEditCola();
+    return;
+  }
+
+  // Drop on source node → cancel (no new arc / node)
+  const srcSingular = srcNode as unknown as NodeSingular;
+  if (isPointerOverNode(clientX, clientY, srcSingular)) {
+    if (!editColaLayout) startEditCola();
+    return;
+  }
+
   const rect = el('cy').getBoundingClientRect();
   const rendered = { x: clientX - rect.left, y: clientY - rect.top };
 
@@ -816,7 +1305,7 @@ function finishArcDraw(clientX: number, clientY: number): void {
     return Math.abs(nPos.x - rendered.x) <= hw && Math.abs(nPos.y - rendered.y) <= hh;
   }).first();
 
-  const sourceBuilderID = parseInt(state.sourceId.slice(1));
+  const sourceBuilderID = parseInt(state.sourceId.slice(1), 10);
   const modelPos = clientToModelPos(clientX, clientY);
 
   if (!targetNode.empty()) {
@@ -827,9 +1316,7 @@ function finishArcDraw(clientX: number, clientY: number): void {
     } else if (state.sourceType === 'transition' && targetType === 'place') {
       builder.addArcTP(sourceBuilderID, targetBuilderID);
     }
-    // same-type drop: no-op
   } else {
-    // Create new opposite-type node + arc
     if (state.sourceType === 'place') {
       const newId = builder.addTransition(modelPos.x, modelPos.y, null);
       builder.addArcPT(sourceBuilderID, newId);
@@ -839,15 +1326,15 @@ function finishArcDraw(clientX: number, clientY: number): void {
     }
   }
 
-  renderBuilderNet();
+  syncEditBuilderGraph();
+  if (!editColaLayout) startEditCola();
 }
 
 function cancelArcDraw(): void {
   arcDrawState = null;
-  const canvas = ghostCanvas();
-  canvas.style.display = 'none';
-  const ctx = canvas.getContext('2d');
-  if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+  clearGhostCanvas();
+  clearArcDrawHintClasses();
+  if (!editColaLayout) startEditCola();
 }
 
 function clientToModelPos(clientX: number, clientY: number): { x: number; y: number } {
@@ -875,61 +1362,36 @@ function setupEditMode(): void {
     startArcDraw(evt.target as NodeSingular);
   });
 
-  // Track cursor for ghost arc
-  container.addEventListener('mousemove', (evt) => {
+  const onArcPointerMove = (evt: MouseEvent) => {
     if (arcDrawState) updateArcGhost(evt.clientX, evt.clientY);
-  });
-
-  // End arc drawing on mouse-up anywhere
-  container.addEventListener('mouseup', (evt) => {
+  };
+  const onArcPointerUp = (evt: MouseEvent) => {
     if (!editMode || !arcDrawState) return;
     if (evt.button === 2) finishArcDraw(evt.clientX, evt.clientY);
-  });
+  };
+  window.addEventListener('mousemove', onArcPointerMove);
+  window.addEventListener('mouseup', onArcPointerUp);
 
   // Escape cancels arc drawing
   window.addEventListener('keydown', (evt) => {
     if (evt.key === 'Escape' && arcDrawState) cancelArcDraw();
   });
 
-  // Right-click on empty canvas: add place (Shift = add transition)
-  cy.on('cxttap', (evt) => {
-    if (!editMode || arcDrawState) return;
-    if (evt.target !== cy) return; // only on background
-    const pos = (evt as cytoscape.EventObject & { position: { x: number; y: number } }).position;
-    if ((evt.originalEvent as MouseEvent).shiftKey) {
-      builder?.addTransition(pos.x, pos.y, null);
-    } else {
-      builder?.addPlace(pos.x, pos.y, null);
-    }
-    renderBuilderNet();
-    cy!.fit(undefined, 60);
+  cy.on('select unselect', () => {
+    if (editMode) updateEditSelectionUi();
   });
 
-  // Delete key: remove selected elements
+  (el('btn-apply-tokens') as HTMLButtonElement).addEventListener('click', applyTokensFromEditTools);
+  (el('btn-reverse-arc') as HTMLButtonElement).addEventListener('click', reverseSelectedArc);
+  (el('btn-delete-selection') as HTMLButtonElement).addEventListener('click', deleteEditSelection);
+
   document.addEventListener('keydown', (evt) => {
     if (!editMode || !builder || !cy) return;
     if (evt.key !== 'Delete' && evt.key !== 'Backspace') return;
-    const graph = cy;
-    const selected = graph.elements(':selected');
-    selected.forEach((ele) => {
-      const eleAny = ele as cytoscape.SingularElementReturnValue;
-      if (eleAny.isNode()) {
-        const type = eleAny.data('type') as string;
-        const id = eleAny.data('index') as number;
-        if (type === 'place') builder!.removePlace(id);
-        else if (type === 'transition') builder!.removeTransition(id);
-      } else {
-        // Edge — parse arc ID: arc_p{srcId}_t{tgtId} or arc_t{srcId}_p{tgtId}
-        const arcId = (ele as cytoscape.EdgeSingular).id();
-        const m = arcId.match(/^arc_([pt])(\d+)_([pt])(\d+)$/);
-        if (m) {
-          const [, aType, aId, , bId] = m;
-          if (aType === 'p') builder!.removeArcPT(parseInt(aId), parseInt(bId));
-          else builder!.removeArcTP(parseInt(aId), parseInt(bId));
-        }
-      }
-    });
-    renderBuilderNet();
+    const t = evt.target;
+    if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return;
+    evt.preventDefault();
+    deleteEditSelection();
   });
 
   // Double-click node in edit mode: combined rename + token editor
@@ -940,30 +1402,18 @@ function setupEditMode(): void {
     const id = node.data('index') as number;
 
     if (type === 'place') {
-      // Rename
       const newName = window.prompt(`Name for place (leave blank for default):`, node.data('name') as string);
       if (newName !== null) {
         builder.setPlaceName(id, newName);
-        node.data('name', newName || `p${id}`);
-      }
-      // Tokens
-      const input = window.prompt(`Initial tokens:`, String(node.data('tokens') as number));
-      if (input !== null) {
-        const n = Math.max(0, parseInt(input, 10) || 0);
-        builder.setInitialTokens(id, n);
-        node.data('tokens', n);
-        node.data('label', n > 0 ? tokenLabel(n) : '');
+        node.data('name', newName || defaultPlaceName(id));
       }
     } else {
       const newName = window.prompt(`Name for transition:`, node.data('name') as string);
       if (newName !== null) {
         builder.setTransitionName(id, newName);
-        const label = newName || `t${id}`;
-        node.data('name', label);
-        node.data('label', label);
       }
     }
-    tryBuildFromBuilder();
+    syncEditBuilderGraph();
   });
 
   // Sync drag positions back to builder
@@ -1006,23 +1456,30 @@ function netStyles(): cytoscape.StylesheetStyle[] {
       selector: 'node[type="place"]',
       style: {
         shape: 'ellipse',
-        width: 52,
-        height: 52,
+        width: 78,
+        height: 78,
         'background-color': '#ffffff',
         'border-width': 2,
         'border-color': '#334155',
         label: 'data(label)',
         'text-valign': 'center',
         'text-halign': 'center',
-        'font-size': 18,
+        'text-wrap': 'wrap',
+        'text-max-width': '104px',
+        'line-height': 1.22,
+        'font-size': 12,
         color: '#1e293b',
         'font-weight': 'bold',
         'min-zoomed-font-size': 4,
       } as cytoscape.Css.Node,
     },
     {
+      selector: 'node[type="place"][tokens > 0]',
+      style: { 'font-size': 13 } as cytoscape.Css.Node,
+    },
+    {
       selector: 'node[type="place"][tokens > 5]',
-      style: { 'font-size': 20 } as cytoscape.Css.Node,
+      style: { 'font-size': 14 } as cytoscape.Css.Node,
     },
     {
       selector: 'node[type="place"]:selected',
@@ -1030,6 +1487,30 @@ function netStyles(): cytoscape.StylesheetStyle[] {
         'border-color': '#3b82f6',
         'border-width': 3,
         'background-color': '#eff6ff',
+      } as cytoscape.Css.Node,
+    },
+    {
+      selector: 'node.arc-draw-source',
+      style: {
+        'border-color': '#9333ea',
+        'border-width': 4,
+        'background-color': '#faf5ff',
+      } as cytoscape.Css.Node,
+    },
+    {
+      selector: 'node.arc-draw-target',
+      style: {
+        'border-color': '#16a34a',
+        'border-width': 4,
+        'background-color': '#f0fdf4',
+      } as cytoscape.Css.Node,
+    },
+    {
+      selector: 'node.arc-draw-invalid',
+      style: {
+        'border-color': '#ea580c',
+        'border-width': 4,
+        'background-color': '#fff7ed',
       } as cytoscape.Css.Node,
     },
     {
@@ -1102,12 +1583,6 @@ function netStyles(): cytoscape.StylesheetStyle[] {
 
 // Helpers
 
-function tokenLabel(n: number): string {
-  if (n === 0) return '';
-  if (n <= 4) return '●'.repeat(n);
-  return String(n);
-}
-
 function el(id: string): HTMLElement {
   return document.getElementById(id)!;
 }
@@ -1116,4 +1591,17 @@ function setStatus(msg: string): void {
   el('status').textContent = msg;
 }
 
-main();
+async function bootstrap(): Promise<void> {
+  try {
+    setStatus('Loading engine…');
+    await initWasm();
+    setStatus('');
+    main();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('petrivet-wasm init failed:', e);
+    setStatus(`WASM failed to load: ${msg}`);
+  }
+}
+
+void bootstrap();

@@ -121,7 +121,8 @@ body.edit-mode #cy {
   left: 0;
   pointer-events: none;
   display: none;
-  z-index: 100;
+  /* Above Cytoscape’s canvas layers (they use high z-index internally) */
+  z-index: 100000;
 }
 
 kbd {
@@ -144,6 +145,27 @@ kbd {
   color: #64748b;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.toolbar-label-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toolbar-label-inline input[type='checkbox'] {
+  margin: 0;
+  accent-color: #3b82f6;
+}
+
+body.edit-mode .toolbar-physics {
+  visibility: hidden;
+  width: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
 }
 
 #layout-select {
@@ -209,9 +231,17 @@ kbd {
   white-space: nowrap;
 }
 
+body.edit-mode #status {
+  color: #94a3b8;
+  max-width: min(520px, 40vw);
+  white-space: normal;
+}
+
 /* ── Canvas ──────────────────────────────────────────────────────────────── */
 
 #cy {
+  position: relative;
+  z-index: 0;
   background: #ffffff;
   border-right: 1px solid var(--border);
   /* Cytoscape.js requires an explicit height when inside a grid */
@@ -238,6 +268,86 @@ kbd {
   text-transform: uppercase;
   color: #475569;
   margin-bottom: 10px;
+}
+
+.edit-tools {
+  display: none;
+  margin-top: 8px;
+  padding: 12px;
+  background: #1e293b;
+  border-radius: 8px;
+  border: 1px solid #334155;
+}
+
+.edit-tools h4 {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 10px;
+}
+
+.edit-tools label {
+  display: block;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 6px;
+}
+
+.edit-tools input[type='number'] {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.edit-tools button {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 5px;
+  border: 1px solid #334155;
+  background: #334155;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.edit-tools button:hover:not(:disabled) {
+  background: #475569;
+}
+
+.edit-tools button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.edit-tools .btn-danger {
+  background: #450a0a;
+  border-color: #991b1b;
+  color: #fecaca;
+}
+
+.edit-tools .btn-danger:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+body.edit-mode .edit-tools {
+  display: block;
+}
+
+#edit-sel-summary {
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 10px;
+  line-height: 1.4;
 }
 
 #net-name {
