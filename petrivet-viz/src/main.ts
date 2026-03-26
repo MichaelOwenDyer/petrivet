@@ -32,8 +32,8 @@ let lastAnalyzedMarking: number[] | null = null;
 // Edit mode
 let editMode = false;
 let builder: WasmNetBuilder | null = null;
-/** After "New net", fit the viewport once when the first node(s) appear. */
-let editPendingNewNetFit = false;
+/** After "New net", fit the viewport once after edit Cola has placed nodes. */
+let pendingFitForNewNet = false;
 /** Detect topology growth so Cola can restart and pick up new nodes. */
 let lastSyncedEditNodeCount = -1;
 /** Captured from the edit canvas before `build()` so simulation keeps the same layout. */
@@ -597,6 +597,9 @@ function layoutOptions(name: string): LayoutOpts {
         name: 'cola',
         infinite: true,
         animate: true,
+        // Default cola option is fit: true — that refits the viewport on every tick,
+        // which fights user zoom/pan while physics runs.
+        fit: false,
         refresh: 2,
         nodeSpacing: 24,
         edgeLength: 120,
@@ -763,13 +766,16 @@ function defaultViewportCenter(): { x: number; y: number } {
   return { x: (ext.x1 + ext.x2) / 2, y: (ext.y1 + ext.y2) / 2 };
 }
 
-function maybeFitNewNet(): void {
-  if (!editPendingNewNetFit || !cy || !builder) return;
-  const n = builder.placeCount() + builder.transitionCount();
-  if (n > 0) {
+/** One-time fit after creating a new net (waits for layout so bounds are valid). */
+function scheduleNewNetFitOnce(layout: ReturnType<Core['layout']>): void {
+  if (!pendingFitForNewNet || !cy) return;
+  const fitOnce = (): void => {
+    if (!pendingFitForNewNet || !cy) return;
+    pendingFitForNewNet = false;
     cy.fit(undefined, 60);
-    editPendingNewNetFit = false;
-  }
+  };
+  layout.one('layoutready', fitOnce);
+  window.setTimeout(fitOnce, 500);
 }
 
 function pauseEditCola(): void {
@@ -787,6 +793,7 @@ function startEditCola(): void {
   editColaLayout?.stop();
   const layout = cy.layout(layoutOptions('cola'));
   editColaLayout = layout;
+  scheduleNewNetFitOnce(layout);
   layout.run();
 }
 
@@ -805,12 +812,12 @@ function enterEditMode(newNet: boolean): void {
     builder = createSeededNetBuilder();
     sys?.free();
     sys = null;
-    editPendingNewNetFit = true;
+    pendingFitForNewNet = true;
   } else {
     builder = sys.toBuilder();
     sys.free();
     sys = null;
-    editPendingNewNetFit = false;
+    pendingFitForNewNet = false;
   }
 
   if (layoutSeed && builder) {
@@ -831,7 +838,6 @@ function enterEditMode(newNet: boolean): void {
 
   lastAnalyzedMarking = null;
   syncEditBuilderGraph();
-  maybeFitNewNet();
   updateEditSelectionUi();
 }
 
@@ -989,7 +995,6 @@ function syncEditBuilderGraph(): void {
   }
 
   updateEditStatus();
-  maybeFitNewNet();
 
   const nodeCount = s.places.length + s.transitions.length;
   if (editMode && !arcDrawState && nodeCount > 0) {
