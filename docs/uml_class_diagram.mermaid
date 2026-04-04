@@ -1,0 +1,78 @@
+classDiagram
+direction LR
+
+class NetBuilder {
+    +add_place()
+    +add_transition()
+    +add_arc()
+    +build() Net
+}
+
+class Net {
+    +place_count()
+    +transition_count()
+    +arcs()
+    +class()
+}
+
+class System {
+    +current_marking()
+    +enabled_transitions()
+    +try_fire()
+    +analyze_boundedness()
+    +analyze_liveness()
+    +analyze_deadlock_freedom()
+    +analyze_reachability()
+    +analyze_coverability()
+}
+
+class NetLabels
+class PnmlDocument
+class PnmlGraphics
+
+class WasmSystem {
+    +parsePnml()
+    +netStructure()
+    +currentMarking()
+    +enabledTransitions()
+    +fire()
+    +reset()
+    +analyzeBoundedness()
+    +analyzeLiveness()
+    +analyzeDeadlockFreedom()
+    +analyzeReachability()
+    +analyzeCoverability()
+    +toDot()
+    +toBuilder()
+}
+
+class WasmNetBuilder {
+    +addPlace()
+    +addTransition()
+    +addArcPT()
+    +addArcTP()
+    +structure()
+    +build()
+}
+
+class NetSnapshot
+class BuilderSnapshot
+
+class PetrinetVizApp
+class CytoscapeRenderer
+class LayoutModule
+
+NetBuilder --> Net
+Net --> System
+PnmlDocument --> System
+PnmlDocument --> NetLabels
+PnmlDocument --> PnmlGraphics
+System --> WasmSystem
+Net --> WasmSystem
+NetBuilder --> WasmNetBuilder
+WasmSystem --> NetSnapshot
+WasmNetBuilder --> BuilderSnapshot
+NetSnapshot --> PetrinetVizApp
+BuilderSnapshot --> PetrinetVizApp
+PetrinetVizApp --> CytoscapeRenderer
+PetrinetVizApp --> LayoutModule

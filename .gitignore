@@ -1,6 +1,7 @@
 /target
 .idea
 .cursor
+.env
 petrivet-wasm/pkg
 node_modules
 petrivet-viz/dist
