@@ -4,7 +4,7 @@
 //! struct with two parts:
 //!
 //! 1. **Uniform fields**: always valid regardless of which method was used.
-//!    For example, [`BoundednessAnalysis::place_bound_for_key`] always returns a
+//!    For example, [`BoundednessAnalysis::place_bound`] always returns a
 //!    per-place bound (tight or upper-estimate depending on method).
 //!
 //! 2. **Evidence enum**: describes *how* the answer was obtained and carries
@@ -72,15 +72,13 @@ pub struct SiphonTrapPair {
 
 /// Result of boundedness analysis.
 ///
-/// `place_bound_for_key` always returns a bound for any place in the net.
+/// `place_bound` returns the bound for any place in the net by its key.
 /// When proved via the structural LP, bounds are derived upper estimates
 /// (potentially loose). When proved via the coverability graph, bounds are exact.
 #[derive(Debug, Clone)]
 pub struct BoundednessAnalysis {
-    /// Per-place bounds, indexed by dense place index (internal).
-    pub(crate) place_bounds: PlaceMap<Omega>,
-    /// Place keys in dense-index order, for key-based lookup.
-    pub(crate) place_keys: Vec<PlaceKey>,
+    /// Per-place bounds paired with their stable keys, in dense-index order.
+    pub(crate) bounds: Box<[(PlaceKey, Omega)]>,
     /// How the result was obtained.
     pub method: BoundednessAnalysisMethod,
 }
@@ -89,40 +87,32 @@ impl BoundednessAnalysis {
     /// Returns the bound of the system as a whole: the maximum over all places.
     #[must_use]
     pub fn system_bound(&self) -> Omega {
-        self.place_bounds.values().max().copied().unwrap_or_default()
+        self.bounds.iter().map(|(_, b)| *b).max().unwrap_or_default()
     }
 
     /// Returns the bound for a specific place identified by its [`PlaceKey`].
     ///
     /// Returns `None` if the key does not belong to the analysed net.
     #[must_use]
-    pub fn place_bound_for_key(&self, pk: PlaceKey) -> Option<Omega> {
-        let idx = self.place_keys.iter().position(|&k| k == pk)?;
-        Some(self.place_bounds[Place::from_index(idx as u32)])
+    pub fn place_bound(&self, pk: PlaceKey) -> Option<Omega> {
+        self.bounds.iter().find(|(k, _)| *k == pk).map(|(_, b)| *b)
     }
 
-    /// Returns the bound for a specific place by its dense index.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the provided place is not found in the net.
+    /// Returns the bound for a specific place by its dense index (crate-internal).
     #[must_use]
-    pub(crate) fn place_bound(&self, p: Place) -> Omega {
-        self.place_bounds[p]
+    pub(crate) fn place_bound_dense(&self, p: Place) -> Omega {
+        self.bounds[p.usize_index()].1
     }
 
     /// Per-place bounds in dense index order.
     #[must_use]
     pub fn place_bounds_dense(&self) -> Vec<Omega> {
-        self.place_bounds.values().copied().collect()
+        self.bounds.iter().map(|(_, b)| *b).collect()
     }
 
     /// Per-place bounds as `(PlaceKey, Omega)` pairs in dense-index order.
     pub fn place_bounds_iter(&self) -> impl Iterator<Item = (PlaceKey, Omega)> + '_ {
-        self.place_keys
-            .iter()
-            .copied()
-            .zip(self.place_bounds.values().copied())
+        self.bounds.iter().copied()
     }
 }
 
@@ -186,7 +176,7 @@ impl LivenessLevel {
 
 /// Result of liveness analysis.
 ///
-/// `transition_level_for_key` returns the liveness level for any transition
+/// `transition_level` returns the liveness level for any transition
 /// by its stable [`TransitionKey`] handle.
 /// When proved via Commoner's theorem (free-choice nets), all transitions are L4.
 /// When proved via SCC analysis on the reachability graph, levels are
@@ -216,14 +206,14 @@ impl LivenessAnalysis {
     ///
     /// Returns `None` if the key does not belong to the analysed net.
     #[must_use]
-    pub fn transition_level_for_key(&self, tk: TransitionKey) -> Option<LivenessLevel> {
+    pub fn transition_level(&self, tk: TransitionKey) -> Option<LivenessLevel> {
         let idx = self.transition_keys.iter().position(|&k| k == tk)?;
         Some(self.levels[Transition::from_index(idx as u32)])
     }
 
     /// Liveness level of a specific transition by dense index (crate-internal).
     #[must_use]
-    pub(crate) fn transition_level(&self, t: Transition) -> LivenessLevel {
+    pub(crate) fn transition_level_dense(&self, t: Transition) -> LivenessLevel {
         self.levels[t]
     }
 
@@ -439,8 +429,12 @@ impl ReachabilityResult {
     }
 }
 
-/// A dense-index firing sequence. Internal alias used during construction.
-pub(crate) type FiringSequence = Box<[Transition]>;
+/// A stable-handle firing sequence: a sequence of [`TransitionKey`]s
+/// representing the order in which transitions fire.
+pub type FiringSequence = Box<[TransitionKey]>;
+
+/// Internal alias for dense-index firing sequences used during construction.
+pub(crate) type DenseFiringSequence = Box<[Transition]>;
 
 /// Internal alias for Parikh vectors (dense).
 pub(crate) type ParikhVector<T> = TransitionMap<T>;

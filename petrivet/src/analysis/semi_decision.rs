@@ -83,7 +83,7 @@ pub fn find_marking_equation_rational_solution(
         .map(|p| {
             let lhs: Expression = net
                 .transitions()
-                .map(|t| incidence.get(p, t) as f64 * firing_counts[t])
+                .map(|t| incidence.get_dense(p, t) as f64 * firing_counts[t])
                 .sum();
             let rhs = f64::from(target[p]) - f64::from(initial[p]);
             constraint!(lhs == rhs)
@@ -138,7 +138,7 @@ pub fn find_marking_equation_integer_solution(
         .map(|p| {
             let lhs: Expression = net
                 .transitions()
-                .map(|t| incidence.get(p, t) as f64 * firing_counts[t])
+                .map(|t| incidence.get_dense(p, t) as f64 * firing_counts[t])
                 .sum();
             let rhs = f64::from(target[p]) - f64::from(initial[p]);
             constraint!(lhs == rhs)
@@ -186,7 +186,7 @@ pub fn find_covering_equation_rational_solution(
         .map(|p| {
             let change: Expression = net
                 .transitions()
-                .map(|t| f64::from(incidence.get(p, t)) * parikh_vector[t])
+                .map(|t| f64::from(incidence.get_dense(p, t)) * parikh_vector[t])
                 .sum();
             let m0_p = f64::from(initial[p]);
             let thresh = f64::from(threshold[p]);
@@ -235,7 +235,7 @@ pub fn find_covering_equation_integer_solution(
         .map(|p| {
             let change: Expression = net
                 .transitions()
-                .map(|t| incidence.get(p, t) as f64 * parikh_vector[t])
+                .map(|t| incidence.get_dense(p, t) as f64 * parikh_vector[t])
                 .sum();
             let m0_p = f64::from(initial[p]);
             let thresh = f64::from(threshold[p]);
@@ -298,7 +298,7 @@ pub(crate) fn find_positive_place_subvariant(net: &Net) -> Option<PlaceMap<f64>>
         .transitions()
         .map(|t| {
             let token_delta: Expression = net.places()
-                .map(|p| f64::from(incidence.get(p, t)) * place_weights[p])
+                .map(|p| f64::from(incidence.get_dense(p, t)) * place_weights[p])
                 .sum();
             constraint!(token_delta <= 0.0)
         });
@@ -353,7 +353,7 @@ pub(crate) fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<
         .map(|t| {
             let token_delta: Expression = net
                 .places()
-                .map(|p| f64::from(incidence.get(p, t)) * place_weights[p])
+                .map(|p| f64::from(incidence.get_dense(p, t)) * place_weights[p])
                 .sum();
             constraint!(token_delta <= 0.0)
         });

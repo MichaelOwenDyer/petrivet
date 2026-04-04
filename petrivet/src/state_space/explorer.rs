@@ -4,6 +4,7 @@
 //! [`CoverabilityGraph`](crate::CoverabilityExplorer) and
 //! [`ReachabilityGraph`](crate::ReachabilityGraph) instead.
 
+use crate::analysis::model::FiringSequence;
 use crate::marking::{Marking, Omega};
 use crate::net::{Net, Transition, TransitionKey};
 use petgraph::graph::NodeIndex;
@@ -202,7 +203,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     }
 
     /// Find a path from initial to target using A*.
-    pub fn path_to(&self, target: NodeIndex) -> Option<Box<[TransitionKey]>> {
+    pub fn path_to(&self, target: NodeIndex) -> Option<FiringSequence> {
         if target == self.initial_idx {
             return Some(Box::new([]));
         }

@@ -127,12 +127,12 @@ impl WasmSystem {
 
         if let Some(labels) = &self.labels {
             for (i, &pk) in self.place_keys.iter().enumerate() {
-                if let Some(name) = labels.place_name(net, pk) {
+                if let Some(name) = labels.place_name(pk) {
                     place_names.insert(i as u32, name.to_string());
                 }
             }
             for (i, &tk) in self.transition_keys.iter().enumerate() {
-                if let Some(name) = labels.transition_name(net, tk) {
+                if let Some(name) = labels.transition_name(tk) {
                     transition_names.insert(i as u32, name.to_string());
                 }
             }
@@ -260,7 +260,7 @@ impl WasmSystem {
             .map(|&pk| {
                 self.labels
                     .as_ref()
-                    .and_then(|l| l.place_name(net, pk))
+                    .and_then(|l| l.place_name(pk))
                     .map(str::to_string)
             })
             .collect();
@@ -269,7 +269,7 @@ impl WasmSystem {
             .map(|&tk| {
                 self.labels
                     .as_ref()
-                    .and_then(|l| l.transition_name(net, tk))
+                    .and_then(|l| l.transition_name(tk))
                     .map(str::to_string)
             })
             .collect();
@@ -590,7 +590,7 @@ impl WasmSystem {
             let label = self
                 .labels
                 .as_ref()
-                .and_then(|l| l.place_name(net, pk))
+                .and_then(|l| l.place_name(pk))
                 .unwrap_or("");
             let display = if label.is_empty() {
                 format!("p{i}")
@@ -607,7 +607,7 @@ impl WasmSystem {
             let label = self
                 .labels
                 .as_ref()
-                .and_then(|l| l.transition_name(net, tk))
+                .and_then(|l| l.transition_name(tk))
                 .unwrap_or("");
             let display = if label.is_empty() {
                 format!("t{i}")
@@ -970,20 +970,17 @@ impl WasmNetBuilder {
         let net = self.builder.clone().build()
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let mut labels = NetLabels::with_capacity(
-            net.place_count() as usize,
-            net.transition_count() as usize,
-        );
+        let mut labels = NetLabels::new(&net);
         for pk in &sorted_place_ids {
             let js_id = pk_to_js[pk];
             if let Some(name) = self.place_names.get(&js_id) {
-                labels.set_place_name(&net, *pk, name);
+                labels.set_place_name(*pk, name);
             }
         }
         for tk in &sorted_trans_ids {
             let js_id = tk_to_js[tk];
             if let Some(name) = self.transition_names.get(&js_id) {
-                labels.set_transition_name(&net, *tk, name);
+                labels.set_transition_name(*tk, name);
             }
         }
         if let Some(name) = &self.net_name {

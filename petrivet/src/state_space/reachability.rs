@@ -382,7 +382,7 @@ impl<'a> ReachabilityGraph<'a> {
     ///
     /// To get per-key results, use [`System::analyze_liveness`] which returns a
     /// [`LivenessAnalysis`] with key-based access via
-    /// [`transition_level_for_key`](crate::analysis::model::LivenessAnalysis::transition_level_for_key).
+    /// [`transition_level`](crate::analysis::model::LivenessAnalysis::transition_level).
     #[must_use]
     pub(crate) fn liveness_levels(&self) -> TransitionMap<LivenessLevel> {
         use petgraph::visit::EdgeRef;

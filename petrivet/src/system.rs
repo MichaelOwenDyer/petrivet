@@ -303,8 +303,8 @@ mod tests {
         // With [0, 0], both transitions are dead (never fireable)
         let sys = System::new(net, [0, 0]);
         let liveness = sys.analyze_liveness();
-        assert!(liveness.transition_level_for_key(t0).is_some_and(|l| l.is_dead()));
-        assert!(liveness.transition_level_for_key(t1).is_some_and(|l| l.is_dead()));
+        assert!(liveness.transition_level(t0).is_some_and(|l| l.is_dead()));
+        assert!(liveness.transition_level(t1).is_some_and(|l| l.is_dead()));
     }
 
     #[test]
@@ -312,8 +312,8 @@ mod tests {
         let (net, t0, t1) = two_place_cycle();
         let sys = System::new(net, [1, 0]);
         let liveness = sys.analyze_liveness();
-        assert!(liveness.transition_level_for_key(t0).is_some_and(|l| !l.is_dead()));
-        assert!(liveness.transition_level_for_key(t1).is_some_and(|l| !l.is_dead()));
+        assert!(liveness.transition_level(t0).is_some_and(|l| !l.is_dead()));
+        assert!(liveness.transition_level(t1).is_some_and(|l| !l.is_dead()));
     }
 
     #[test]

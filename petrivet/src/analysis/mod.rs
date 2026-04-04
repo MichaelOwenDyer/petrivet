@@ -23,7 +23,7 @@
 
 use crate::analysis::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CoverabilityProof, CoverabilityResult, Deadlock, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof};
 use crate::net::Place;
-use crate::{ExplorationOrder, Marking, Net, Omega, OmegaMarking, PlaceMap, System, TransitionMap};
+use crate::{ExplorationOrder, Marking, Net, Omega, OmegaMarking, PlaceKey, PlaceMap, System, TransitionMap};
 
 pub mod structural;
 pub mod semi_decision;
@@ -40,22 +40,20 @@ impl<N: AsRef<Net>> System<N> {
     #[must_use]
     pub fn analyze_boundedness(&self) -> BoundednessAnalysis {
         let net = self.net.as_ref();
-        let place_keys: Vec<_> = net.place_keys().collect();
 
         if let Some(place_weights) = semi_decision::find_positive_place_subvariant(net) {
             let weighted_sum: f64 = net.places()
                 .map(|p| place_weights[p] * f64::from(self.marking[p]))
                 .sum();
-            let place_bounds: PlaceMap<Omega> = net.places()
+            let bounds: Box<[(PlaceKey, Omega)]> = net.places()
                 .map(|p| {
                     let bound = (weighted_sum / place_weights[p]).floor() as u32;
-                    Omega::Finite(bound)
+                    (net.place_key(p), Omega::Finite(bound))
                 })
                 .collect();
 
             return BoundednessAnalysis {
-                place_bounds,
-                place_keys,
+                bounds,
                 method: BoundednessAnalysisMethod::PositivePlaceSubvariant(place_weights),
             };
         }
@@ -64,9 +62,11 @@ impl<N: AsRef<Net>> System<N> {
         let place_bounds = cg.place_bounds();
 
         // todo: also return cg?
+        let bounds: Box<[(PlaceKey, Omega)]> = net.place_keys()
+            .zip(place_bounds.values().copied())
+            .collect();
         BoundednessAnalysis {
-            place_bounds,
-            place_keys,
+            bounds,
             method: BoundednessAnalysisMethod::CoverabilityGraph,
         }
     }
@@ -430,12 +430,10 @@ mod tests {
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p1, t1)); b.add_arc((t1, p0));
         let net = b.build().unwrap();
-        let t0 = net.dense_transition(t0);
-        let t1 = net.dense_transition(t1);
         let sys = System::new(net, [1u32, 0]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), LivenessLevel::L4);
-        assert_eq!(analysis.transition_level(t1), LivenessLevel::L4);
+        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L4));
+        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L4));
         assert!(matches!(analysis.method, LivenessMethod::SNet(_)));
     }
 
@@ -448,12 +446,10 @@ mod tests {
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p1, t1)); b.add_arc((t1, p0));
         let net = b.build().unwrap();
-        let t0 = net.dense_transition(t0);
-        let t1 = net.dense_transition(t1);
         let sys = System::new(net, [0u32, 0]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), LivenessLevel::L0);
-        assert_eq!(analysis.transition_level(t1), LivenessLevel::L0);
+        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
+        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
     }
 
     /// Non-SC S-net: sink SCC marked → L4; non-sink SCC marked → L3;
@@ -479,23 +475,18 @@ mod tests {
         b.add_arc((p3, t4)); b.add_arc((t4, p2));
 
         let net = b.build().unwrap();
-        let t0 = net.dense_transition(t0);
-        let t1 = net.dense_transition(t1);
-        let t2 = net.dense_transition(t2);
-        let t3 = net.dense_transition(t3);
-        let t4 = net.dense_transition(t4);
         assert!(net.is_s_net());
         let sys = System::new(net, [1u32, 0, 0, 0]);
         let analysis = sys.analyze_liveness();
 
         // SCC_A is non-sink and marked → internal transitions L3
-        assert_eq!(analysis.transition_level(t0), LivenessLevel::L3);
-        assert_eq!(analysis.transition_level(t1), LivenessLevel::L3);
+        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L3));
+        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L3));
         // Inter-SCC transition → L1
-        assert_eq!(analysis.transition_level(t2), LivenessLevel::L1);
+        assert_eq!(analysis.transition_level(t2), Some(LivenessLevel::L1));
         // SCC_B is sink and reachable (receives tokens from SCC_A) → L4
-        assert_eq!(analysis.transition_level(t3), LivenessLevel::L4);
-        assert_eq!(analysis.transition_level(t4), LivenessLevel::L4);
+        assert_eq!(analysis.transition_level(t3), Some(LivenessLevel::L4));
+        assert_eq!(analysis.transition_level(t4), Some(LivenessLevel::L4));
     }
 
     /// Non-SC S-net: unreachable sink SCC → L0.
@@ -514,19 +505,15 @@ mod tests {
         b.add_arc((p3, t3)); b.add_arc((t3, p1));
 
         let net = b.build().unwrap();
-        let t0 = net.dense_transition(t0);
-        let t1 = net.dense_transition(t1);
-        let t2 = net.dense_transition(t2);
-        let t3 = net.dense_transition(t3);
         assert!(net.is_s_net());
 
         // No tokens anywhere → everything L0
         let sys = System::new(net, [0u32, 0, 0, 0]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), LivenessLevel::L0);
-        assert_eq!(analysis.transition_level(t1), LivenessLevel::L0);
-        assert_eq!(analysis.transition_level(t2), LivenessLevel::L0);
-        assert_eq!(analysis.transition_level(t3), LivenessLevel::L0);
+        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
+        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
+        assert_eq!(analysis.transition_level(t2), Some(LivenessLevel::L0));
+        assert_eq!(analysis.transition_level(t3), Some(LivenessLevel::L0));
     }
 
     /// SC T-net: all circuits marked → all L4.
@@ -541,16 +528,14 @@ mod tests {
         b.add_arc((t1, p1)); b.add_arc((p1, t0));
         b.add_arc((t0, p2)); b.add_arc((p2, t1)); // second path
         let net = b.build().unwrap();
-        let t0 = net.dense_transition(t0);
-        let t1 = net.dense_transition(t1);
         assert!(net.is_t_net());
 
         // Mark all circuits: p0=1, p1=1, p2=0 → circuit {p0,p2}→ sum=1, {p1}→ sum=1
         // Actually let's mark all places for safety
         let sys = System::new(net, [1u32, 1, 1]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), LivenessLevel::L4);
-        assert_eq!(analysis.transition_level(t1), LivenessLevel::L4);
+        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L4));
+        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L4));
         assert!(matches!(analysis.method, LivenessMethod::TNet(_)));
     }
 
@@ -563,14 +548,12 @@ mod tests {
         b.add_arc((t0, p0)); b.add_arc((p0, t1));
         b.add_arc((t1, p1)); b.add_arc((p1, t0));
         let net = b.build().unwrap();
-        let t0 = net.dense_transition(t0);
-        let t1 = net.dense_transition(t1);
         assert!(net.is_t_net());
 
         let sys = System::new(net, [0u32, 0]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), LivenessLevel::L0);
-        assert_eq!(analysis.transition_level(t1), LivenessLevel::L0);
+        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
+        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
     }
 
     /// Non-SC T-net with source transition: source always L4, downstream L4
@@ -589,19 +572,16 @@ mod tests {
         b.add_arc((t0, p0)); b.add_arc((p0, t1));
         b.add_arc((t1, p1)); b.add_arc((p1, t0));
         let net = b.build().unwrap();
-        let t_src = net.dense_transition(t_src);
-        let t0 = net.dense_transition(t0);
-        let t1 = net.dense_transition(t1);
         assert!(net.is_t_net());
 
         // Cycle {p0, p1} has 1 token → marked
         let sys = System::new(net, [0u32, 1, 0]);
         let analysis = sys.analyze_liveness();
         // t_src is always enabled (no inputs) → L4
-        assert_eq!(analysis.transition_level(t_src), LivenessLevel::L4);
+        assert_eq!(analysis.transition_level(t_src), Some(LivenessLevel::L4));
         // t0 depends on p_src (from L4 t_src) and p1 (from marked cycle) → L4
-        assert_eq!(analysis.transition_level(t0), LivenessLevel::L4);
-        assert_eq!(analysis.transition_level(t1), LivenessLevel::L4);
+        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L4));
+        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L4));
     }
 
     /// Non-SC T-net: predecessor SCC dead → downstream dead.
@@ -620,19 +600,15 @@ mod tests {
         b.add_arc((t3, p3)); b.add_arc((p3, t2));
 
         let net = b.build().unwrap();
-        let t0 = net.dense_transition(t0);
-        let t1 = net.dense_transition(t1);
-        let t2 = net.dense_transition(t2);
-        let t3 = net.dense_transition(t3);
         assert!(net.is_t_net());
 
         // SCC_A unmarked, SCC_B marked but predecessor dead
         let sys = System::new(net, [0u32, 0, 0, 1, 0]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), LivenessLevel::L0);
-        assert_eq!(analysis.transition_level(t1), LivenessLevel::L0);
-        assert_eq!(analysis.transition_level(t2), LivenessLevel::L0);
-        assert_eq!(analysis.transition_level(t3), LivenessLevel::L0);
+        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
+        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
+        assert_eq!(analysis.transition_level(t2), Some(LivenessLevel::L0));
+        assert_eq!(analysis.transition_level(t3), Some(LivenessLevel::L0));
     }
 
     /// Free-choice net liveness dispatch (via CHC).

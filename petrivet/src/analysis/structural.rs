@@ -59,6 +59,9 @@ pub struct IncidenceMatrix {
     data: Vec<i32>,
     rows: usize,
     cols: usize,
+    /// Key→dense-index maps cloned from the net at construction time.
+    place_keys: Box<[PlaceKey]>,
+    transition_keys: Box<[TransitionKey]>,
 }
 
 impl IncidenceMatrix {
@@ -76,14 +79,20 @@ impl IncidenceMatrix {
                 data[p.usize_index() * cols + t.usize_index()] += 1;
             }
         }
-        IncidenceMatrix { data, rows, cols }
+        IncidenceMatrix {
+            data,
+            rows,
+            cols,
+            place_keys: net.place_keys().collect(),
+            transition_keys: net.transition_keys().collect(),
+        }
     }
 
     /// Constructs an incidence matrix from raw data in row-major order.
     #[must_use]
     pub fn from_raw(data: Vec<i32>, rows: usize, cols: usize) -> Self {
         debug_assert_eq!(data.len(), rows * cols);
-        Self { data, rows, cols }
+        Self { data, rows, cols, place_keys: Box::new([]), transition_keys: Box::new([]) }
     }
 
     /// Number of rows (places).
@@ -98,63 +107,52 @@ impl IncidenceMatrix {
         self.cols
     }
 
-    /// Entry at (row, col) = N\[place\]\[transition\].
+    /// Entry at (row, col) = N\[place\]\[transition\] (crate-internal, by dense index).
     #[must_use]
-    pub(crate) fn get(&self, row: Place, col: Transition) -> i32 {
+    pub(crate) fn get_dense(&self, row: Place, col: Transition) -> i32 {
         self.data[row.usize_index() * self.cols + col.usize_index()]
     }
 
     /// Entry at (place, transition) using stable handles.
     ///
-    /// Returns `None` if either key is out of range for this matrix.
+    /// Returns `None` if either key is not present in this matrix.
     #[must_use]
-    pub fn get_by_key(&self, net: &Net, pk: PlaceKey, tk: TransitionKey) -> Option<i32> {
-        let row = net.dense_place(pk);
-        let col = net.dense_transition(tk);
-        if row.usize_index() < self.rows && col.usize_index() < self.cols {
-            Some(self.data[row.usize_index() * self.cols + col.usize_index()])
-        } else {
-            None
-        }
+    pub fn get(&self, pk: PlaceKey, tk: TransitionKey) -> Option<i32> {
+        let row = self.place_keys.iter().position(|&k| k == pk)?;
+        let col = self.transition_keys.iter().position(|&k| k == tk)?;
+        Some(self.data[row * self.cols + col])
     }
 
-    /// Row slice for a given place (dense index, crate-internal).
+    /// Row slice for a given place (crate-internal, by dense index).
     #[must_use]
-    pub(crate) fn row(&self, p: Place) -> &[i32] {
+    pub(crate) fn row_dense(&self, p: Place) -> &[i32] {
         let start = p.usize_index() * self.cols;
         &self.data[start..start + self.cols]
     }
 
     /// Row slice for a given place by its [`PlaceKey`].
     ///
-    /// Returns `None` if the key is out of range.
+    /// Returns `None` if the key is not present in this matrix.
     #[must_use]
-    pub fn row_by_key(&self, net: &Net, pk: PlaceKey) -> Option<&[i32]> {
-        let p = net.dense_place(pk);
-        if p.usize_index() < self.rows {
-            Some(self.row(p))
-        } else {
-            None
-        }
+    pub fn row(&self, pk: PlaceKey) -> Option<&[i32]> {
+        let idx = self.place_keys.iter().position(|&k| k == pk)?;
+        let start = idx * self.cols;
+        Some(&self.data[start..start + self.cols])
     }
 
-    /// Returns a column vector (extracting one transition across all places) (crate-internal).
+    /// Returns a column vector (crate-internal, by dense index).
     #[must_use]
-    pub(crate) fn col(&self, t: Transition) -> Vec<i32> {
+    pub(crate) fn col_dense(&self, t: Transition) -> Vec<i32> {
         (0..self.rows).map(|p| self.data[p * self.cols + t.usize_index()]).collect()
     }
 
     /// Returns a column vector for a given transition by its [`TransitionKey`].
     ///
-    /// Returns `None` if the key is out of range.
+    /// Returns `None` if the key is not present in this matrix.
     #[must_use]
-    pub fn col_by_key(&self, net: &Net, tk: TransitionKey) -> Option<Vec<i32>> {
-        let t = net.dense_transition(tk);
-        if t.usize_index() < self.cols {
-            Some(self.col(t))
-        } else {
-            None
-        }
+    pub fn col(&self, tk: TransitionKey) -> Option<Vec<i32>> {
+        let idx = self.transition_keys.iter().position(|&k| k == tk)?;
+        Some((0..self.rows).map(|p| self.data[p * self.cols + idx]).collect())
     }
 
     /// Returns the transpose (|T| × |P| matrix).
@@ -166,7 +164,15 @@ impl IncidenceMatrix {
                 data[c * self.rows + r] = self.data[r * self.cols + c];
             }
         }
-        Self { data, rows: self.cols, cols: self.rows }
+        Self {
+            data,
+            rows: self.cols,
+            cols: self.rows,
+            // Key maps are not meaningful for the transpose (row↔col swap),
+            // so leave them empty. Callers use dense methods on the transpose.
+            place_keys: Box::new([]),
+            transition_keys: Box::new([]),
+        }
     }
 }
 
@@ -174,7 +180,7 @@ impl fmt::Display for IncidenceMatrix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for idx in 0..self.rows {
             write!(f, "[")?;
-            for (t, val) in self.row(Place::from_index(idx as u32)).iter().enumerate() {
+            for (t, val) in self.row_dense(Place::from_index(idx as u32)).iter().enumerate() {
                 if t > 0 { write!(f, ", ")?; }
                 write!(f, "{val:>3}")?;
             }
@@ -439,8 +445,8 @@ pub(crate) fn minimal_siphons_dense(net: &Net) -> Box<[HashSet<Place>]> {
 #[must_use]
 pub fn minimal_siphons(net: &Net) -> Box<[HashSet<PlaceKey>]> {
     minimal_siphons_dense(net)
-        .iter()
-        .map(|s| s.iter().map(|&p| net.place_key(p)).collect())
+        .into_iter()
+        .map(|s| s.into_iter().map(|p| net.place_key(p)).collect())
         .collect()
 }
 
@@ -738,8 +744,8 @@ pub fn commoner_hack_criterion(
         let trap = maximal_trap_in(net, &siphon);
         let trap_is_marked = !trap.is_empty() && trap.iter().any(|&p| marking[p] > 0);
         SiphonTrapPair {
-            siphon: siphon.iter().map(|&p| net.place_key(p)).collect(),
-            trap: trap.iter().map(|&p| net.place_key(p)).collect(),
+            siphon: siphon.into_iter().map(|p| net.place_key(p)).collect(),
+            trap: trap.into_iter().map(|p| net.place_key(p)).collect(),
             trap_is_marked,
         }
     }).collect();
@@ -766,9 +772,9 @@ pub fn commoner_hack_criterion(
 /// - [Primer, Definition 5.9](crate::literature#definition-59--s-components-and-t-components)
 #[derive(Debug, Clone)]
 pub struct SComponent {
-    /// Places in this S-component, identified by stable handles.
+    /// Places in this S-component.
     pub places: HashSet<PlaceKey>,
-    /// Transitions in this S-component, identified by stable handles.
+    /// Transitions in this S-component.
     pub transitions: HashSet<TransitionKey>,
 }
 
@@ -786,9 +792,9 @@ pub struct SComponent {
 /// - [Primer, Definition 5.9](crate::literature#definition-59--s-components-and-t-components)
 #[derive(Debug, Clone)]
 pub struct TComponent {
-    /// Places in this T-component, identified by stable handles.
+    /// Places in this T-component.
     pub places: HashSet<PlaceKey>,
-    /// Transitions in this T-component, identified by stable handles.
+    /// Transitions in this T-component.
     pub transitions: HashSet<TransitionKey>,
 }
 
@@ -802,8 +808,6 @@ pub struct TComponent {
 /// For well-structured nets (especially free-choice), the S-invariant basis
 /// directly yields the S-components. For general nets, this finds all
 /// S-components that correspond to S-invariant supports.
-///
-/// Places and transitions are returned as stable [`PlaceKey`]/[`TransitionKey`] handles.
 #[must_use]
 pub fn s_components(net: &Net) -> Vec<SComponent> {
     let inv = compute_invariants(net);
@@ -840,9 +844,12 @@ pub fn s_components(net: &Net) -> Vec<SComponent> {
         let dense_transitions: HashSet<Transition> = net
             .transitions()
             .filter(|&t| {
-                let pre_count = net.dense_input_places(t).iter().filter(|p| dense_places.contains(p)).count();
-                let post_count = net.dense_output_places(t).iter().filter(|p| dense_places.contains(p)).count();
-                pre_count == 1 && post_count == 1
+                let exactly_one_in_set = |places: &[Place]| {
+                    let mut it = places.iter().filter(|&&p| dense_places.contains(&p));
+                    it.next().is_some() && it.next().is_none()
+                };
+                exactly_one_in_set(net.dense_input_places(t))
+                    && exactly_one_in_set(net.dense_output_places(t))
             })
             .collect();
 
@@ -1116,30 +1123,34 @@ pub(crate) fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAn
         }
     }
 
-    // Build components in topological order.
-    for (rev_idx, scc) in sccs.iter().enumerate() {
+    // Build components in topological order (domain data, still in dense-index form).
+    struct DenseSNetScc {
+        places: Vec<Place>,
+        token_sum: u32,
+        is_sink: bool,
+    }
+    let dense_sccs: Vec<DenseSNetScc> = sccs.iter().enumerate()
+        .map(|(rev_idx, scc)| {
+            let scc_idx = n_sccs - 1 - rev_idx;
+            let places: Vec<Place> = scc.iter().map(|&ni| place_graph[ni]).collect();
+            let token_sum = places.iter().map(|&p| marking[p]).sum();
+            DenseSNetScc { places, token_sum, is_sink: !scc_has_outgoing[scc_idx] }
+        })
+        .collect();
+
+    // Translate to key-based public representation.
+    for (rev_idx, dscc) in dense_sccs.iter().enumerate() {
         let scc_idx = n_sccs - 1 - rev_idx;
-        let dense_places: Vec<Place> = scc.iter()
-            .map(|&ni| place_graph[ni])
-            .collect();
-        let token_sum: u32 = dense_places.iter()
-            .map(|&p| marking[p])
-            .sum();
-        let is_sink = !scc_has_outgoing[scc_idx];
-        // Convert to key-based handles for the public-facing component.
-        let places: Box<[PlaceKey]> = dense_places.iter()
-            .map(|&p| net.place_key(p))
-            .collect();
-        let transitions: Box<[TransitionKey]> = net.transitions()
+        let places = dscc.places.iter().map(|&p| net.place_key(p)).collect();
+        let transitions = net.transitions()
             .filter(|t| transition_scc[t.usize_index()] == Some(scc_idx))
             .map(|t| net.transition_key(t))
             .collect();
-
         components.push(SNetComponent {
             places,
             transitions,
-            token_sum,
-            is_sink,
+            token_sum: dscc.token_sum,
+            is_sink: dscc.is_sink,
         });
     }
 

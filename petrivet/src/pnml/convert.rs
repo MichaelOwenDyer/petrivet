@@ -428,7 +428,7 @@ fn convert_pt_net(
         arc_ids,
         pnml_net.name.as_ref().and_then(|n| n.text.clone()),
         Some(pnml_net.id.clone()),
-    );
+    ).with_net(system.net().as_ref());
 
     // Graphics
     let mut place_graphics: PlaceMap<Option<NodeGraphics>> = PlaceMap::new(n_places);
@@ -606,12 +606,12 @@ mod tests {
         let p1k = net.place_key(p1);
         let t0k = net.transition_key(t0);
 
-        assert_eq!(labels.place_name(net, p0k), Some("Source"));
-        assert_eq!(labels.place_name(net, p1k), Some("Sink"));
-        assert_eq!(labels.place_id(net, p0k), Some("p0"));
-        assert_eq!(labels.place_id(net, p1k), Some("p1"));
-        assert_eq!(labels.transition_name(net, t0k), Some("Flow"));
-        assert_eq!(labels.transition_id(net, t0k), Some("t0"));
+        assert_eq!(labels.place_name(p0k), Some("Source"));
+        assert_eq!(labels.place_name(p1k), Some("Sink"));
+        assert_eq!(labels.place_id(p0k), Some("p0"));
+        assert_eq!(labels.place_id(p1k), Some("p1"));
+        assert_eq!(labels.transition_name(t0k), Some("Flow"));
+        assert_eq!(labels.transition_id(t0k), Some("t0"));
 
         // Arc IDs are stored in the labels map.
         let arc_pt = Arc::PlaceToTransition(p0k, net.output_transitions(p0k).next().unwrap());

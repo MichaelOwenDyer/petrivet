@@ -322,6 +322,18 @@ impl Net {
         *self.transition_index_for_key.get(&key).expect("transition key")
     }
 
+    /// Returns a reference to the place key→dense-index map.
+    #[must_use]
+    pub(crate) fn place_key_map(&self) -> &HashMap<PlaceKey, Place> {
+        &self.place_index_for_key
+    }
+
+    /// Returns a reference to the transition key→dense-index map.
+    #[must_use]
+    pub(crate) fn transition_key_map(&self) -> &HashMap<TransitionKey, Transition> {
+        &self.transition_index_for_key
+    }
+
     /// Translate a dense [`Place`] back to its [`PlaceKey`].
     #[must_use]
     pub(crate) fn place_key(&self, p: Place) -> PlaceKey {

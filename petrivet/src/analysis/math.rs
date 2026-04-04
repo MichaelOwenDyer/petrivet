@@ -31,7 +31,7 @@ pub fn integer_null_space(matrix: &IncidenceMatrix) -> Box<[Box<[i32]>]> {
 
     // Work on a mutable copy in row-major order.
     let mut mat: Box<[Box<[i32]>]> = (0..rows)
-        .map(|idx| matrix.row(Place::from_index(idx as u32)).to_vec().into_boxed_slice())
+        .map(|idx| matrix.row_dense(Place::from_index(idx as u32)).to_vec().into_boxed_slice())
         .collect();
 
     // Track which columns are pivot columns.
@@ -151,7 +151,7 @@ mod tests {
             for r in 0..matrix.row_count() {
                 let dot: i32 = (0..matrix.column_count())
                     .map(|c| {
-                        matrix.get(
+                        matrix.get_dense(
                             Place::from_index(r as u32),
                             Transition::from_index(c as u32),
                         ) * row[c]

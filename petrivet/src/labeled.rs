@@ -6,10 +6,6 @@
 //! kept separate from the structural and behavioral types so that analysis
 //! code never pays for metadata it does not need.
 //!
-//! All public accessors use [`PlaceKey`] and [`TransitionKey`] as the
-//! authoritative identifiers. Dense index accessors exist as convenience
-//! helpers but are crate-internal.
-//!
 //! # Usage
 //!
 //! ```rust
@@ -19,22 +15,19 @@
 //! let mut b = NetBuilder::new();
 //! let [idle, busy] = b.add_places();
 //! let [start, finish] = b.add_transitions();
-//! b.add_arc((idle, start));
-//! b.add_arc((start, busy));
-//! b.add_arc((busy, finish));
-//! b.add_arc((finish, idle));
+//! b.add_arcs((idle, start, busy, finish, idle));
 //! let net = b.build().unwrap();
 //!
 //! let mut labels = NetLabels::new(&net);
 //! labels
-//!     .set_place_name(&net, idle, "Idle")
-//!     .set_place_name(&net, busy, "Busy")
-//!     .set_transition_name(&net, start, "Start")
-//!     .set_transition_name(&net, finish, "Finish")
+//!     .set_place_name(idle, "Idle")
+//!     .set_place_name(busy, "Busy")
+//!     .set_transition_name(start, "Start")
+//!     .set_transition_name(finish, "Finish")
 //!     .set_net_name("Producer-consumer");
 //!
-//! assert_eq!(labels.place_name(&net, idle), Some("Idle"));
-//! assert_eq!(labels.transition_name(&net, finish), Some("Finish"));
+//! assert_eq!(labels.place_name(idle), Some("Idle"));
+//! assert_eq!(labels.transition_name(finish), Some("Finish"));
 //! ```
 
 use crate::net::{Arc, Net, Place, PlaceKey, PlaceMap, Transition, TransitionKey, TransitionMap};
@@ -53,13 +46,6 @@ use std::collections::HashMap;
 /// Build directly with [`NetLabels::new`] and set individual labels via the
 /// fluent setter methods, or obtain a fully-populated instance from a PNML
 /// document via `pnml::Net::to_pt_system` (requires the `pnml` feature).
-///
-/// # Indexing
-///
-/// All per-node accessors accept the same [`Place`], [`Transition`], and
-/// [`Arc`] handles used by [`Net`](crate::net::Net). Passing a handle whose
-/// index is out of range for this label set will return `None`/silently do
-/// nothing — the same contract as out-of-range indexing into [`PlaceMap`].
 #[derive(Debug, Clone, Default)]
 pub struct NetLabels {
     place_names: PlaceMap<Option<String>>,
@@ -78,30 +64,50 @@ pub struct NetLabels {
     net_id: Option<String>,
     /// Optional free-text description of the net.
     net_description: Option<String>,
+
+    /// Key-to-dense-index maps cloned from the net at construction time.
+    /// Allow key-based lookup without requiring a `&Net` reference.
+    place_key_to_dense: HashMap<PlaceKey, Place>,
+    transition_key_to_dense: HashMap<TransitionKey, Transition>,
+    /// Dense-to-key reverse maps for the named-key iterators.
+    place_dense_to_key: HashMap<Place, PlaceKey>,
+    transition_dense_to_key: HashMap<Transition, TransitionKey>,
 }
 
 impl NetLabels {
     /// Creates an empty label set sized for the given net. All per-node labels
-    /// start as `None`.
+    /// start as `None`. Stores an internal copy of the key→index mapping so
+    /// that all subsequent accessors work with [`PlaceKey`]/[`TransitionKey`]
+    /// handles directly.
     #[must_use]
     pub fn new(net: &Net) -> Self {
+        let place_key_to_dense = net.place_key_map().clone();
+        let transition_key_to_dense = net.transition_key_map().clone();
+        let place_dense_to_key = place_key_to_dense.iter().map(|(&k, &p)| (p, k)).collect();
+        let transition_dense_to_key = transition_key_to_dense.iter().map(|(&k, &t)| (t, k)).collect();
         Self {
             place_names: PlaceMap::new(net.place_count() as usize),
             place_ids: PlaceMap::new(net.place_count() as usize),
             transition_names: TransitionMap::new(net.transition_count() as usize),
             transition_ids: TransitionMap::new(net.transition_count() as usize),
+            place_key_to_dense,
+            transition_key_to_dense,
+            place_dense_to_key,
+            transition_dense_to_key,
             ..Default::default()
         }
     }
 
     /// Creates an empty label set sized for `n_places` places and
-    /// `n_transitions` transitions.
+    /// `n_transitions` transitions, without key-to-index mapping.
     ///
     /// Prefer [`NetLabels::new`] when you have the net available. This
     /// constructor exists for cases where only counts are known (e.g. when
-    /// building labels incrementally alongside a builder).
+    /// building labels incrementally alongside a builder). Per-node accessors
+    /// that take [`PlaceKey`]/[`TransitionKey`] will silently do nothing /
+    /// return `None` until the struct is built through a net-aware path.
     #[must_use]
-    pub fn with_capacity(n_places: usize, n_transitions: usize) -> Self {
+    pub(crate) fn with_capacity(n_places: usize, n_transitions: usize) -> Self {
         Self {
             place_names: PlaceMap::new(n_places),
             place_ids: PlaceMap::new(n_places),
@@ -111,10 +117,20 @@ impl NetLabels {
         }
     }
 
-    /// Returns the human-readable name of `place` by its [`PlaceKey`].
+    /// Looks up the dense index for a place key (internal helper).
+    fn dense_place(&self, pk: PlaceKey) -> Option<Place> {
+        self.place_key_to_dense.get(&pk).copied()
+    }
+
+    /// Looks up the dense index for a transition key (internal helper).
+    fn dense_transition(&self, tk: TransitionKey) -> Option<Transition> {
+        self.transition_key_to_dense.get(&tk).copied()
+    }
+
+    /// Returns the human-readable name of `place`, if set.
     #[must_use]
-    pub fn place_name(&self, net: &Net, pk: PlaceKey) -> Option<&str> {
-        self.place_names.get(net.dense_place(pk))?.as_deref()
+    pub fn place_name(&self, pk: PlaceKey) -> Option<&str> {
+        self.place_names.get(self.dense_place(pk)?)?.as_deref()
     }
 
     /// Returns the human-readable name of a place by its dense index (crate-internal).
@@ -123,11 +139,12 @@ impl NetLabels {
         self.place_names.get(place)?.as_deref()
     }
 
-    /// Sets the human-readable name of a place by its [`PlaceKey`]. Returns `&mut self` for
-    /// chaining.
-    pub fn set_place_name(&mut self, net: &Net, pk: PlaceKey, name: impl Into<String>) -> &mut Self {
-        if let Some(slot) = self.place_names.get_mut(net.dense_place(pk)) {
-            *slot = Some(name.into());
+    /// Sets the human-readable name of `place`. Returns `&mut self` for chaining.
+    pub fn set_place_name(&mut self, pk: PlaceKey, name: impl Into<String>) -> &mut Self {
+        if let Some(dense) = self.dense_place(pk) {
+            if let Some(slot) = self.place_names.get_mut(dense) {
+                *slot = Some(name.into());
+            }
         }
         self
     }
@@ -140,32 +157,36 @@ impl NetLabels {
         self
     }
 
-    /// Clears the name of a place by its [`PlaceKey`].
-    pub fn clear_place_name(&mut self, net: &Net, pk: PlaceKey) -> &mut Self {
-        if let Some(slot) = self.place_names.get_mut(net.dense_place(pk)) {
-            *slot = None;
+    /// Clears the name of `place`.
+    pub fn clear_place_name(&mut self, pk: PlaceKey) -> &mut Self {
+        if let Some(dense) = self.dense_place(pk) {
+            if let Some(slot) = self.place_names.get_mut(dense) {
+                *slot = None;
+            }
         }
         self
     }
 
-    /// Returns the stable identifier of a place by its [`PlaceKey`], if set.
+    /// Returns the stable identifier of `place`, if set.
     #[must_use]
-    pub fn place_id(&self, net: &Net, pk: PlaceKey) -> Option<&str> {
-        self.place_ids.get(net.dense_place(pk))?.as_deref()
+    pub fn place_id(&self, pk: PlaceKey) -> Option<&str> {
+        self.place_ids.get(self.dense_place(pk)?)?.as_deref()
     }
 
-    /// Sets the stable identifier of a place by its [`PlaceKey`].
-    pub fn set_place_id(&mut self, net: &Net, pk: PlaceKey, id: impl Into<String>) -> &mut Self {
-        if let Some(slot) = self.place_ids.get_mut(net.dense_place(pk)) {
-            *slot = Some(id.into());
+    /// Sets the stable identifier of `place`.
+    pub fn set_place_id(&mut self, pk: PlaceKey, id: impl Into<String>) -> &mut Self {
+        if let Some(dense) = self.dense_place(pk) {
+            if let Some(slot) = self.place_ids.get_mut(dense) {
+                *slot = Some(id.into());
+            }
         }
         self
     }
 
-    /// Returns the human-readable name of a transition by its [`TransitionKey`], if set.
+    /// Returns the human-readable name of `transition`, if set.
     #[must_use]
-    pub fn transition_name(&self, net: &Net, tk: TransitionKey) -> Option<&str> {
-        self.transition_names.get(net.dense_transition(tk))?.as_deref()
+    pub fn transition_name(&self, tk: TransitionKey) -> Option<&str> {
+        self.transition_names.get(self.dense_transition(tk)?)?.as_deref()
     }
 
     /// Returns the human-readable name of a transition by its dense index (crate-internal).
@@ -174,15 +195,12 @@ impl NetLabels {
         self.transition_names.get(transition)?.as_deref()
     }
 
-    /// Sets the human-readable name of a transition by its [`TransitionKey`].
-    pub fn set_transition_name(
-        &mut self,
-        net: &Net,
-        tk: TransitionKey,
-        name: impl Into<String>,
-    ) -> &mut Self {
-        if let Some(slot) = self.transition_names.get_mut(net.dense_transition(tk)) {
-            *slot = Some(name.into());
+    /// Sets the human-readable name of `transition`.
+    pub fn set_transition_name(&mut self, tk: TransitionKey, name: impl Into<String>) -> &mut Self {
+        if let Some(dense) = self.dense_transition(tk) {
+            if let Some(slot) = self.transition_names.get_mut(dense) {
+                *slot = Some(name.into());
+            }
         }
         self
     }
@@ -199,29 +217,28 @@ impl NetLabels {
         self
     }
 
-    /// Clears the name of a transition by its [`TransitionKey`].
-    pub fn clear_transition_name(&mut self, net: &Net, tk: TransitionKey) -> &mut Self {
-        if let Some(slot) = self.transition_names.get_mut(net.dense_transition(tk)) {
-            *slot = None;
+    /// Clears the name of `transition`.
+    pub fn clear_transition_name(&mut self, tk: TransitionKey) -> &mut Self {
+        if let Some(dense) = self.dense_transition(tk) {
+            if let Some(slot) = self.transition_names.get_mut(dense) {
+                *slot = None;
+            }
         }
         self
     }
 
-    /// Returns the stable identifier of a transition by its [`TransitionKey`], if set.
+    /// Returns the stable identifier of `transition`, if set.
     #[must_use]
-    pub fn transition_id(&self, net: &Net, tk: TransitionKey) -> Option<&str> {
-        self.transition_ids.get(net.dense_transition(tk))?.as_deref()
+    pub fn transition_id(&self, tk: TransitionKey) -> Option<&str> {
+        self.transition_ids.get(self.dense_transition(tk)?)?.as_deref()
     }
 
-    /// Sets the stable identifier of a transition by its [`TransitionKey`].
-    pub fn set_transition_id(
-        &mut self,
-        net: &Net,
-        tk: TransitionKey,
-        id: impl Into<String>,
-    ) -> &mut Self {
-        if let Some(slot) = self.transition_ids.get_mut(net.dense_transition(tk)) {
-            *slot = Some(id.into());
+    /// Sets the stable identifier of `transition`.
+    pub fn set_transition_id(&mut self, tk: TransitionKey, id: impl Into<String>) -> &mut Self {
+        if let Some(dense) = self.dense_transition(tk) {
+            if let Some(slot) = self.transition_ids.get_mut(dense) {
+                *slot = Some(id.into());
+            }
         }
         self
     }
@@ -293,10 +310,13 @@ impl NetLabels {
     }
 
     /// Iterates over `(PlaceKey, name)` pairs for all places that have a name set.
-    pub fn named_place_keys<'a>(&'a self, net: &'a Net) -> impl Iterator<Item = (PlaceKey, &'a str)> {
+    pub fn named_place_keys(&self) -> impl Iterator<Item = (PlaceKey, &str)> {
         self.place_names
             .iter()
-            .filter_map(|(p, n)| n.as_deref().map(|name| (net.place_key(p), name)))
+            .filter_map(|(p, n)| {
+                let pk = *self.place_dense_to_key.get(&p)?;
+                n.as_deref().map(|name| (pk, name))
+            })
     }
 
     /// Iterates over `(Place, name)` pairs for all places that have a name set (crate-internal).
@@ -307,10 +327,13 @@ impl NetLabels {
     }
 
     /// Iterates over `(TransitionKey, name)` pairs for all transitions that have a name set.
-    pub fn named_transition_keys<'a>(&'a self, net: &'a Net) -> impl Iterator<Item = (TransitionKey, &'a str)> {
+    pub fn named_transition_keys(&self) -> impl Iterator<Item = (TransitionKey, &str)> {
         self.transition_names
             .iter()
-            .filter_map(|(t, n)| n.as_deref().map(|name| (net.transition_key(t), name)))
+            .filter_map(|(t, n)| {
+                let tk = *self.transition_dense_to_key.get(&t)?;
+                n.as_deref().map(|name| (tk, name))
+            })
     }
 
     /// Iterates over `(Transition, name)` pairs for all transitions that have a
@@ -359,6 +382,9 @@ impl NetLabels {
 impl NetLabels {
     /// Constructs a `NetLabels` directly from pre-built maps. Used internally
     /// by the PNML converter; not part of the public API surface.
+    ///
+    /// Key-to-dense maps must be attached separately via `with_net` if
+    /// key-based public accessors are needed.
     #[cfg(feature = "pnml")]
     #[expect(clippy::too_many_arguments)]
     #[expect(clippy::missing_const_for_fn)]
@@ -382,7 +408,22 @@ impl NetLabels {
             net_name,
             net_id,
             net_description: None,
+            place_key_to_dense: HashMap::new(),
+            transition_key_to_dense: HashMap::new(),
+            place_dense_to_key: HashMap::new(),
+            transition_dense_to_key: HashMap::new(),
         }
+    }
+
+    /// Attaches key-to-index maps from a net, enabling key-based accessors.
+    /// Called after `from_raw` when the `Net` is available.
+    #[cfg(feature = "pnml")]
+    pub(crate) fn with_net(mut self, net: &Net) -> Self {
+        self.place_key_to_dense = net.place_key_map().clone();
+        self.transition_key_to_dense = net.transition_key_map().clone();
+        self.place_dense_to_key = self.place_key_to_dense.iter().map(|(&k, &p)| (p, k)).collect();
+        self.transition_dense_to_key = self.transition_key_to_dense.iter().map(|(&k, &t)| (t, k)).collect();
+        self
     }
 }
 
@@ -407,41 +448,41 @@ mod tests {
     fn set_and_get_place_name() {
         let (net, p0, p1, _, _) = make_net();
         let mut l = NetLabels::new(&net);
-        l.set_place_name(&net, p0, "Idle");
-        assert_eq!(l.place_name(&net, p0), Some("Idle"));
-        assert_eq!(l.place_name(&net, p1), None);
+        l.set_place_name(p0, "Idle");
+        assert_eq!(l.place_name(p0), Some("Idle"));
+        assert_eq!(l.place_name(p1), None);
     }
 
     #[test]
     fn clear_place_name() {
         let (net, p0, _, _, _) = make_net();
         let mut l = NetLabels::new(&net);
-        l.set_place_name(&net, p0, "Idle");
-        l.clear_place_name(&net, p0);
-        assert_eq!(l.place_name(&net, p0), None);
+        l.set_place_name(p0, "Idle");
+        l.clear_place_name(p0);
+        assert_eq!(l.place_name(p0), None);
     }
 
     #[test]
     fn set_and_get_transition_name() {
         let (net, _, _, t0, _) = make_net();
         let mut l = NetLabels::new(&net);
-        l.set_transition_name(&net, t0, "Fire");
-        assert_eq!(l.transition_name(&net, t0), Some("Fire"));
+        l.set_transition_name(t0, "Fire");
+        assert_eq!(l.transition_name(t0), Some("Fire"));
     }
 
     #[test]
     fn chaining() {
         let (net, p0, p1, t0, t1) = make_net();
         let mut l = NetLabels::new(&net);
-        l.set_place_name(&net, p0, "A")
-            .set_place_name(&net, p1, "B")
-            .set_transition_name(&net, t0, "X")
-            .set_transition_name(&net, t1, "Y")
+        l.set_place_name(p0, "A")
+            .set_place_name(p1, "B")
+            .set_transition_name(t0, "X")
+            .set_transition_name(t1, "Y")
             .set_net_name("My net");
-        assert_eq!(l.place_name(&net, p0), Some("A"));
-        assert_eq!(l.place_name(&net, p1), Some("B"));
-        assert_eq!(l.transition_name(&net, t0), Some("X"));
-        assert_eq!(l.transition_name(&net, t1), Some("Y"));
+        assert_eq!(l.place_name(p0), Some("A"));
+        assert_eq!(l.place_name(p1), Some("B"));
+        assert_eq!(l.transition_name(t0), Some("X"));
+        assert_eq!(l.transition_name(t1), Some("Y"));
         assert_eq!(l.net_name(), Some("My net"));
     }
 
@@ -461,8 +502,8 @@ mod tests {
     fn named_places_iterator() {
         let (net, p0, p1, _, _) = make_net();
         let mut l = NetLabels::new(&net);
-        l.set_place_name(&net, p0, "Alpha");
-        let named: Vec<_> = l.named_place_keys(&net).collect();
+        l.set_place_name(p0, "Alpha");
+        let named: Vec<_> = l.named_place_keys().collect();
         assert_eq!(named.len(), 1);
         assert_eq!(named[0], (p0, "Alpha"));
         assert!(!named.iter().any(|(p, _)| *p == p1));
@@ -472,8 +513,8 @@ mod tests {
     fn named_transitions_iterator() {
         let (net, _, _, t0, t1) = make_net();
         let mut l = NetLabels::new(&net);
-        l.set_transition_name(&net, t0, "Start");
-        let named: Vec<_> = l.named_transition_keys(&net).collect();
+        l.set_transition_name(t0, "Start");
+        let named: Vec<_> = l.named_transition_keys().collect();
         assert_eq!(named.len(), 1);
         assert_eq!(named[0], (t0, "Start"));
         assert!(!named.iter().any(|(t, _)| *t == t1));
@@ -490,7 +531,8 @@ mod tests {
 
     #[test]
     fn net_level_labels() {
-        let mut l = NetLabels::with_capacity(0, 0);
+        let (net, _, _, _, _) = make_net();
+        let mut l = NetLabels::new(&net);
         l.set_net_name("Ring").set_net_id("n0").set_net_description("A token ring.");
         assert_eq!(l.net_name(), Some("Ring"));
         assert_eq!(l.net_id(), Some("n0"));
