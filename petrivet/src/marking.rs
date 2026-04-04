@@ -66,8 +66,8 @@ impl Marking<u32> {
         self.0.values().map(|&t| u64::from(t)).sum()
     }
 
-    /// Places that have at least one token.
-    pub fn support(&self) -> impl Iterator<Item =Place> + '_ {
+    /// Places that have at least one token. Internal helper; use key-based APIs externally.
+    pub(crate) fn support(&self) -> impl Iterator<Item =Place> + '_ {
         self.0.iter().filter_map(|(p, &t)| if t > 0 { Some(p) } else { None })
     }
 }

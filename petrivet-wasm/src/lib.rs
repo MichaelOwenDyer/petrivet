@@ -126,13 +126,13 @@ impl WasmSystem {
         let n_transitions = net.transition_count();
 
         if let Some(labels) = &self.labels {
-            for i in 0..n_places as usize {
-                if let Some(name) = labels.place_name_at(i) {
+            for (i, &pk) in self.place_keys.iter().enumerate() {
+                if let Some(name) = labels.place_name(net, pk) {
                     place_names.insert(i as u32, name.to_string());
                 }
             }
-            for i in 0..n_transitions as usize {
-                if let Some(name) = labels.transition_name_at(i) {
+            for (i, &tk) in self.transition_keys.iter().enumerate() {
+                if let Some(name) = labels.transition_name(net, tk) {
                     transition_names.insert(i as u32, name.to_string());
                 }
             }
@@ -256,20 +256,20 @@ impl WasmSystem {
             })
             .collect();
 
-        let place_names = (0..n_places as usize)
-            .map(|i| {
+        let place_names = self.place_keys.iter()
+            .map(|&pk| {
                 self.labels
                     .as_ref()
-                    .and_then(|l| l.place_name_at(i))
+                    .and_then(|l| l.place_name(net, pk))
                     .map(str::to_string)
             })
             .collect();
 
-        let transition_names = (0..n_transitions as usize)
-            .map(|i| {
+        let transition_names = self.transition_keys.iter()
+            .map(|&tk| {
                 self.labels
                     .as_ref()
-                    .and_then(|l| l.transition_name_at(i))
+                    .and_then(|l| l.transition_name(net, tk))
                     .map(str::to_string)
             })
             .collect();
@@ -430,12 +430,22 @@ impl WasmSystem {
 
         let is_deadlock_free = result.is_deadlock_free();
 
+        // Build TransitionKey → dense index map for firing sequence conversion.
+        let tk_to_idx: HashMap<TransitionKey, u32> = self.transition_keys
+            .iter()
+            .enumerate()
+            .map(|(i, &tk)| (tk, i as u32))
+            .collect();
+
         let deadlocks = result
             .deadlocks
             .iter()
             .map(|d| WasmDeadlock {
                 marking: d.marking.iter().copied().collect(),
-                firing_sequence: d.firing_sequence_indices(),
+                firing_sequence: d.firing_sequence
+                    .iter()
+                    .map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX))
+                    .collect(),
             })
             .collect();
 
@@ -457,9 +467,20 @@ impl WasmSystem {
     #[wasm_bindgen(js_name = analyzeReachability)]
     pub fn analyze_reachability(&self, target: Vec<u32>) -> WasmReachabilityResult {
         let target = Marking::from(target);
+        // Build TransitionKey → dense index map for firing sequence conversion.
+        let tk_to_idx: HashMap<TransitionKey, u32> = self.transition_keys
+            .iter()
+            .enumerate()
+            .map(|(i, &tk)| (tk, i as u32))
+            .collect();
+        let keys_to_indices = |keys: &[TransitionKey]| -> Vec<u32> {
+            keys.iter().map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX)).collect()
+        };
         match self.system.analyze_reachability(&target) {
             ReachabilityResult::Reachable(proof) => {
-                let firing_sequence = proof.firing_sequence_indices().unwrap_or_default();
+                let firing_sequence = proof.firing_sequence()
+                    .map(keys_to_indices)
+                    .unwrap_or_default();
                 let wasm_proof = match &proof {
                     ReachabilityProof::FiringSequence(..) => {
                         WasmReachabilityProof::FiringSequence
@@ -509,9 +530,18 @@ impl WasmSystem {
     #[wasm_bindgen(js_name = analyzeCoverability)]
     pub fn analyze_coverability(&self, target: Vec<u32>) -> WasmCoverabilityResult {
         let target = Marking::from(target);
+        // Build TransitionKey → dense index map for firing sequence conversion.
+        let tk_to_idx: HashMap<TransitionKey, u32> = self.transition_keys
+            .iter()
+            .enumerate()
+            .map(|(i, &tk)| (tk, i as u32))
+            .collect();
         match self.system.analyze_coverability(&target) {
             CoverabilityResult::Coverable(proof) => {
-                let firing_sequence = proof.firing_sequence_indices();
+                let firing_sequence: Vec<u32> = proof.firing_sequence
+                    .iter()
+                    .map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX))
+                    .collect();
                 let covering_marking =
                     proof.covering_marking.iter().copied().map(omega_to_wasm).collect();
                 WasmCoverabilityResult::Coverable { firing_sequence, covering_marking }
@@ -556,11 +586,11 @@ impl WasmSystem {
             dot_id(name)
         ));
 
-        for (i, _pk) in self.place_keys.iter().enumerate() {
+        for (i, &pk) in self.place_keys.iter().enumerate() {
             let label = self
                 .labels
                 .as_ref()
-                .and_then(|l| l.place_name_at(i))
+                .and_then(|l| l.place_name(net, pk))
                 .unwrap_or("");
             let display = if label.is_empty() {
                 format!("p{i}")
@@ -573,11 +603,11 @@ impl WasmSystem {
             ));
         }
 
-        for (i, _tk) in self.transition_keys.iter().enumerate() {
+        for (i, &tk) in self.transition_keys.iter().enumerate() {
             let label = self
                 .labels
                 .as_ref()
-                .and_then(|l| l.transition_name_at(i))
+                .and_then(|l| l.transition_name(net, tk))
                 .unwrap_or("");
             let display = if label.is_empty() {
                 format!("t{i}")
@@ -944,16 +974,16 @@ impl WasmNetBuilder {
             net.place_count() as usize,
             net.transition_count() as usize,
         );
-        for (compact_idx, pk) in sorted_place_ids.iter().enumerate() {
+        for pk in &sorted_place_ids {
             let js_id = pk_to_js[pk];
             if let Some(name) = self.place_names.get(&js_id) {
-                labels.set_place_name_at(compact_idx, name);
+                labels.set_place_name(&net, *pk, name);
             }
         }
-        for (compact_idx, tk) in sorted_trans_ids.iter().enumerate() {
+        for tk in &sorted_trans_ids {
             let js_id = tk_to_js[tk];
             if let Some(name) = self.transition_names.get(&js_id) {
-                labels.set_transition_name_at(compact_idx, name);
+                labels.set_transition_name(&net, *tk, name);
             }
         }
         if let Some(name) = &self.net_name {

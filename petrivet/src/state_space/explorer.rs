@@ -5,7 +5,7 @@
 //! [`ReachabilityGraph`](crate::ReachabilityGraph) instead.
 
 use crate::marking::{Marking, Omega};
-use crate::net::{Net, Transition};
+use crate::net::{Net, Transition, TransitionKey};
 use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -202,7 +202,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     }
 
     /// Find a path from initial to target using A*.
-    pub fn path_to(&self, target: NodeIndex) -> Option<Box<[Transition]>> {
+    pub fn path_to(&self, target: NodeIndex) -> Option<Box<[TransitionKey]>> {
         if target == self.initial_idx {
             return Some(Box::new([]));
         }
@@ -218,7 +218,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
             .map(|&[m1_idx, m2_idx]| {
                 self.graph.find_edge(m1_idx, m2_idx).expect("edge must exist")
             })
-            .map(|edge_idx| self.graph[edge_idx])
+            .map(|edge_idx| self.net.transition_key(self.graph[edge_idx]))
             .collect();
         Some(transition_path)
     }

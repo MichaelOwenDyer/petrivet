@@ -282,7 +282,7 @@ pub fn find_covering_equation_integer_solution(
 /// returns the weight vector y. Given a specific initial marking M₀,
 /// per-place upper bounds can be derived: M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋.
 #[must_use]
-pub fn find_positive_place_subvariant(net: &Net) -> Option<PlaceMap<f64>> {
+pub(crate) fn find_positive_place_subvariant(net: &Net) -> Option<PlaceMap<f64>> {
     if net.place_count() == 0 {
         return Some(PlaceMap::from([]));
     }
@@ -335,7 +335,7 @@ pub fn is_structurally_bounded(net: &Net) -> bool {
 /// Feasible → place is structurally bounded; Infeasible → structurally
 /// unbounded (there exists an initial marking under which it is unbounded).
 #[must_use]
-pub fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<PlaceMap<f64>> {
+pub(crate) fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<PlaceMap<f64>> {
     let mut variables = ProblemVariables::new();
     let place_weights: PlaceMap<Variable> = net.places()
         .map(|p| {

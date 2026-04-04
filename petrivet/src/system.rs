@@ -300,24 +300,20 @@ mod tests {
     #[test]
     fn dead_transition_detection() {
         let (net, t0, t1) = two_place_cycle();
-        let t0d = net.dense_transition(t0);
-        let t1d = net.dense_transition(t1);
         // With [0, 0], both transitions are dead (never fireable)
         let sys = System::new(net, [0, 0]);
         let liveness = sys.analyze_liveness();
-        assert!(liveness.transition_level(t0d).is_dead());
-        assert!(liveness.transition_level(t1d).is_dead());
+        assert!(liveness.transition_level_for_key(t0).is_some_and(|l| l.is_dead()));
+        assert!(liveness.transition_level_for_key(t1).is_some_and(|l| l.is_dead()));
     }
 
     #[test]
     fn alive_transitions_not_dead() {
         let (net, t0, t1) = two_place_cycle();
-        let t0d = net.dense_transition(t0);
-        let t1d = net.dense_transition(t1);
         let sys = System::new(net, [1, 0]);
         let liveness = sys.analyze_liveness();
-        assert!(!liveness.transition_level(t0d).is_dead());
-        assert!(!liveness.transition_level(t1d).is_dead());
+        assert!(liveness.transition_level_for_key(t0).is_some_and(|l| !l.is_dead()));
+        assert!(liveness.transition_level_for_key(t1).is_some_and(|l| !l.is_dead()));
     }
 
     #[test]

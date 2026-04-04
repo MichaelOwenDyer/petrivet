@@ -44,7 +44,7 @@
 
 use crate::analysis::model::LivenessLevel;
 use crate::marking::{Marking, Omega};
-use crate::net::{Net, Transition};
+use crate::net::{Net, Transition, TransitionKey};
 use crate::state_space::explorer::StateGraph;
 use crate::state_space::{explorer::StateSpaceExplorer, CoverabilityGraph, ExplorationOrder};
 use crate::system::System;
@@ -208,7 +208,7 @@ impl<'a> ReachabilityExplorer<'a> {
     /// Returns a firing sequence from the initial marking to `target`,
     /// among states discovered so far.
     #[must_use]
-    pub fn path_to(&self, target: &Marking) -> Option<Box<[Transition]>> {
+    pub fn path_to(&self, target: &Marking) -> Option<Box<[TransitionKey]>> {
         let &target_idx = self.core.state_space.seen.get(target)?;
         self.core.state_space.path_to(target_idx)
     }
@@ -333,7 +333,7 @@ impl<'a> ReachabilityGraph<'a> {
     ///
     /// When built with BFS, this is a minimal firing sequence.
     #[must_use]
-    pub fn path_to(&self, target: &Marking) -> Option<Box<[Transition]>> {
+    pub fn path_to(&self, target: &Marking) -> Option<Box<[TransitionKey]>> {
         self.state_space.seen.get(target)
             .and_then(|&target_idx| self.state_space.path_to(target_idx))
     }
@@ -377,10 +377,14 @@ impl<'a> ReachabilityGraph<'a> {
     /// - L3 (≡L2 for bounded): `t` labels an edge within some non-trivial SCC.
     /// - L4 (live): `t` labels an edge in **every** terminal SCC.
     ///
-    /// Returns an owned `Box<[LivenessLevel]>` indexed by transition index.
+    /// Returns a dense `TransitionMap<LivenessLevel>` indexed by transition index.
     /// Store the result if you need to query it multiple times.
+    ///
+    /// To get per-key results, use [`System::analyze_liveness`] which returns a
+    /// [`LivenessAnalysis`] with key-based access via
+    /// [`transition_level_for_key`](crate::analysis::model::LivenessAnalysis::transition_level_for_key).
     #[must_use]
-    pub fn liveness_levels(&self) -> TransitionMap<LivenessLevel> {
+    pub(crate) fn liveness_levels(&self) -> TransitionMap<LivenessLevel> {
         use petgraph::visit::EdgeRef;
 
         let n_transitions = self.state_space.net.transition_count() as usize;
@@ -776,8 +780,7 @@ mod tests {
         let path = rg.path_to(&target).expect("reachable");
 
         let mut replay = sys;
-        let keys: Vec<_> = path.iter().map(|t| replay.net().as_ref().transition_key(*t)).collect();
-        for key in keys {
+        for &key in path.iter() {
             replay.try_fire(key).expect("path should be valid");
         }
         assert_eq!(replay.current_marking(), &target);

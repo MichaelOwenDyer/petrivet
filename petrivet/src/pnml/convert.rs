@@ -601,16 +601,20 @@ mod tests {
         let p1 = Place::from_index(1);
         let t0 = Transition::from_index(0);
 
-        assert_eq!(labels.place_name(p0), Some("Source"));
-        assert_eq!(labels.place_name(p1), Some("Sink"));
-        assert_eq!(labels.place_id(p0), Some("p0"));
-        assert_eq!(labels.place_id(p1), Some("p1"));
-        assert_eq!(labels.transition_name(t0), Some("Flow"));
-        assert_eq!(labels.transition_id(t0), Some("t0"));
+        let net = sys.net();
+        let p0k = net.place_key(p0);
+        let p1k = net.place_key(p1);
+        let t0k = net.transition_key(t0);
+
+        assert_eq!(labels.place_name(net, p0k), Some("Source"));
+        assert_eq!(labels.place_name(net, p1k), Some("Sink"));
+        assert_eq!(labels.place_id(net, p0k), Some("p0"));
+        assert_eq!(labels.place_id(net, p1k), Some("p1"));
+        assert_eq!(labels.transition_name(net, t0k), Some("Flow"));
+        assert_eq!(labels.transition_id(net, t0k), Some("t0"));
 
         // Arc IDs are stored in the labels map.
-        let p0k = sys.net().place_key(p0);
-        let arc_pt = Arc::PlaceToTransition(p0k, sys.net().output_transitions(p0k).next().unwrap());
+        let arc_pt = Arc::PlaceToTransition(p0k, net.output_transitions(p0k).next().unwrap());
         assert!(labels.arc_id(arc_pt).is_some());
     }
 

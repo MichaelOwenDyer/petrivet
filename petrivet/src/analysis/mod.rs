@@ -40,6 +40,7 @@ impl<N: AsRef<Net>> System<N> {
     #[must_use]
     pub fn analyze_boundedness(&self) -> BoundednessAnalysis {
         let net = self.net.as_ref();
+        let place_keys: Vec<_> = net.place_keys().collect();
 
         if let Some(place_weights) = semi_decision::find_positive_place_subvariant(net) {
             let weighted_sum: f64 = net.places()
@@ -54,6 +55,7 @@ impl<N: AsRef<Net>> System<N> {
 
             return BoundednessAnalysis {
                 place_bounds,
+                place_keys,
                 method: BoundednessAnalysisMethod::PositivePlaceSubvariant(place_weights),
             };
         }
@@ -64,6 +66,7 @@ impl<N: AsRef<Net>> System<N> {
         // todo: also return cg?
         BoundednessAnalysis {
             place_bounds,
+            place_keys,
             method: BoundednessAnalysisMethod::CoverabilityGraph,
         }
     }
@@ -90,11 +93,14 @@ impl<N: AsRef<Net>> System<N> {
             return structural::analyze_liveness_t_net(net, &self.marking);
         }
 
+        let transition_keys: Vec<_> = net.transition_keys().collect();
+
         if net.is_free_choice_net()
             && let chc = structural::commoner_hack_criterion(net, &self.marking)
             && chc.is_satisfied() {
             return LivenessAnalysis {
                 levels: TransitionMap::from(vec![LivenessLevel::L4; net.transition_count() as usize]),
+                transition_keys,
                 method: LivenessMethod::FreeChoice(chc),
             };
         }
@@ -104,6 +110,7 @@ impl<N: AsRef<Net>> System<N> {
                 let levels = rg.liveness_levels();
                 LivenessAnalysis {
                     levels,
+                    transition_keys,
                     method: LivenessMethod::ReachabilityGraphSCC,
                 }
             }
@@ -111,6 +118,7 @@ impl<N: AsRef<Net>> System<N> {
                 // TODO: liveness for unbounded nets
                 LivenessAnalysis {
                     levels: std::iter::repeat_n(LivenessLevel::L0, net.transition_count() as usize).collect(),
+                    transition_keys,
                     method: LivenessMethod::Inconclusive,
                 }
             }
