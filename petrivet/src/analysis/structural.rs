@@ -820,13 +820,13 @@ pub fn s_components(net: &Net) -> Vec<SComponent> {
     for p in net.places() {
         let Some(support) = find_nonneg_invariant_support(
             &inv.s_invariants,
-            p.usize_index(),
-            net.place_count() as usize
+            p.index(),
+            net.place_count()
         ) else {
             continue;
         };
 
-        let mut key: Vec<u32> = support.iter().map(|&i| i as u32).collect();
+        let mut key: Vec<u32> = support.iter().copied().collect();
         key.sort_unstable();
         if !found_supports.insert(key) {
             continue;
@@ -834,7 +834,7 @@ pub fn s_components(net: &Net) -> Vec<SComponent> {
 
         let dense_places: HashSet<Place> = support
             .into_iter()
-            .map(|i| Place::from_index(i as u32))
+            .map(Place::from_index)
             .collect();
 
         let dense_transitions: HashSet<Transition> = net
@@ -866,9 +866,9 @@ pub fn s_components(net: &Net) -> Vec<SComponent> {
 /// no non-negative combination covers the target.
 fn find_nonneg_invariant_support(
     basis: &[Box<[i32]>],
-    target_idx: usize,
-    dimension: usize,
-) -> Option<HashSet<usize>> {
+    target_idx: u32,
+    dimension: u32,
+) -> Option<HashSet<u32>> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
     let mut vars = ProblemVariables::new();
@@ -883,12 +883,12 @@ fn find_nonneg_invariant_support(
             lambda
                 .iter()
                 .enumerate()
-                .map(|(j, &l)| f64::from(basis[j][i]) * l)
+                .map(|(j, &l)| f64::from(basis[j][i as usize]) * l)
                 .sum()
         })
         .collect();
 
-    for (i, y_i) in y_exprs.iter().enumerate() {
+    for (i, y_i) in (0u32..).zip(&y_exprs) {
         constraints.push(constraint!(y_i.clone() >= 0.0));
         if i == target_idx {
             constraints.push(constraint!(y_i.clone() >= 1.0));
@@ -905,12 +905,12 @@ fn find_nonneg_invariant_support(
         .ok()?;
 
     let lambda_vals: Vec<f64> = lambda.iter().map(|&l| solution.value(l)).collect();
-    let support: HashSet<usize> = (0..dimension)
+    let support: HashSet<_> = (0..dimension)
         .filter(|&i| {
             let y_i: f64 = lambda_vals
                 .iter()
                 .enumerate()
-                .map(|(j, &lj)| lj * f64::from(basis[j][i]))
+                .map(|(j, &lj)| lj * f64::from(basis[j][i as usize]))
                 .sum();
             y_i > 0.5
         })
@@ -928,8 +928,8 @@ fn find_nonneg_invariant_support(
 /// Places and transitions are returned as stable [`PlaceKey`]/[`TransitionKey`] handles.
 #[must_use]
 pub fn t_components(net: &Net) -> Vec<TComponent> {
-    let inv = compute_invariants(net);
-    if inv.t_invariants.is_empty() {
+    let t_invariants = integer_null_space(&net.incidence_matrix());
+    if t_invariants.is_empty() {
         return Vec::new();
     }
 
@@ -937,16 +937,16 @@ pub fn t_components(net: &Net) -> Vec<TComponent> {
 
     for t in net.transitions() {
         let Some(support) = find_nonneg_invariant_support(
-            &inv.t_invariants,
-            t.usize_index(),
-            net.transition_count() as usize,
+            &t_invariants,
+            t.index(),
+            net.transition_count(),
         ) else {
             continue;
         };
 
         let dense_transitions: HashSet<Transition> = support
             .into_iter()
-            .map(|i| Transition::from_index(i as u32))
+            .map(Transition::from_index)
             .collect();
 
         let transition_keys: HashSet<TransitionKey> = dense_transitions.iter()
