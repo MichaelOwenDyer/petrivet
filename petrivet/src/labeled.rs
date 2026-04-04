@@ -12,7 +12,7 @@
 //!
 //! # Usage
 //!
-//! ```
+//! ```rust
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::labeled::NetLabels;
 //!
