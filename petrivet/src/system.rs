@@ -14,21 +14,18 @@
 //! let mut b = NetBuilder::new();
 //! let [idle, busy] = b.add_places();
 //! let [start, finish] = b.add_transitions();
-//! b.add_arc((idle, start));
-//! b.add_arc((start, busy));
-//! b.add_arc((busy, finish));
-//! b.add_arc((finish, idle));
+//! b.add_arcs((idle, start, busy, finish, idle));
 //! let net = b.build().expect("valid net");
 //!
-//! let mut sys = System::new(&net, [1, 0]);
+//! let mut sys = System::new(&net, [(idle, 1)].into());
 //!
 //! // Simulation
 //! assert!(sys.is_enabled(start));
 //! sys.fire_unchecked(start);
-//! assert_eq!(sys.current_marking().iter().collect::<Vec<_>>(), vec![&0, &1]);
+//! assert_eq!(sys.current_marking(), [(busy, 1)].into());
 //!
 //! // Behavioral analysis
-//! let sys = System::new(&net, [1, 0]);
+//! let sys = System::new(&net, [(idle, 1)].into());
 //! assert!(sys.is_bounded());
 //! assert!(sys.is_live());
 //! ```
@@ -59,7 +56,7 @@
 
 use crate::marking::Marking;
 use crate::net::Net;
-use crate::{CoverabilityExplorer, CoverabilityGraph, ExplorationOrder, ReachabilityExplorer};
+use crate::{ApiMarking, CoverabilityExplorer, CoverabilityGraph, ExplorationOrder, Place, ReachabilityExplorer};
 
 /// A Petri net system (N, M): a net structure paired with a mutable marking.
 ///
@@ -69,7 +66,7 @@ use crate::{CoverabilityExplorer, CoverabilityGraph, ExplorationOrder, Reachabil
 #[derive(Debug, Clone)]
 pub struct System<N: AsRef<Net>> {
     pub(crate) net: N,
-    pub(crate) marking: Marking,
+    pub(crate) marking: Marking<u32>,
 }
 
 impl<N: AsRef<Net>> System<N> {
@@ -84,16 +81,29 @@ impl<N: AsRef<Net>> System<N> {
     /// todo: how to ensure the marking has the same length as the number of places
     ///  at compile time?
     #[must_use]
-    pub fn new(net: N, initial_marking: impl Into<Marking>) -> Self {
-        let initial_marking = initial_marking.into();
-        assert_eq!(
-            initial_marking.len(),
-            net.as_ref().place_count() as usize,
-            "marking length ({}) must equal number of places ({})",
-            initial_marking.len(),
-            net.as_ref().place_count(),
-        );
-        Self { net, marking: initial_marking }
+    pub fn new(net: N, initial_marking: impl IntoIterator<Item = (Place, u32)>) -> Self {
+        let marking = initial_marking.into_iter().collect();
+        let marking = net.as_ref().convert_api_marking(marking);
+        Self { net, marking }
+    }
+
+    pub fn with_zero_marking(net: N) -> Self {
+        let marking = Marking::zeros(net.as_ref().place_count());
+        Self { net, marking }
+    }
+
+    pub fn set_token(&mut self, place: Place, count: u32) {
+        if let Some(idx) = self.net.as_ref().place_index(place) {
+            self.marking[idx] = count;
+        }
+    }
+
+    pub fn set_tokens(&mut self, tokens: impl IntoIterator<Item = (Place, u32)>) {
+        tokens.into_iter().for_each(|(place, count)| {
+            if let Some(dense) = self.net.as_ref().place_index(place) {
+                self.marking[dense] = count;
+            }
+        });
     }
 
     /// Returns a reference to the underlying net.
@@ -104,21 +114,24 @@ impl<N: AsRef<Net>> System<N> {
 
     /// Returns the initial marking.
     #[must_use]
-    pub fn current_marking(&self) -> &Marking {
-        &self.marking
+    pub fn current_marking(&self) -> ApiMarking {
+        self.net.as_ref().convert_marking(self.marking.clone())
     }
 
-    /// Returns the token count at a place identified by its [`PlaceKey`].
+    /// Returns the token count at a place identified by its [`Place`].
+    /// Returns 0 for places which do not exist in the net.
     #[must_use]
-    pub fn tokens(&self, p: crate::net::PlaceKey) -> u32 {
-        let dense = self.net.as_ref().dense_place(p);
-        self.marking[dense]
+    pub fn current_tokens(&self, p: Place) -> u32 {
+        self.net.as_ref()
+            .place_index(p)
+            .map_or(0, |idx| self.marking[idx])
     }
 
     /// Consumes the system and returns (`net`, `marking`).
     #[must_use]
-    pub fn into_parts(self) -> (N, Marking) {
-        (self.net, self.marking)
+    pub fn into_parts(self) -> (N, ApiMarking) {
+        let marking = self.net.as_ref().convert_marking(self.marking);
+        (self.net, marking)
     }
     
     /// Returns true if the underlying net is a circuit.
@@ -167,100 +180,97 @@ mod tests {
     use super::*;
     use crate::marking::Marking;
     use crate::net::builder::NetBuilder;
-    use crate::net::TransitionKey;
+    use crate::net::Transition;
 
     /// Shorthand for creating a `Marking<u32>` in tests.
     fn m(val: impl Into<Marking>) -> Marking { val.into() }
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
-    fn two_place_cycle() -> (Net, TransitionKey, TransitionKey) {
+    fn two_place_cycle() -> (Net, Place, Transition, Place, Transition) {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p1));
-        b.add_arc((p1, t1));
-        b.add_arc((t1, p0));
+        b.add_arcs((p0, t0, p1, t1, p0));
         let net = b.build().expect("valid net");
-        (net, t0, t1)
+        (net, p0, t0, p1, t1)
     }
 
     #[test]
     fn basic_firing() {
-        let (net, t0, _t1) = two_place_cycle();
-        let mut sys = System::new(net, [1, 0]);
-        assert_eq!(sys.current_marking(), m([1, 0]));
+        let (net, p0, t0, p1, _t1) = two_place_cycle();
+        let mut sys = net.with_marking([(p0, 1)]);
+        assert_eq!(sys.current_marking(), [(p0, 1)].into());
         assert!(sys.is_enabled(t0));
         sys.try_fire(t0).unwrap();
-        assert_eq!(sys.current_marking(), m([0, 1]));
+        assert_eq!(sys.current_marking(), [(p1, 1)].into());
     }
 
     #[test]
     fn try_fire_not_enabled() {
-        let (net, _t0, t1) = two_place_cycle();
-        let mut sys = System::new(net, [1, 0]);
+        let (net, p0, _t0, _p1, t1) = two_place_cycle();
+        let mut sys = net.with_marking([(p0, 1)]);
         assert!(sys.try_fire(t1).is_err());
     }
 
     #[test]
     fn fire_any_deadlock() {
-        let (net, _t0, _t1) = two_place_cycle();
-        let mut sys = System::new(net, [0, 0]);
+        let (net, _p0, _t0, _p1, _t1) = two_place_cycle();
+        let mut sys = net.with_marking([]);
         assert!(sys.is_deadlocked());
         assert!(sys.fire_any().is_none());
     }
 
     #[test]
     fn fire_any_success() {
-        let (net, _t0, _t1) = two_place_cycle();
-        let mut sys = System::new(net, [1, 0]);
+        let (net, p0, _t0, p1, _t1) = two_place_cycle();
+        let mut sys = net.with_marking([(p0, 1)]);
         assert!(!sys.is_deadlocked());
         let fired = sys.fire_any();
         assert!(fired.is_some());
-        assert_eq!(sys.current_marking(), m([0, 1]));
+        assert_eq!(sys.current_marking(), [(p1, 1)].into());
     }
 
     #[test]
     fn choose_and_fire_first() {
-        let (net, t0, _t1) = two_place_cycle();
-        let mut sys = System::new(net, [1, 0]);
+        let (net, p0, t0, p1, _t1) = two_place_cycle();
+        let mut sys = net.with_marking([(p0, 1)]);
         let fired = sys.choose_and_fire(|enabled| enabled.first());
         assert_eq!(fired, Some(t0));
-        assert_eq!(sys.current_marking(), m([0, 1]));
+        assert_eq!(sys.current_marking(), [(p1, 1)].into());
     }
 
     #[test]
     fn choose_and_fire_specific() {
-        let (net, _t0, t1) = two_place_cycle();
-        let mut sys = System::new(net, [0, 1]);
+        let (net, _p0, _t0, p1, t1) = two_place_cycle();
+        let mut sys = net.with_marking([(p1, 1)]);
         let fired = sys.choose_and_fire(|enabled| {
             enabled.iter().find(|et| *et == t1)
         });
         assert_eq!(fired, Some(t1));
-        assert_eq!(sys.current_marking(), m([1, 0]));
+        assert_eq!(sys.current_marking(), [(p1, 1)].into());
     }
 
     #[test]
     fn choose_and_fire_none_enabled() {
-        let (net, _t0, _t1) = two_place_cycle();
-        let mut sys = System::new(net, [0, 0]);
+        let (net, _p0, _t0, _p1, _t1) = two_place_cycle();
+        let mut sys = net.with_marking([]);
         let fired = sys.choose_and_fire(|enabled| enabled.first());
         assert_eq!(fired, None);
     }
 
     #[test]
     fn choose_and_fire_user_declines() {
-        let (net, _t0, _t1) = two_place_cycle();
-        let mut sys = System::new(net, [1, 0]);
+        let (net, p0, _t0, p1, _t1) = two_place_cycle();
+        let mut sys = net.with_marking([(p0, 1)]);
         let fired = sys.choose_and_fire(|_enabled| None);
         assert_eq!(fired, None);
-        assert_eq!(sys.current_marking(), m([1, 0]));
+        assert_eq!(sys.current_marking(), [(p1, 1)].into());
     }
 
     #[test]
     fn enabled_transitions_query() {
-        let (net, t0, t1) = two_place_cycle();
-        let sys = System::new(net, [1, 1]);
+        let (net, p0, t0, p1, t1) = two_place_cycle();
+        let sys = net.with_marking([(p0, 1), (p1, 1)]);
         let enabled = sys.enabled_transitions();
         assert!(enabled.contains(&t0));
         assert!(enabled.contains(&t1));
@@ -268,40 +278,40 @@ mod tests {
 
     #[test]
     fn into_parts() {
-        let (net, t0, _t1) = two_place_cycle();
-        let mut sys = System::new(net, [1, 0]);
+        let (net, p0, t0, _p1, _t1) = two_place_cycle();
+        let mut sys = net.with_marking([(p0, 1)]);
         sys.try_fire(t0).unwrap();
         let (_, current) = sys.into_parts();
-        assert_eq!(current, m([0, 1]));
+        assert_eq!(current.as_ref(), &[(p0, 1)]);
     }
 
     #[test]
     fn cycle_is_structurally_bounded() {
-        let (net, _, _) = two_place_cycle();
+        let (net, p0, _t0, _p1, _t1) = two_place_cycle();
         assert!(net.is_structurally_bounded());
-        let sys = System::new(net, [1, 0]);
+        let sys = net.with_marking([(p0, 1)]);
         assert!(sys.is_bounded());
     }
 
     #[test]
     fn cycle_is_live() {
-        let (net, _, _) = two_place_cycle();
-        let sys = System::new(net, [1, 0]);
+        let (net, p0, _t0, _p1, _t1) = two_place_cycle();
+        let sys = net.with_marking([(p0, 1)]);
         assert!(sys.is_live());
     }
 
     #[test]
     fn deadlocked_cycle_not_live() {
-        let (net, _, _) = two_place_cycle();
-        let sys = System::new(net, [0, 0]);
+        let (net, _p0, _t0, _p1, _t1) = two_place_cycle();
+        let sys = net.with_marking([]);
         assert!(!sys.is_live());
     }
 
     #[test]
     fn dead_transition_detection() {
-        let (net, t0, t1) = two_place_cycle();
+        let (net, _p0, t0, _p1, t1) = two_place_cycle();
         // With [0, 0], both transitions are dead (never fireable)
-        let sys = System::new(net, [0, 0]);
+        let sys = net.with_marking([]);
         let liveness = sys.analyze_liveness();
         assert!(liveness.transition_level(t0).is_some_and(|l| l.is_dead()));
         assert!(liveness.transition_level(t1).is_some_and(|l| l.is_dead()));
@@ -309,8 +319,8 @@ mod tests {
 
     #[test]
     fn alive_transitions_not_dead() {
-        let (net, t0, t1) = two_place_cycle();
-        let sys = System::new(net, [1, 0]);
+        let (net, p0, t0, _p1, t1) = two_place_cycle();
+        let sys = net.with_marking([(p0, 1)]);
         let liveness = sys.analyze_liveness();
         assert!(liveness.transition_level(t0).is_some_and(|l| !l.is_dead()));
         assert!(liveness.transition_level(t1).is_some_and(|l| !l.is_dead()));
@@ -326,53 +336,54 @@ mod tests {
         b.add_arc((t0, p1));
         let net = b.build().expect("valid net");
         assert!(!net.is_structurally_bounded());
-        let sys = System::new(net, [1, 0]);
+        let sys = net.with_marking([(p0, 1)]);
         assert!(!sys.is_bounded());
     }
 
     #[test]
     fn s_net_reachability_dispatches() {
-        let (net, _, _) = two_place_cycle();
+        let (net, p0, _t0, p1, _t1)= two_place_cycle();
         assert!(net.is_s_net());
-        let sys = System::new(net, [1, 0]);
-        assert!(sys.is_reachable(&m([0, 1])));
-        assert!(sys.is_reachable(&m([1, 0])));
-        assert!(!sys.is_reachable(&m([2, 0])));
-        assert!(!sys.is_reachable(&m([0, 0])));
+        let sys = net.with_marking([(p0, 1)]);
+        assert!(sys.is_reachable([(p1, 1)].into()));
+        assert!(sys.is_reachable([(p0, 1)].into()));
+        assert!(!sys.is_reachable([(p0, 2)].into()));
+        assert!(!sys.is_reachable([].into()));
     }
 
     #[test]
     fn t_net_reachability_dispatches() {
-        // T-net: {p0, p1} → t0 → p2 → t1 → {p0, p1}
         let mut b = NetBuilder::new();
         let [p0, p1, p2] = b.add_places();
         let [t0, t1] = b.add_transitions();
-        b.add_arc((p0, t0)); b.add_arc((p1, t0)); b.add_arc((t0, p2));
-        b.add_arc((p2, t1)); b.add_arc((t1, p0)); b.add_arc((t1, p1));
+        b.add_arc((p0, t0));
+        b.add_arc((p1, t0));
+        b.add_arcs((t0, p2, t1));
+        b.add_arc((t1, p0));
+        b.add_arc((t1, p1));
         let net = b.build().unwrap();
         assert!(net.is_t_net());
-        let sys = System::new(net, [1, 1, 0]);
-        assert!(sys.is_reachable(&m([0, 0, 1])));
-        assert!(sys.is_reachable(&m([1, 1, 0])));
-        assert!(!sys.is_reachable(&m([1, 0, 0])));
+        let sys = net.with_marking([(p0, 1), (p1, 1)]);
+        assert!(sys.is_reachable([(p2, 1)].into()));
+        assert!(sys.is_reachable([(p0, 1), (p1, 1)].into()));
+        assert!(!sys.is_reachable([(p1, 1)].into()));
     }
 
     #[test]
     fn general_net_reachability_fallback() {
-        // Free-choice net (not S-net, not T-net): falls back to exploration
         let mut b = NetBuilder::new();
         let [p0, p1, p2] = b.add_places();
         let [t0, t1, t2] = b.add_transitions();
-        b.add_arc((p0, t0)); b.add_arc((t0, p1));
-        b.add_arc((p0, t1)); b.add_arc((t1, p2));
-        b.add_arc((p1, t2)); b.add_arc((t2, p0));
-        b.add_arc((p2, t2)); b.add_arc((t2, p0));
+        b.add_arcs((p0, t0, p1));
+        b.add_arcs((p0, t1, p2));
+        b.add_arcs((p1, t2, p0));
+        b.add_arcs((p2, t2, p0));
         let net = b.build().unwrap();
         assert!(!net.is_s_net());
         assert!(!net.is_t_net());
-        let sys = System::new(net, [1, 0, 0]);
-        assert!(sys.is_reachable(&m([0, 1, 0])));
-        assert!(sys.is_reachable(&m([1, 0, 0])));
+        let sys = net.with_marking([(p0, 1)]);
+        assert!(sys.is_reachable([(p0, 1)].into()));
+        assert!(sys.is_reachable([(p1, 1)].into()));
     }
 
     #[test]
@@ -384,17 +395,17 @@ mod tests {
         let [t_req1, t_enter1, t_exit1] = b.add_transitions();
         let [t_req2, t_enter2, t_exit2] = b.add_transitions();
 
-        b.add_arc((idle1, t_req1)); b.add_arc((t_req1, wait1));
-        b.add_arc((wait1, t_enter1)); b.add_arc((t_enter1, crit1));
-        b.add_arc((crit1, t_exit1)); b.add_arc((t_exit1, idle1));
-        b.add_arc((idle2, t_req2)); b.add_arc((t_req2, wait2));
-        b.add_arc((wait2, t_enter2)); b.add_arc((t_enter2, crit2));
-        b.add_arc((crit2, t_exit2)); b.add_arc((t_exit2, idle2));
-        b.add_arc((mutex, t_enter1)); b.add_arc((t_exit1, mutex));
-        b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
+        b.add_arcs((idle1, t_req1, wait1));
+        b.add_arcs((wait1, t_enter1, crit1));
+        b.add_arcs((crit1, t_exit1, idle1));
+        b.add_arcs((idle2, t_req2, wait2));
+        b.add_arcs((wait2, t_enter2, crit2));
+        b.add_arcs((crit2, t_exit2, idle2));
+        b.add_arcs((mutex, t_enter1, mutex));
+        b.add_arcs((mutex, t_enter2, mutex));
 
         let net = b.build().expect("valid net");
-        let sys = System::new(net, [1u32, 0, 0, 1, 0, 0, 1]);
+        let sys = System::new(net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
         assert!(sys.is_bounded());
         assert!(sys.is_live());
     }

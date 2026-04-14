@@ -30,7 +30,7 @@
 
 use std::collections::HashMap;
 use petrivet::net::builder::NetBuilder;
-use petrivet::net::{PlaceKey, TransitionKey};
+use petrivet::net::{Place, Transition};
 use petrivet::system::System;
 use petrivet::Net;
 
@@ -48,38 +48,22 @@ fn main() {
     let [t_req1, t_enter1, t_exit1] = b.add_transitions();
     let [t_req2, t_enter2, t_exit2] = b.add_transitions();
 
-    // Process 1: idle1 → t_req1 → wait1 → t_enter1 → crit1 → t_exit1 → idle1
-    b.add_arc((idle1, t_req1));
-    b.add_arc((t_req1, wait1));
-    b.add_arc((wait1, t_enter1));
-    b.add_arc((t_enter1, crit1));
-    b.add_arc((crit1, t_exit1));
-    b.add_arc((t_exit1, idle1));
+    b.add_arcs((idle1, t_req1, wait1, t_enter1, crit1, t_exit1, idle1));
+    b.add_arcs((idle2, t_req2, wait2, t_enter2, crit2, t_exit2, idle2));
 
-    // Process 2: idle2 → t_req2 → wait2 → t_enter2 → crit2 → t_exit2 → idle2
-    b.add_arc((idle2, t_req2));
-    b.add_arc((t_req2, wait2));
-    b.add_arc((wait2, t_enter2));
-    b.add_arc((t_enter2, crit2));
-    b.add_arc((crit2, t_exit2));
-    b.add_arc((t_exit2, idle2));
-
-    // Mutex: consumed by enter, produced by exit
-    b.add_arc((mutex, t_enter1));
-    b.add_arc((t_exit1, mutex));
-    b.add_arc((mutex, t_enter2));
-    b.add_arc((t_exit2, mutex));
+    b.add_arcs((mutex, t_enter1, mutex));
+    b.add_arcs((mutex, t_enter2, mutex));
 
     let net = b.build().expect("valid net");
     println!("Structural class: {}", net.class());
 
     // Name lookups by key
-    let transition_names: HashMap<TransitionKey, &str> = HashMap::from([
+    let transition_names: HashMap<Transition, &str> = HashMap::from([
         (t_req1, "req1"), (t_enter1, "enter1"), (t_exit1, "exit1"),
         (t_req2, "req2"), (t_enter2, "enter2"), (t_exit2, "exit2"),
     ]);
 
-    let place_names: HashMap<PlaceKey, &str> = HashMap::from([
+    let place_names: HashMap<Place, &str> = HashMap::from([
         (idle1, "idle1"), (wait1, "wait1"), (crit1, "crit1"),
         (idle2, "idle2"), (wait2, "wait2"), (crit2, "crit2"),
         (mutex, "mutex"),
@@ -87,7 +71,7 @@ fn main() {
 
     // Initial marking: both processes idle, mutex available
     // Places: idle1, wait1, crit1, idle2, wait2, crit2, mutex
-    let mut sys = System::new(&net, [1, 0, 0, 1, 0, 0, 1]);
+    let mut sys = System::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
 
     println!();
     print_state(&sys, &net, &place_names);
@@ -96,7 +80,7 @@ fn main() {
     for step in 1..=12 {
         if let Some(t) = sys.fire_any() {
             let name = transition_names[&t];
-            println!("Step {step:>2}: fire {name:<8} → {}", sys.current_marking());
+            println!("Step {step:>2}: fire {name:<8} → {:?}", sys.current_marking());
         } else {
             println!("Step {step:>2}: DEADLOCK");
             break;
@@ -104,7 +88,7 @@ fn main() {
 
         // Safety check: both processes must never be in critical section at once
         assert!(
-            sys.tokens(crit1) == 0 || sys.tokens(crit2) == 0,
+            sys.current_tokens(crit1) == 0 || sys.current_tokens(crit2) == 0,
             "mutual exclusion violated!"
         );
     }
@@ -113,7 +97,7 @@ fn main() {
     print_state(&sys, &net, &place_names);
 
     println!("\n--- Priority simulation: process 2 has priority ---\n");
-    let mut sys = System::new(&net, [1, 0, 0, 1, 0, 0, 1]);
+    let mut sys = System::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
     print_state(&sys, &net, &place_names);
 
     for step in 1..=12 {
@@ -127,7 +111,7 @@ fn main() {
 
         if let Some(t) = fired {
             let name = transition_names[&t];
-            println!("Step {step:>2}: fire {name:<8} → {}", sys.current_marking());
+            println!("Step {step:>2}: fire {name:<8} → {:?}", sys.current_marking());
         } else {
             println!("Step {step:>2}: DEADLOCK");
             break;
@@ -135,7 +119,7 @@ fn main() {
     }
 
     println!("\n--- Manual firing with try_fire ---\n");
-    let mut sys = System::new(&net, [1, 0, 0, 1, 0, 0, 1]);
+    let mut sys = System::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
 
     println!("Trying to enter critical section without requesting first...");
     match sys.try_fire(t_enter1) {
@@ -145,11 +129,11 @@ fn main() {
 
     println!("Requesting access for process 1...");
     sys.try_fire(t_req1).expect("should succeed");
-    println!("  Marking: {}", sys.current_marking());
+    println!("  Marking: {:?}", sys.current_marking());
 
     println!("Entering critical section...");
     sys.try_fire(t_enter1).expect("should succeed");
-    println!("  Marking: {}", sys.current_marking());
+    println!("  Marking: {:?}", sys.current_marking());
 
     println!("Process 2 requests and tries to enter...");
     sys.try_fire(t_req2).expect("should succeed");
@@ -160,21 +144,21 @@ fn main() {
 
     println!("Process 1 exits critical section...");
     sys.try_fire(t_exit1).expect("should succeed");
-    println!("  Marking: {}", sys.current_marking());
+    println!("  Marking: {:?}", sys.current_marking());
 
     println!("Now process 2 can enter...");
     sys.try_fire(t_enter2).expect("should succeed");
-    println!("  Marking: {}", sys.current_marking());
+    println!("  Marking: {:?}", sys.current_marking());
 
     println!("\n=== Done ===");
 }
 
-fn print_state(sys: &System<impl AsRef<Net>>, net: &Net, names: &HashMap<PlaceKey, &str>) {
+fn print_state(sys: &System<impl AsRef<Net>>, net: &Net, names: &HashMap<Place, &str>) {
     print!("State: ");
-    for pk in net.place_keys() {
-        let tokens = sys.tokens(pk);
+    for p in net.places() {
+        let tokens = sys.current_tokens(p);
         if tokens > 0 {
-            let name = names[&pk];
+            let name = names[&p];
             print!("{name}={tokens} ");
         }
     }

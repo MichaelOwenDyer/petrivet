@@ -6,7 +6,7 @@
 
 use crate::analysis::model::FiringSequence;
 use crate::marking::{Marking, Omega};
-use crate::net::{Net, Transition, TransitionKey};
+use crate::net::{Net, TransitionIdx};
 use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -15,7 +15,7 @@ use std::hash::Hash;
 /// Operations on a token count needed for state space exploration.
 ///
 /// Implemented for `u32` (reachability) and `Omega` (coverability).
-pub(super) trait TokenOps: Clone + Eq + Hash + Default {
+pub(crate) trait TokenOps: Clone + Eq + Hash + Default {
     fn at_least_one(&self) -> bool;
     fn increment(&mut self);
     fn decrement(&mut self);
@@ -70,11 +70,11 @@ pub(super) struct StateSpaceExplorer<'a, T: TokenOps> {
     pub(super) order: ExplorationOrder,
     /// The worklist of potentially enabled transitions which we have not
     /// yet investigated firing from their source markings.
-    frontier: VecDeque<(NodeIndex, Transition)>,
+    frontier: VecDeque<(NodeIndex, TransitionIdx)>,
     /// Transitions with empty presets - always enabled, and should
     /// always be explored from every new marking regardless of the
     /// marked places.
-    source_transitions: Box<[Transition]>,
+    source_transitions: Box<[TransitionIdx]>,
 }
 
 impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
@@ -87,16 +87,16 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
         let mut graph = Graph::new();
         let initial_idx = graph.add_node(initial_marking.clone());
 
-        let source_transitions: Box<[Transition]> = net
-            .transitions()
-            .filter(|&t| net.dense_input_places(t).is_empty())
+        let source_transitions: Box<[TransitionIdx]> = net
+            .transition_indices()
+            .filter(|&t| net.preset_t(t).is_empty())
             .collect();
 
-        let frontier: VecDeque<_> = net.places()
+        let frontier: VecDeque<_> = net.place_indices()
             .filter(|&p| initial_marking[p].at_least_one())
-            .flat_map(|p| net.dense_output_transitions(p).iter().copied())
+            .flat_map(|p| net.postset_p(p).iter().copied())
             .chain(source_transitions.iter().copied())
-            .collect::<HashSet<Transition>>()
+            .collect::<HashSet<TransitionIdx>>()
             .into_iter()
             .map(|t| (initial_idx, t))
             .collect();
@@ -120,7 +120,7 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     }
 
     /// Pop the next `(NodeIndex, Transition)` from the frontier.
-    pub fn pop_frontier(&mut self) -> Option<(NodeIndex, Transition)> {
+    pub fn pop_frontier(&mut self) -> Option<(NodeIndex, TransitionIdx)> {
         match self.order {
             ExplorationOrder::BreadthFirst => self.frontier.pop_front(),
             ExplorationOrder::DepthFirst => self.frontier.pop_back(),
@@ -128,20 +128,20 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     }
 
     /// Whether a transition is enabled at the marking stored in `node`.
-    pub fn is_enabled(&self, node: NodeIndex, t: Transition) -> bool {
+    pub fn is_enabled(&self, node: NodeIndex, t: TransitionIdx) -> bool {
         let marking = &self.state_space.graph[node];
-        self.state_space.net.dense_input_places(t).iter().all(|&p| marking[p].at_least_one())
+        self.state_space.net.preset_t(t).iter().all(|&p| marking[p].at_least_one())
     }
 
     /// Compute the marking that results from firing `t` at `node`.
     ///
     /// Caller must ensure the transition is enabled.
-    pub fn fire(&self, node: NodeIndex, t: Transition) -> Marking<T> {
+    pub fn fire(&self, node: NodeIndex, t: TransitionIdx) -> Marking<T> {
         let mut result = self.state_space.graph[node].clone();
-        for &p in self.state_space.net.dense_input_places(t) {
+        for &p in self.state_space.net.preset_t(t) {
             result[p].decrement();
         }
-        for &p in self.state_space.net.dense_output_places(t) {
+        for &p in self.state_space.net.postset_t(t) {
             result[p].increment();
         }
         result
@@ -155,7 +155,7 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     pub fn register(
         &mut self,
         from: NodeIndex,
-        over: Transition,
+        over: TransitionIdx,
         marking: Marking<T>,
     ) -> (NodeIndex, bool) {
         if let Some(&idx) = self.state_space.seen.get(&marking) {
@@ -168,11 +168,11 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
 
         // seed frontier with all transitions that could possibly be enabled at this marking
         self.state_space.net
-            .places()
+            .place_indices()
             .filter(|&p| marking[p].at_least_one())
-            .flat_map(|p| self.state_space.net.dense_output_transitions(p).iter().copied())
+            .flat_map(|p| self.state_space.net.postset_p(p).iter().copied())
             .chain(self.source_transitions.iter().copied())
-            .collect::<HashSet<Transition>>()
+            .collect::<HashSet<TransitionIdx>>()
             .into_iter()
             .for_each(|t| self.frontier.push_back((idx, t)));
 
@@ -189,7 +189,7 @@ pub(super) struct StateGraph<'a, T: TokenOps> {
     /// Reference to the graph's initial node, for pathfinding.
     pub initial_idx: NodeIndex,
     /// The underlying graph structure. Nodes are markings, edges are transitions.
-    pub graph: Graph<Marking<T>, Transition>,
+    pub graph: Graph<Marking<T>, TransitionIdx>,
     /// A hash table of seen markings to their node indices in the graph,
     /// for O(1) lookup.
     pub seen: HashMap<Marking<T>, NodeIndex>,
@@ -219,7 +219,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
             .map(|&[m1_idx, m2_idx]| {
                 self.graph.find_edge(m1_idx, m2_idx).expect("edge must exist")
             })
-            .map(|edge_idx| self.net.transition_key(self.graph[edge_idx]))
+            .map(|edge_idx| self.net.get_transition(self.graph[edge_idx]))
             .collect();
         Some(transition_path)
     }

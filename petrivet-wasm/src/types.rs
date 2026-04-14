@@ -214,10 +214,6 @@ pub enum WasmNonCoverabilityProof {
     ExhaustiveSearch,
 }
 
-// ---------------------------------------------------------------------------
-// Builder types
-// ---------------------------------------------------------------------------
-
 /// A place as seen by `WasmNetBuilder.structure()`.
 ///
 /// The `id` field is the stable builder ID — it never changes while the
