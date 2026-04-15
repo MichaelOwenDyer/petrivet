@@ -68,7 +68,7 @@
 //! For general nets, the condition is sufficient for deadlock-freedom but
 //! not necessary.
 //!
-//! Used in: [`commoner_hack_criterion`](structural::commoner_hack_criterion),
+//! Used in: [`commoner_hack_criterion`](structural::commoner_hack_criterion_inner),
 //! [`CommonerHackCriterionResult`].
 //!
 //! ## Theorem 13 — Safety of live free-choice nets
@@ -101,7 +101,7 @@
 //! This is a sufficient (but not necessary) condition for liveness, unlike
 //! the equivalence in Theorem 12 for free-choice nets.
 //!
-//! Used in: [`commoner_hack_criterion`](structural::commoner_hack_criterion).
+//! Used in: [`commoner_hack_criterion`](structural::commoner_hack_criterion_inner).
 //!
 //! ## Theorem 21 — Reachability in S-nets
 //!
@@ -270,7 +270,7 @@
 //! > analyse. Therefore, we will assume that there is at least one
 //! > transition and at least one place in the nets we consider.
 //!
-//! Used in: [`BuildError::Empty`](crate::net::builder::BuildError::Empty).
+//! Used in: [`BuildError::Empty`](crate::net::builder::BuildError::Degenerate).
 //!
 //! ## Definition 4.1 — Incidence matrix
 //!
@@ -296,7 +296,7 @@
 //! > A well-formed free-choice system is live iff every proper siphon
 //! > contains a marked trap.
 //!
-//! Used in: [`commoner_hack_criterion`](structural::commoner_hack_criterion).
+//! Used in: [`commoner_hack_criterion`](structural::commoner_hack_criterion_inner).
 //!
 //! ## Corollary 5.30 — Liveness of S-systems
 //!

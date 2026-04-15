@@ -10,7 +10,7 @@ fn main() {
     b.add_arcs((t1, p2, t3, p4, t4));
     b.add_arcs((t4, p5, t1));
     let net = b.build().unwrap();
-    let system = System::new(net, [0, 0, 0, 0, 1]);
+    let system = System::new(net, [(p5, 1)]);
 
     for s in system.explore_reachability(BreadthFirst).iter() {
         println!("{s:#?}");

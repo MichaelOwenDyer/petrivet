@@ -21,15 +21,16 @@ use petrivet::analysis::model::{
     BoundednessAnalysisMethod, CoverabilityResult, DeadlockAnalysisMethod, LivenessMethod,
     NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof,
 };
-use petrivet::labeled::NetLabels;
-use petrivet::marking::{Marking, Omega};
-use petrivet::net::{Arc as PetriArc, Net, PlaceKey, TransitionKey};
-use petrivet::net::builder::{NetBuilder, BuilderArc};
+use petrivet::marking::Omega;
+use petrivet::net::builder::NetBuilder;
 use petrivet::net::class::NetClass;
-use petrivet::pnml::PnmlDocument;
+use petrivet::net::metadata::NetLabels;
+use petrivet::net::{Arc as PetriArc, Net, Place, Transition};
 use petrivet::pnml::convert::PnmlGraphics;
+use petrivet::pnml::PnmlDocument;
 use petrivet::system::System;
 use wasm_bindgen::prelude::*;
+use petrivet::ApiMarking;
 
 mod types;
 use types::*;
@@ -41,15 +42,15 @@ use types::*;
 /// fields are populated when the system is constructed from a PNML document.
 ///
 /// `place_keys` and `transition_keys` map dense indices (0..n) to the
-/// corresponding [`PlaceKey`]/[`TransitionKey`] handles used by the petrivet API.
+/// corresponding [`Place`]/[`Transition`] handles used by the petrivet API.
 #[wasm_bindgen]
 pub struct WasmSystem {
     system: System<Rc<Net>>,
-    initial_marking: Marking,
+    initial_marking: ApiMarking,
     labels: Option<NetLabels>,
     graphics: Option<PnmlGraphics>,
-    place_keys: Vec<PlaceKey>,
-    transition_keys: Vec<TransitionKey>,
+    place_keys: Vec<Place>,
+    transition_keys: Vec<Transition>,
 }
 
 #[wasm_bindgen]
@@ -76,8 +77,8 @@ impl WasmSystem {
             .ok_or_else(|| JsError::new("no P/T net found in PNML document"))?;
 
         let initial_marking = system.current_marking().clone();
-        let place_keys: Vec<PlaceKey> = system.net().place_keys().collect();
-        let transition_keys: Vec<TransitionKey> = system.net().transition_keys().collect();
+        let place_keys: Vec<Place> = system.net().places().collect();
+        let transition_keys: Vec<Transition> = system.net().transitions().collect();
         let (net, marking) = system.into_parts();
         let system = System::new(Rc::new(net), marking);
 
@@ -99,8 +100,8 @@ impl WasmSystem {
         labels: Option<NetLabels>,
         graphics: Option<PnmlGraphics>,
     ) -> Self {
-        let place_keys: Vec<PlaceKey> = system.net().as_ref().place_keys().collect();
-        let transition_keys: Vec<TransitionKey> = system.net().as_ref().transition_keys().collect();
+        let place_keys: Vec<Place> = system.net().as_ref().places().collect();
+        let transition_keys: Vec<Transition> = system.net().as_ref().transitions().collect();
         Self { system, initial_marking, labels, graphics, place_keys, transition_keys }
     }
 }
@@ -126,25 +127,25 @@ impl WasmSystem {
         let n_transitions = net.transition_count();
 
         if let Some(labels) = &self.labels {
-            for i in 0..n_places as usize {
-                if let Some(name) = labels.place_name_at(i) {
+            for (i, &pk) in self.place_keys.iter().enumerate() {
+                if let Some(name) = labels.place_name(pk) {
                     place_names.insert(i as u32, name.to_string());
                 }
             }
-            for i in 0..n_transitions as usize {
-                if let Some(name) = labels.transition_name_at(i) {
+            for (i, &tk) in self.transition_keys.iter().enumerate() {
+                if let Some(name) = labels.transition_name(tk) {
                     transition_names.insert(i as u32, name.to_string());
                 }
             }
         }
         if let Some(g) = &self.graphics {
             for i in 0..n_places as usize {
-                if let Some(pos) = g.place_position_at(i) {
+                if let Some(pos) = g.place_position(i) {
                     place_positions.insert(i as u32, (pos.x, pos.y));
                 }
             }
             for i in 0..n_transitions as usize {
-                if let Some(pos) = g.transition_position_at(i) {
+                if let Some(pos) = g.transition_position(i) {
                     transition_positions.insert(i as u32, (pos.x, pos.y));
                 }
             }
@@ -159,15 +160,15 @@ impl WasmSystem {
 
         // Build the key maps: `From<Net>` preserves the net’s keys; new ids continue after the
         // largest existing id. Dense index `i` maps to `sorted_ids[i]`.
-        let sorted_place_ids: Vec<PlaceKey> = builder.place_keys().collect();
-        let sorted_trans_ids: Vec<TransitionKey> = builder.transition_keys().collect();
+        let sorted_place_ids: Vec<Place> = builder.places().collect();
+        let sorted_trans_ids: Vec<Transition> = builder.transitions().collect();
 
-        let place_key_map: HashMap<u32, PlaceKey> = sorted_place_ids
+        let place_key_map: HashMap<u32, Place> = sorted_place_ids
             .iter()
             .enumerate()
             .map(|(i, &pk)| (i as u32, pk))
             .collect();
-        let transition_key_map: HashMap<u32, TransitionKey> = sorted_trans_ids
+        let transition_key_map: HashMap<u32, Transition> = sorted_trans_ids
             .iter()
             .enumerate()
             .map(|(i, &tk)| (i as u32, tk))
@@ -204,13 +205,13 @@ impl WasmSystem {
         let n_places = net.place_count();
         let n_transitions = net.transition_count();
 
-        // Build a reverse lookup from PlaceKey/TransitionKey to dense index.
-        let pk_to_dense: HashMap<PlaceKey, u32> = self.place_keys
+        // Build a reverse lookup from Place/Transition to dense index.
+        let pk_to_dense: HashMap<Place, u32> = self.place_keys
             .iter()
             .enumerate()
             .map(|(i, &pk)| (pk, i as u32))
             .collect();
-        let tk_to_dense: HashMap<TransitionKey, u32> = self.transition_keys
+        let tk_to_dense: HashMap<Transition, u32> = self.transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i as u32))
@@ -242,7 +243,7 @@ impl WasmSystem {
             .map(|i| {
                 self.graphics
                     .as_ref()
-                    .and_then(|g| g.place_position_at(i))
+                    .and_then(|g| g.place_position(i))
                     .map(|pos| WasmPosition { x: pos.x, y: pos.y })
             })
             .collect();
@@ -251,25 +252,25 @@ impl WasmSystem {
             .map(|i| {
                 self.graphics
                     .as_ref()
-                    .and_then(|g| g.transition_position_at(i))
+                    .and_then(|g| g.transition_position(i))
                     .map(|pos| WasmPosition { x: pos.x, y: pos.y })
             })
             .collect();
 
-        let place_names = (0..n_places as usize)
-            .map(|i| {
+        let place_names = self.place_keys.iter()
+            .map(|&pk| {
                 self.labels
                     .as_ref()
-                    .and_then(|l| l.place_name_at(i))
+                    .and_then(|l| l.place_name(pk))
                     .map(str::to_string)
             })
             .collect();
 
-        let transition_names = (0..n_transitions as usize)
-            .map(|i| {
+        let transition_names = self.transition_keys.iter()
+            .map(|&tk| {
                 self.labels
                     .as_ref()
-                    .and_then(|l| l.transition_name_at(i))
+                    .and_then(|l| l.transition_name(tk))
                     .map(str::to_string)
             })
             .collect();
@@ -316,7 +317,7 @@ impl WasmSystem {
     #[wasm_bindgen(js_name = enabledTransitions)]
     pub fn enabled_transitions(&self) -> Vec<u32> {
         let enabled_keys = self.system.enabled_transitions();
-        let tk_to_dense: HashMap<TransitionKey, u32> = self.transition_keys
+        let tk_to_dense: HashMap<Transition, u32> = self.transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i as u32))
@@ -430,12 +431,22 @@ impl WasmSystem {
 
         let is_deadlock_free = result.is_deadlock_free();
 
+        // Build Transition → dense index map for firing sequence conversion.
+        let tk_to_idx: HashMap<Transition, u32> = self.transition_keys
+            .iter()
+            .enumerate()
+            .map(|(i, &tk)| (tk, i as u32))
+            .collect();
+
         let deadlocks = result
             .deadlocks
-            .iter()
+            .into_iter()
             .map(|d| WasmDeadlock {
                 marking: d.marking.iter().copied().collect(),
-                firing_sequence: d.firing_sequence_indices(),
+                firing_sequence: d.firing_sequence
+                    .iter()
+                    .map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX))
+                    .collect(),
             })
             .collect();
 
@@ -457,9 +468,20 @@ impl WasmSystem {
     #[wasm_bindgen(js_name = analyzeReachability)]
     pub fn analyze_reachability(&self, target: Vec<u32>) -> WasmReachabilityResult {
         let target = Marking::from(target);
+        // Build Transition → dense index map for firing sequence conversion.
+        let tk_to_idx: HashMap<Transition, u32> = self.transition_keys
+            .iter()
+            .enumerate()
+            .map(|(i, &tk)| (tk, i as u32))
+            .collect();
+        let keys_to_indices = |keys: &[Transition]| -> Vec<u32> {
+            keys.iter().map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX)).collect()
+        };
         match self.system.analyze_reachability(&target) {
             ReachabilityResult::Reachable(proof) => {
-                let firing_sequence = proof.firing_sequence_indices().unwrap_or_default();
+                let firing_sequence = proof.firing_sequence()
+                    .map(keys_to_indices)
+                    .unwrap_or_default();
                 let wasm_proof = match &proof {
                     ReachabilityProof::FiringSequence(..) => {
                         WasmReachabilityProof::FiringSequence
@@ -509,9 +531,18 @@ impl WasmSystem {
     #[wasm_bindgen(js_name = analyzeCoverability)]
     pub fn analyze_coverability(&self, target: Vec<u32>) -> WasmCoverabilityResult {
         let target = Marking::from(target);
+        // Build Transition → dense index map for firing sequence conversion.
+        let tk_to_idx: HashMap<Transition, u32> = self.transition_keys
+            .iter()
+            .enumerate()
+            .map(|(i, &tk)| (tk, i as u32))
+            .collect();
         match self.system.analyze_coverability(&target) {
             CoverabilityResult::Coverable(proof) => {
-                let firing_sequence = proof.firing_sequence_indices();
+                let firing_sequence: Vec<u32> = proof.firing_sequence
+                    .iter()
+                    .map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX))
+                    .collect();
                 let covering_marking =
                     proof.covering_marking.iter().copied().map(omega_to_wasm).collect();
                 WasmCoverabilityResult::Coverable { firing_sequence, covering_marking }
@@ -556,11 +587,11 @@ impl WasmSystem {
             dot_id(name)
         ));
 
-        for (i, _pk) in self.place_keys.iter().enumerate() {
+        for (i, &pk) in self.place_keys.iter().enumerate() {
             let label = self
                 .labels
                 .as_ref()
-                .and_then(|l| l.place_name_at(i))
+                .and_then(|l| l.place_name(pk))
                 .unwrap_or("");
             let display = if label.is_empty() {
                 format!("p{i}")
@@ -573,11 +604,11 @@ impl WasmSystem {
             ));
         }
 
-        for (i, _tk) in self.transition_keys.iter().enumerate() {
+        for (i, &tk) in self.transition_keys.iter().enumerate() {
             let label = self
                 .labels
                 .as_ref()
-                .and_then(|l| l.transition_name_at(i))
+                .and_then(|l| l.transition_name(tk))
                 .unwrap_or("");
             let display = if label.is_empty() {
                 format!("t{i}")
@@ -590,12 +621,12 @@ impl WasmSystem {
             ));
         }
 
-        let pk_to_dense: HashMap<PlaceKey, usize> = self.place_keys
+        let pk_to_dense: HashMap<Place, usize> = self.place_keys
             .iter()
             .enumerate()
             .map(|(i, &pk)| (pk, i))
             .collect();
-        let tk_to_dense: HashMap<TransitionKey, usize> = self.transition_keys
+        let tk_to_dense: HashMap<Transition, usize> = self.transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i))
@@ -645,10 +676,10 @@ pub struct WasmNetBuilder {
     place_positions: HashMap<u32, (f64, f64)>,
     transition_positions: HashMap<u32, (f64, f64)>,
     initial_tokens: HashMap<u32, u32>,
-    /// Maps JS u32 IDs to the actual PlaceKey handles in the builder.
-    place_key_map: HashMap<u32, PlaceKey>,
-    /// Maps JS u32 IDs to the actual TransitionKey handles in the builder.
-    transition_key_map: HashMap<u32, TransitionKey>,
+    /// Maps JS u32 IDs to the actual Place handles in the builder.
+    place_key_map: HashMap<u32, Place>,
+    /// Maps JS u32 IDs to the actual Transition handles in the builder.
+    transition_key_map: HashMap<u32, Transition>,
     /// Monotonic counter for next place JS ID.
     next_place_id: u32,
     /// Monotonic counter for next transition JS ID.
@@ -832,18 +863,18 @@ impl WasmNetBuilder {
     /// Suitable for rendering the net being edited in Cytoscape.js — use the
     /// `id` field of each node as the Cytoscape element ID.
     pub fn structure(&self) -> WasmBuilderStructure {
-        // Build reverse maps: PlaceKey → JS ID, TransitionKey → JS ID.
-        let pk_to_js: HashMap<PlaceKey, u32> = self.place_key_map
+        // Build reverse maps: Place → JS ID, Transition → JS ID.
+        let pk_to_js: HashMap<Place, u32> = self.place_key_map
             .iter()
             .map(|(&id, &pk)| (pk, id))
             .collect();
-        let tk_to_js: HashMap<TransitionKey, u32> = self.transition_key_map
+        let tk_to_js: HashMap<Transition, u32> = self.transition_key_map
             .iter()
             .map(|(&id, &tk)| (tk, id))
             .collect();
 
-        let sorted_places: Vec<PlaceKey> = self.builder.place_keys().collect();
-        let sorted_transitions: Vec<TransitionKey> = self.builder.transition_keys().collect();
+        let sorted_places: Vec<Place> = self.builder.places().collect();
+        let sorted_transitions: Vec<Transition> = self.builder.transitions().collect();
 
         let places: Vec<WasmBuilderPlace> = sorted_places
             .iter()
@@ -916,15 +947,15 @@ impl WasmNetBuilder {
     /// Returns a JS error string if the net is empty (no places or transitions)
     /// or disconnected (isolated nodes with no arcs).
     pub fn build(&self) -> Result<WasmSystem, JsValue> {
-        let sorted_place_ids: Vec<PlaceKey> = self.builder.place_keys().collect();
-        let sorted_trans_ids: Vec<TransitionKey> = self.builder.transition_keys().collect();
+        let sorted_place_ids: Vec<Place> = self.builder.places().collect();
+        let sorted_trans_ids: Vec<Transition> = self.builder.transitions().collect();
 
-        // Reverse map: PlaceKey → JS ID.
-        let pk_to_js: HashMap<PlaceKey, u32> = self.place_key_map
+        // Reverse map: Place → JS ID.
+        let pk_to_js: HashMap<Place, u32> = self.place_key_map
             .iter()
             .map(|(&id, &pk)| (pk, id))
             .collect();
-        let tk_to_js: HashMap<TransitionKey, u32> = self.transition_key_map
+        let tk_to_js: HashMap<Transition, u32> = self.transition_key_map
             .iter()
             .map(|(&id, &tk)| (tk, id))
             .collect();
@@ -940,20 +971,17 @@ impl WasmNetBuilder {
         let net = self.builder.clone().build()
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let mut labels = NetLabels::with_capacity(
-            net.place_count() as usize,
-            net.transition_count() as usize,
-        );
-        for (compact_idx, pk) in sorted_place_ids.iter().enumerate() {
+        let mut labels = NetLabels::new();
+        for pk in &sorted_place_ids {
             let js_id = pk_to_js[pk];
             if let Some(name) = self.place_names.get(&js_id) {
-                labels.set_place_name_at(compact_idx, name);
+                labels.set_place_name(*pk, name);
             }
         }
-        for (compact_idx, tk) in sorted_trans_ids.iter().enumerate() {
+        for tk in &sorted_trans_ids {
             let js_id = tk_to_js[tk];
             if let Some(name) = self.transition_names.get(&js_id) {
-                labels.set_transition_name_at(compact_idx, name);
+                labels.set_transition_name(*tk, name);
             }
         }
         if let Some(name) = &self.net_name {

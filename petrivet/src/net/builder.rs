@@ -1,94 +1,66 @@
 //! Builder for constructing Petri nets with stable node identity.
 //!
-//! While you edit, places and transitions are [`PlaceKey`] and [`TransitionKey`] values minted by
+//! While you edit, places and transitions are [`Place`] and [`Transition`] values minted by
 //! the builder. They stay valid until you remove that node from *this* builder. When
 //! you call [`NetBuilder::build`], surviving keys are assigned dense indices and the resulting
-//! [`Net`] stores both directions of the mapping so you can move between keys and [`Place`] /
-//! [`Transition`] without maintaining parallel tables yourself.
+//! [`Net`] stores both directions of the mapping so you can move between keys and [`PlaceIdx`] /
+//! [`TransitionIdx`] without maintaining parallel tables yourself.
 //!
 //! [`NetBuilder::from`] rebuilds a builder from a built [`Net`] using the net’s stored keys so
 //! handles remain usable across round-trips.
 
 use crate::class::NetClass;
-use crate::net::keys::{PlaceKey, TransitionKey};
-use crate::net::{DenseNode, Net, Place, SortedSet, Transition};
-use crate::node_map::IndexMap;
+use crate::net::keys::{Place, Transition};
+use crate::net::{Net, PlaceIdx, SortedSet, TransitionIdx};
+use crate::{Arc, Node};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
+use std::hash::Hash;
 use std::{fmt, iter};
-
-/// A directed arc in the flow relation while the net is still under construction.
-///
-/// Ordinary [`Arc`] uses dense [`Place`] / [`Transition`] handles for a built [`Net`]; this type
-/// is the parallel story for [`PlaceKey`] / [`TransitionKey`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum BuilderArc {
-    /// An arc from a place to a transition (place → transition).
-    PlaceToTransition(PlaceKey, TransitionKey),
-    /// An arc from a transition to a place (transition → place).
-    TransitionToPlace(TransitionKey, PlaceKey),
-}
-
-impl From<(PlaceKey, TransitionKey)> for BuilderArc {
-    fn from((p, t): (PlaceKey, TransitionKey)) -> Self {
-        BuilderArc::PlaceToTransition(p, t)
-    }
-}
-
-impl From<(TransitionKey, PlaceKey)> for BuilderArc {
-    fn from((t, p): (TransitionKey, PlaceKey)) -> Self {
-        BuilderArc::TransitionToPlace(t, p)
-    }
-}
 
 /// Builder for an ordinary Petri net.
 ///
-/// Active places and transitions are listed in [`NetBuilder::place_keys`] /
-/// [`NetBuilder::transition_keys`] order; that order becomes dense `0..n−1` at [`NetBuilder::build`].
+/// Active places and transitions are listed in [`NetBuilder::places`] /
+/// [`NetBuilder::transitions`] order; that order becomes dense `0..n−1` at [`NetBuilder::build`].
 /// New keys are unique numeric ids minted by this builder. [`NetBuilder::from`] seeds lists from a
-/// [`Net`] so existing [`PlaceKey`] / [`TransitionKey`] handles stay valid.
+/// [`Net`] so existing [`Place`] / [`Transition`] handles stay valid.
 ///
 /// Adjacency is kept in the usual four directions (each place and each transition has preset and
 /// postset sets of the opposite kind’s keys), so removing a node touches only its neighbours’
 /// sets.
 ///
 /// We use [`HashMap`] for adjacency so keys from a built [`Net`] can coexist with keys minted
-/// after [`NetBuilder::from`]. [`PlaceKey`] / [`TransitionKey`] are unique numeric ids (see
+/// after [`NetBuilder::from`]. [`Place`] / [`Transition`] are unique numeric ids (see
 /// [`crate::net::keys`]), so hash-based structures stay sound when mixing round-tripped and new
 /// handles.
 #[derive(Debug, Clone)]
 pub struct NetBuilder {
-    /// Live places in iteration order (defines dense indices at build).
-    places: Vec<PlaceKey>,
-    /// Live transitions in iteration order (defines dense indices at build).
-    transitions: Vec<TransitionKey>,
-    /// Unique
-    place_set: HashSet<PlaceKey>,
-    transition_set: HashSet<TransitionKey>,
     /// Next unused id for [`add_place`](Self::add_place) (strictly greater than any id in
     /// [`Self::places`]).
-    next_place_id: u64,
+    next_place_id: u32,
     /// Next unused id for [`add_transition`](Self::add_transition).
-    next_transition_id: u64,
+    next_transition_id: u32,
+    /// Live places in iteration order (defines dense indices at build).
+    places: Vec<Place>,
+    /// Live transitions in iteration order (defines dense indices at build).
+    transitions: Vec<Transition>,
     /// For each transition: input places •t.
-    preset_t: HashMap<TransitionKey, SortedSet<PlaceKey>>,
+    preset_t: HashMap<Transition, HashSet<Place>>,
     /// For each transition: output places t•.
-    postset_t: HashMap<TransitionKey, SortedSet<PlaceKey>>,
+    postset_t: HashMap<Transition, HashSet<Place>>,
     /// For each place: input transitions •p.
-    preset_p: HashMap<PlaceKey, SortedSet<TransitionKey>>,
+    preset_p: HashMap<Place, HashSet<Transition>>,
     /// For each place: output transitions p•.
-    postset_p: HashMap<PlaceKey, SortedSet<TransitionKey>>,
+    postset_p: HashMap<Place, HashSet<Transition>>,
 }
 
 impl Default for NetBuilder {
     fn default() -> Self {
         Self {
-            places: Vec::new(),
-            transitions: Vec::new(),
-            place_set: HashSet::new(),
-            transition_set: HashSet::new(),
             next_place_id: 1,
             next_transition_id: 1,
+            places: Vec::new(),
+            transitions: Vec::new(),
             preset_t: HashMap::new(),
             postset_t: HashMap::new(),
             preset_p: HashMap::new(),
@@ -98,19 +70,19 @@ impl Default for NetBuilder {
 }
 
 /// Errors that can occur during net construction.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildError {
-    /// The net has no places or no transitions.
-    Empty,
-    /// The net has more than one weakly connected component (ignoring arc direction).
+    /// The net does not have at least one place and at least one transition.
+    Degenerate,
+    /// The net consists of two or more disconnected components.
     NotConnected,
 }
 
 impl fmt::Display for BuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BuildError::Empty => write!(f, "the net must have at least one place and one transition"),
-            BuildError::NotConnected => write!(f, "the net has disconnected nodes"),
+            BuildError::Degenerate => write!(f, "the net must have at least one place and at least one transition"),
+            BuildError::NotConnected => write!(f, "the net must be connected (every node reachable from every other node ignoring arc directions)"),
         }
     }
 }
@@ -142,47 +114,53 @@ impl NetBuilder {
     }
 
     /// Adds one place and returns its stable key.
-    pub fn add_place(&mut self) -> PlaceKey {
+    ///
+    /// # Panics
+    ///
+    /// Panics if you try to add more than u32::MAX places.
+    pub fn add_place(&mut self) -> Place {
         let id = self.next_place_id;
         self.next_place_id = self
             .next_place_id
             .checked_add(1)
-            .expect("place key id overflow");
-        let pk = PlaceKey::from_raw(id);
+            .expect("nets with more than 2^32 places are not supported");
+        let pk = Place::from_raw(id);
         self.places.push(pk);
-        self.place_set.insert(pk);
-        self.preset_p.insert(pk, SortedSet::new());
-        self.postset_p.insert(pk, SortedSet::new());
+        self.preset_p.insert(pk, HashSet::new());
+        self.postset_p.insert(pk, HashSet::new());
         pk
     }
 
     /// Adds `N` places and returns their keys.
-    pub fn add_places<const N: usize>(&mut self) -> [PlaceKey; N] {
+    pub fn add_places<const N: usize>(&mut self) -> [Place; N] {
         std::array::from_fn(|_| self.add_place())
     }
 
     /// Adds one transition and returns its stable key.
-    pub fn add_transition(&mut self) -> TransitionKey {
+    ///
+    /// # Panics
+    ///
+    /// Panics if you try to add more than u32::MAX transitions.
+    pub fn add_transition(&mut self) -> Transition {
         let id = self.next_transition_id;
         self.next_transition_id = self
             .next_transition_id
             .checked_add(1)
             .expect("transition key id overflow");
-        let tk = TransitionKey::from_raw(id);
+        let tk = Transition::from_raw(id);
         self.transitions.push(tk);
-        self.transition_set.insert(tk);
-        self.preset_t.insert(tk, SortedSet::new());
-        self.postset_t.insert(tk, SortedSet::new());
+        self.preset_t.insert(tk, HashSet::new());
+        self.postset_t.insert(tk, HashSet::new());
         tk
     }
 
     /// Adds `N` transitions and returns their keys.
-    pub fn add_transitions<const N: usize>(&mut self) -> [TransitionKey; N] {
+    pub fn add_transitions<const N: usize>(&mut self) -> [Transition; N] {
         std::array::from_fn(|_| self.add_transition())
     }
 
     /// Removes a place and every arc incident on it. Returns `false` if that key was not active.
-    pub fn remove_place(&mut self, place: PlaceKey) -> bool {
+    pub fn remove_place(&mut self, place: Place) -> bool {
         let Some(inputs) = self.preset_p.remove(&place) else {
             return false;
         };
@@ -194,7 +172,6 @@ impl NetBuilder {
         for &t in &outputs {
             self.preset_t.get_mut(&t).unwrap().remove(&place);
         }
-        self.place_set.remove(&place);
         if let Some(pos) = self.places.iter().position(|&k| k == place) {
             self.places.swap_remove(pos);
         }
@@ -202,7 +179,7 @@ impl NetBuilder {
     }
 
     /// Removes a transition and every arc incident on it.
-    pub fn remove_transition(&mut self, transition: TransitionKey) -> bool {
+    pub fn remove_transition(&mut self, transition: Transition) -> bool {
         let Some(inputs) = self.preset_t.remove(&transition) else {
             return false;
         };
@@ -214,7 +191,6 @@ impl NetBuilder {
         for &p in &outputs {
             self.preset_p.get_mut(&p).unwrap().remove(&transition);
         }
-        self.transition_set.remove(&transition);
         if let Some(pos) = self.transitions.iter().position(|&k| k == transition) {
             self.transitions.swap_remove(pos);
         }
@@ -222,9 +198,9 @@ impl NetBuilder {
     }
 
     /// Removes a directed arc if it exists.
-    pub fn remove_arc<A: Into<BuilderArc>>(&mut self, arc: A) -> bool {
+    pub fn remove_arc<A: Into<Arc>>(&mut self, arc: A) -> bool {
         match arc.into() {
-            BuilderArc::PlaceToTransition(p, t) => {
+            Arc::PlaceToTransition(p, t) => {
                 let removed = self
                     .preset_t
                     .get_mut(&t)
@@ -234,7 +210,7 @@ impl NetBuilder {
                 }
                 removed
             }
-            BuilderArc::TransitionToPlace(t, p) => {
+            Arc::TransitionToPlace(t, p) => {
                 let removed = self
                     .postset_t
                     .get_mut(&t)
@@ -250,26 +226,26 @@ impl NetBuilder {
     /// Adds a directed arc if it is not already present. Returns `true` when newly inserted.
     /// Returns `false` if the arc already exists or either the place or transition does not
     /// exist in the net.
-    pub fn add_arc<A: Into<BuilderArc>>(&mut self, arc: A) -> bool {
+    pub fn add_arc<A: Into<Arc>>(&mut self, arc: A) -> bool {
         let arc = arc.into();
         match arc {
-            BuilderArc::PlaceToTransition(p, t) => {
+            Arc::PlaceToTransition(p, t) => {
                 let p_postset = self.postset_p.get_mut(&p);
                 let t_preset = self.preset_t.get_mut(&t);
                 match (p_postset, t_preset) {
                     (Some(postset), Some(preset)) => {
-                        postset.add(t) && preset.add(p)
+                        postset.insert(t) && preset.insert(p)
                     }
                     // One or both of the nodes do not exist
                     _ => false,
                 }
             }
-            BuilderArc::TransitionToPlace(t, p) => {
+            Arc::TransitionToPlace(t, p) => {
                 let t_postset = self.postset_t.get_mut(&t);
                 let p_preset = self.preset_p.get_mut(&p);
                 match (t_postset, p_preset) {
                     (Some(postset), Some(preset)) => {
-                        postset.add(p) && preset.add(t)
+                        postset.insert(p) && preset.insert(t)
                     }
                     // One or both of the nodes do not exist
                     _ => false,
@@ -278,8 +254,8 @@ impl NetBuilder {
         }
     }
 
-    /// Adds several alternating arcs at once; see [`IntoBuilderArcs`].
-    pub fn add_arcs<A: IntoBuilderArcs>(&mut self, arcs: A) -> bool {
+    /// Adds several alternating arcs at once; see [`IntoArcs`].
+    pub fn add_arcs<A: IntoArcs>(&mut self, arcs: A) -> bool {
         arcs.into_builder_arcs().all(|a| self.add_arc(a))
     }
 
@@ -293,111 +269,74 @@ impl NetBuilder {
         self.transitions.len()
     }
 
-    /// Active place keys.
+    /// Active places.
     #[must_use]
-    pub fn place_keys(&self) -> impl Iterator<Item = PlaceKey> + '_ {
+    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
         self.places.iter().copied()
     }
 
-    /// Active transition keys.
+    /// Active transitions.
     #[must_use]
-    pub fn transition_keys(&self) -> impl Iterator<Item = TransitionKey> + '_ {
+    pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
         self.transitions.iter().copied()
     }
 
     /// Iterates every directed arc currently in the builder.
-    pub fn arcs(&self) -> impl Iterator<Item = BuilderArc> + '_ {
+    pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
         iter::chain(
             self.preset_t.iter().flat_map(|(t, preset)| {
-                preset.iter().map(move |&p| BuilderArc::PlaceToTransition(p, *t))
+                preset.iter().map(move |&p| Arc::PlaceToTransition(p, *t))
             }),
             self.postset_t.iter().flat_map(|(t, post)| {
-                post.iter().map(move |&p| BuilderArc::TransitionToPlace(*t, p))
+                post.iter().map(move |&p| Arc::TransitionToPlace(*t, p))
             }),
         )
     }
 
-    #[must_use]
-    pub fn has_place(&self, place: PlaceKey) -> bool {
-        self.place_set.contains(&place)
-    }
-
-    #[must_use]
-    pub fn has_transition(&self, transition: TransitionKey) -> bool {
-        self.transition_set.contains(&transition)
-    }
-
+    /// Classify the net in its current state.
     #[must_use]
     pub fn classify(&self) -> NetClass {
         if self.place_count() == 0 || self.transition_count() == 0 {
             return NetClass::Unrestricted;
         }
-        let DenseAdjacencyMaps {
-            preset_t,
-            postset_t,
-            preset_p,
-            postset_p
-        } = dense_adjacency_maps(self);
-        crate::net::class::classify(&preset_t, &postset_t, &preset_p, &postset_p)
+        crate::net::class::classify(
+            &self.preset_t, &self.postset_t, &self.preset_p, &self.postset_p
+        )
     }
 
     /// Consumes the builder and returns a validated [`Net`], or a [`BuildError`].
     pub fn build(self) -> Result<Net, BuildError> {
-        let place_count = self.place_count();
-        let transition_count = self.transition_count();
-        if place_count == 0 || transition_count == 0 {
-            return Err(BuildError::Empty);
+        if self.place_count() == 0 || self.transition_count() == 0 {
+            return Err(BuildError::Degenerate);
         }
 
-        let place_key_to_dense: HashMap<PlaceKey, Place> = self
-            .places
+        let place_to_index: HashMap<Place, PlaceIdx> = self.places
             .iter()
-            .enumerate()
-            .map(|(i, &pk)| (pk, Place::from_index(i as u32)))
+            .copied()
+            .zip(0..)
             .collect();
 
-        let transition_key_to_dense: HashMap<TransitionKey, Transition> = self
-            .transitions
+        let transition_to_index = self.transitions
             .iter()
-            .enumerate()
-            .map(|(i, &tk)| (tk, Transition::from_index(i as u32)))
+            .copied()
+            .zip(0..)
             .collect();
 
-        let preset_t = map_transition_adjacency(
-            &self,
-            &place_key_to_dense,
-            |b, tk| b.preset_t.get(&tk).expect("preset_t entry for transition")
-        );
-        let postset_t = map_transition_adjacency(
-            &self,
-            &place_key_to_dense,
-            |b, tk| b.postset_t.get(&tk).expect("postset_t entry for transition")
-        );
-        let preset_p = map_place_adjacency(
-            &self,
-            &transition_key_to_dense,
-            |b, pk| b.preset_p.get(&pk).expect("preset_p entry for place")
-        );
-        let postset_p = map_place_adjacency(
-            &self,
-            &transition_key_to_dense,
-            |b, pk| b.postset_p.get(&pk).expect("postset_p entry for place")
-        );
-
-        if !is_connected(&preset_t, &postset_t, &preset_p, &postset_p) {
+        if !is_connected(&self.preset_t, &self.postset_t, &self.preset_p, &self.postset_p) {
             return Err(BuildError::NotConnected);
         }
 
-        let class = crate::net::class::classify(&preset_t, &postset_t, &preset_p, &postset_p);
+        let class = crate::net::class::classify(
+            &self.preset_t, &self.postset_t, &self.preset_p, &self.postset_p
+        );
 
-        let mut place_key_for_index = IndexMap::new(place_count);
-        for (i, &pk) in self.places.iter().enumerate() {
-            place_key_for_index[Place::from_index(i as u32)] = pk;
-        }
-        let mut transition_key_for_index = IndexMap::new(transition_count);
-        for (i, &tk) in self.transitions.iter().enumerate() {
-            transition_key_for_index[Transition::from_index(i as u32)] = tk;
-        }
+        let preset_t = map_adjacency(&self.transitions, &self.preset_t, &place_to_index);
+        let postset_t = map_adjacency(&self.transitions, &self.postset_t, &place_to_index);
+        let preset_p = map_adjacency(&self.places, &self.preset_p, &transition_to_index);
+        let postset_p = map_adjacency(&self.places, &self.postset_p, &transition_to_index);
+
+        let index_to_place = self.places.into_boxed_slice();
+        let index_to_transition = self.transitions.into_boxed_slice();
 
         Ok(Net {
             class,
@@ -405,61 +344,79 @@ impl NetBuilder {
             postset_t,
             preset_p,
             postset_p,
-            place_index_for_key: place_key_to_dense,
-            transition_index_for_key: transition_key_to_dense,
-            place_key_for_index,
-            transition_key_for_index,
+            place_to_index,
+            transition_to_index,
+            index_to_place,
+            index_to_transition,
+            labels: None,
+            graphics: None,
         })
     }
 }
 
+fn map_adjacency<N, M, Idx>(
+    ordered_nodes: &[N],
+    sparse_adjacency: &HashMap<N, HashSet<M>>,
+    dense_index_map: &HashMap<M, Idx>,
+) -> Box<[SortedSet<Idx>]>
+where
+    N: Eq + Hash,
+    M: Eq + Hash,
+    Idx: Ord + Copy,
+{
+    ordered_nodes
+        .iter()
+        .map(|node| {
+            let mut indices: Vec<Idx> = sparse_adjacency
+                .get(node)
+                .map(|neighbors| {
+                    neighbors
+                        .iter()
+                        .map(|neighbor| {
+                            *dense_index_map
+                                .get(neighbor)
+                                .expect("Neighbor key must exist in dense index map")
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            indices.sort_unstable();
+            SortedSet(indices.into_boxed_slice())
+        })
+        .collect()
+}
+
+/// Convert a built Net back into a NetBuilder for editing.
 impl From<Net> for NetBuilder {
     fn from(net: Net) -> Self {
         let place_count = net.place_count() as usize;
         let transition_count = net.transition_count() as usize;
 
         let mut places = Vec::with_capacity(place_count);
-        let mut place_set = HashSet::with_capacity(place_count);
-        for i in 0..place_count {
-            let pk = net.place_key(Place::from_index(i as u32));
-            places.push(pk);
-            place_set.insert(pk);
+        for p in net.places() {
+            places.push(p);
         }
 
         let mut transitions = Vec::with_capacity(transition_count);
-        let mut transition_set = HashSet::with_capacity(transition_count);
-        for i in 0..transition_count {
-            let tk = net.transition_key(Transition::from_index(i as u32));
-            transitions.push(tk);
-            transition_set.insert(tk);
+        for t in net.transitions() {
+            transitions.push(t);
         }
 
-        let mut preset_t = HashMap::new();
-        let mut postset_t = HashMap::new();
-        let mut preset_p = HashMap::new();
-        let mut postset_p = HashMap::new();
+        let mut preset_t = HashMap::with_capacity(transition_count);
+        let mut postset_t = HashMap::with_capacity(transition_count);
+        let mut preset_p = HashMap::with_capacity(place_count);
+        let mut postset_p = HashMap::with_capacity(place_count);
 
-        for &tk in &transitions {
-            preset_t.insert(tk, SortedSet::new());
-            postset_t.insert(tk, SortedSet::new());
-        }
-        for &pk in &places {
-            preset_p.insert(pk, SortedSet::new());
-            postset_p.insert(pk, SortedSet::new());
-        }
-
-        for (ti, &tk) in transitions.iter().enumerate() {
-            let dt = Transition::from_index(ti as u32);
-            for &p in net.dense_input_places(dt) {
-                let pk = places[p.idx as usize];
-                preset_t.get_mut(&tk).expect("preset_t row").add(pk);
-                postset_p.get_mut(&pk).expect("postset_p row").add(tk);
-            }
-            for &p in net.dense_output_places(dt) {
-                let pk = places[p.idx as usize];
-                postset_t.get_mut(&tk).expect("postset_t row").add(pk);
-                preset_p.get_mut(&pk).expect("preset_p row").add(tk);
-            }
+        for (t_idx, preset, postset) in net.transition_io() {
+            let t = net.index_to_transition[t_idx];
+            preset.iter().map(|&idx| net.index_to_place[idx]).for_each(|p| {
+                preset_t.entry(t).or_insert_with(HashSet::new).insert(p);
+                postset_p.entry(p).or_insert_with(HashSet::new).insert(t);
+            });
+            postset.iter().map(|&idx| net.index_to_place[idx]).for_each(|p| {
+                postset_t.entry(t).or_insert_with(HashSet::new).insert(p);
+                preset_p.entry(p).or_insert_with(HashSet::new).insert(t);
+            });
         }
 
         let next_place_id = places
@@ -469,6 +426,7 @@ impl From<Net> for NetBuilder {
             .unwrap_or(0)
             .saturating_add(1)
             .max(1);
+
         let next_transition_id = transitions
             .iter()
             .map(|k| k.into_raw())
@@ -478,12 +436,10 @@ impl From<Net> for NetBuilder {
             .max(1);
 
         Self {
-            places,
-            transitions,
-            place_set,
-            transition_set,
             next_place_id,
             next_transition_id,
+            places,
+            transitions,
             preset_t,
             postset_t,
             preset_p,
@@ -492,189 +448,119 @@ impl From<Net> for NetBuilder {
     }
 }
 
-fn map_transition_adjacency(
-    builder: &NetBuilder,
-    place_idx: &HashMap<PlaceKey, Place>,
-    get: impl Fn(&NetBuilder, TransitionKey) -> &SortedSet<PlaceKey>,
-) -> IndexMap<Transition, SortedSet<Place>> {
-    let n = builder.transition_count();
-    let mut out: IndexMap<Transition, SortedSet<Place>> = IndexMap::new(n);
-    for (ti, &tk) in builder.transitions.iter().enumerate() {
-        let t = Transition::from_index(ti as u32);
-        for &pk in get(builder, tk).iter() {
-            out[t].add(*place_idx.get(&pk).expect("place key in dense map"));
-        }
-    }
-    out
-}
-
-fn map_place_adjacency(
-    builder: &NetBuilder,
-    trans_idx: &HashMap<TransitionKey, Transition>,
-    get: impl Fn(&NetBuilder, PlaceKey) -> &SortedSet<TransitionKey>,
-) -> IndexMap<Place, SortedSet<Transition>> {
-    let n = builder.place_count();
-    let mut out: IndexMap<Place, SortedSet<Transition>> = IndexMap::new(n);
-    for (pi, &pk) in builder.places.iter().enumerate() {
-        let p = Place::from_index(pi as u32);
-        for &tk in get(builder, pk) {
-            out[p].add(*trans_idx.get(&tk).expect("transition key in dense map"));
-        }
-    }
-    out
-}
-
-struct DenseAdjacencyMaps {
-    preset_t: IndexMap<Transition, SortedSet<Place>>,
-    postset_t: IndexMap<Transition, SortedSet<Place>>,
-    preset_p: IndexMap<Place, SortedSet<Transition>>,
-    postset_p: IndexMap<Place, SortedSet<Transition>>,
-}
-
-fn dense_adjacency_maps(
-    builder: &NetBuilder,
-) -> DenseAdjacencyMaps {
-    let place_key_to_dense: HashMap<PlaceKey, Place> = builder
-        .places
-        .iter()
-        .enumerate()
-        .map(|(i, &pk)| (pk, Place::from_index(i as u32)))
-        .collect();
-
-    let transition_key_to_dense: HashMap<TransitionKey, Transition> = builder
-        .transitions
-        .iter()
-        .enumerate()
-        .map(|(i, &tk)| (tk, Transition::from_index(i as u32)))
-        .collect();
-
-    let preset_t = map_transition_adjacency(builder, &place_key_to_dense, |b, tk| {
-        b.preset_t.get(&tk).expect("preset_t entry for transition")
-    });
-    let postset_t = map_transition_adjacency(builder, &place_key_to_dense, |b, tk| {
-        b.postset_t.get(&tk).expect("postset_t entry for transition")
-    });
-    let preset_p = map_place_adjacency(builder, &transition_key_to_dense, |b, pk| {
-        b.preset_p.get(&pk).expect("preset_p entry for place")
-    });
-    let postset_p = map_place_adjacency(builder, &transition_key_to_dense, |b, pk| {
-        b.postset_p.get(&pk).expect("postset_p entry for place")
-    });
-
-    DenseAdjacencyMaps { preset_t, postset_t, preset_p, postset_p }
-}
-
 fn is_connected(
-    preset_t: &IndexMap<Transition, SortedSet<Place>>,
-    postset_t: &IndexMap<Transition, SortedSet<Place>>,
-    preset_p: &IndexMap<Place, SortedSet<Transition>>,
-    postset_p: &IndexMap<Place, SortedSet<Transition>>,
+    preset_t: &HashMap<Transition, HashSet<Place>>,
+    postset_t: &HashMap<Transition, HashSet<Place>>,
+    preset_p: &HashMap<Place, HashSet<Transition>>,
+    postset_p: &HashMap<Place, HashSet<Transition>>,
 ) -> bool {
     let n_places = preset_p.len();
     let n_transitions = preset_t.len();
     let n_nodes = n_places + n_transitions;
     if n_nodes > 0 {
-        let mut visited_p = vec![false; n_places].into_boxed_slice();
-        let mut visited_t = vec![false; n_transitions].into_boxed_slice();
+        let mut visited_p = HashSet::new();
+        let mut visited_t = HashSet::new();
         let mut queue = VecDeque::new();
         if n_places > 0 {
-            visited_p[0] = true;
-            queue.push_back(DenseNode::Place(Place::from_index(0)));
+            let first_place = preset_p.keys().next().unwrap().to_owned();
+            visited_p.insert(first_place);
+            queue.push_back(Node::Place(first_place));
         } else {
-            visited_t[0] = true;
-            queue.push_back(DenseNode::Transition(Transition::from_index(0)));
+            let first_transition = preset_t.keys().next().unwrap().to_owned();
+            visited_t.insert(first_transition);
+            queue.push_back(Node::Transition(first_transition));
         }
         while let Some(node) = queue.pop_front() {
             match node {
-                DenseNode::Place(p) => {
-                    for &t in iter::chain(&preset_p[p], &postset_p[p]) {
-                        if !visited_t[t.idx as usize] {
-                            visited_t[t.idx as usize] = true;
-                            queue.push_back(DenseNode::Transition(t));
+                Node::Place(p) => {
+                    for &t in iter::chain(preset_p.get(&p).unwrap().iter(), postset_p.get(&p).unwrap().iter()) {
+                        if visited_t.insert(t) {
+                            queue.push_back(Node::Transition(t));
                         }
                     }
                 }
-                DenseNode::Transition(t) => {
-                    for &p in iter::chain(&preset_t[t], &postset_t[t]) {
-                        if !visited_p[p.idx as usize] {
-                            visited_p[p.idx as usize] = true;
-                            queue.push_back(DenseNode::Place(p));
+                Node::Transition(t) => {
+                    for &p in iter::chain(preset_t.get(&t).unwrap().iter(), postset_t.get(&t).unwrap().iter()) {
+                        if visited_p.insert(p) {
+                            queue.push_back(Node::Place(p));
                         }
                     }
                 }
             }
         }
-        if iter::chain(visited_t.iter(), visited_p.iter()).any(|v| !*v) {
+        if visited_p.len() + visited_t.len() != n_nodes {
             return false;
         }
     }
     true
 }
 
-pub trait IntoBuilderArcs {
-    fn into_builder_arcs(self) -> impl Iterator<Item = BuilderArc>;
+pub trait IntoArcs {
+    fn into_builder_arcs(self) -> impl Iterator<Item = Arc>;
 }
 
 #[derive(Copy, Clone)]
 enum BuilderNode {
-    Place(PlaceKey),
-    Transition(TransitionKey),
+    Place(Place),
+    Transition(Transition),
 }
 
-impl From<PlaceKey> for BuilderNode {
-    fn from(p: PlaceKey) -> Self {
+impl From<Place> for BuilderNode {
+    fn from(p: Place) -> Self {
         BuilderNode::Place(p)
     }
 }
 
-impl From<TransitionKey> for BuilderNode {
-    fn from(t: TransitionKey) -> Self {
+impl From<Transition> for BuilderNode {
+    fn from(t: Transition) -> Self {
         BuilderNode::Transition(t)
     }
 }
 
-/// Heterogeneous tuples of [`PlaceKey`] and [`TransitionKey`] in alternating order become a chain
-/// of [`BuilderArc`] values (same idea as the old `IntoArcs` for dense handles).
+/// Heterogeneous tuples of [`Place`] and [`Transition`] in alternating order become a chain
+/// of [`Arc`] values (same idea as the old `IntoArcs` for dense handles).
 macro_rules! impl_into_builder_arcs_for_tuples {
     ($n0:ident $n1:ident $($rest:ident)*) => {
-        impl_into_builder_arcs_for_tuples!(@staircase_place [$n0 PlaceKey, $n1 TransitionKey] $($rest)*);
-        impl_into_builder_arcs_for_tuples!(@staircase_trans [$n0 TransitionKey, $n1 PlaceKey] $($rest)*);
+        impl_into_builder_arcs_for_tuples!(@staircase_place [$n0 Place, $n1 Transition] $($rest)*);
+        impl_into_builder_arcs_for_tuples!(@staircase_trans [$n0 Transition, $n1 Place] $($rest)*);
     };
     (@staircase_place [$($acc:ident $acc_ty:ty),+] $next:ident $($rest:ident)*) => {
-        impl_into_builder_arcs_for_tuples!(@gen $($acc $acc_ty,)+ $next PlaceKey);
-        impl_into_builder_arcs_for_tuples!(@staircase_trans [$($acc $acc_ty,)+ $next PlaceKey] $($rest)*);
+        impl_into_builder_arcs_for_tuples!(@gen $($acc $acc_ty,)+ $next Place);
+        impl_into_builder_arcs_for_tuples!(@staircase_trans [$($acc $acc_ty,)+ $next Place] $($rest)*);
     };
     (@staircase_trans [$($acc:ident $acc_ty:ty),+] $next:ident $($rest:ident)*) => {
-        impl_into_builder_arcs_for_tuples!(@gen $($acc $acc_ty,)+ $next TransitionKey);
-        impl_into_builder_arcs_for_tuples!(@staircase_place [$($acc $acc_ty,)+ $next TransitionKey] $($rest)*);
+        impl_into_builder_arcs_for_tuples!(@gen $($acc $acc_ty,)+ $next Transition);
+        impl_into_builder_arcs_for_tuples!(@staircase_place [$($acc $acc_ty,)+ $next Transition] $($rest)*);
     };
     (@staircase_place [$($acc:ident $acc_ty:ty),+]) => {};
     (@staircase_trans [$($acc:ident $acc_ty:ty),+]) => {};
     (@gen $($name:ident $ty:ty),+) => {
-        impl IntoBuilderArcs for ($($ty),+) {
-            fn into_builder_arcs(self) -> impl Iterator<Item = BuilderArc> {
+        impl IntoArcs for ($($ty),+) {
+            fn into_builder_arcs(self) -> impl Iterator<Item = Arc> {
                 let ($($name),+) = self;
                 let nodes = [$(BuilderNode::from($name)),+];
                 (0..nodes.len() - 1).map(move |i| match (nodes[i], nodes[i + 1]) {
                     (BuilderNode::Place(p), BuilderNode::Transition(t)) => {
-                        BuilderArc::PlaceToTransition(p, t)
+                        Arc::PlaceToTransition(p, t)
                     }
                     (BuilderNode::Transition(t), BuilderNode::Place(p)) => {
-                        BuilderArc::TransitionToPlace(t, p)
+                        Arc::TransitionToPlace(t, p)
                     }
-                    _ => unreachable!("IntoBuilderArcs tuple must alternate place and transition"),
+                    _ => unreachable!("IntoArcs tuple must alternate place and transition"),
                 })
             }
         }
     };
 }
 
+// implement IntoArcs for tuples of up to 12 alternating places and transitions
 impl_into_builder_arcs_for_tuples!(a b c d e f g h i j k l);
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::net::NetClass;
+    use crate::Arc;
 
     #[test]
     fn build_simple_net() {
@@ -703,21 +589,21 @@ mod tests {
     #[test]
     fn empty_builder_rejected() {
         let b = NetBuilder::new();
-        assert!(matches!(b.build(), Err(BuildError::Empty)));
+        assert!(matches!(b.build(), Err(BuildError::Degenerate)));
     }
 
     #[test]
     fn no_transitions_rejected() {
         let mut b = NetBuilder::new();
         let _p = b.add_place();
-        assert!(matches!(b.build(), Err(BuildError::Empty)));
+        assert!(matches!(b.build(), Err(BuildError::Degenerate)));
     }
 
     #[test]
     fn no_places_rejected() {
         let mut b = NetBuilder::new();
         let _t = b.add_transition();
-        assert!(matches!(b.build(), Err(BuildError::Empty)));
+        assert!(matches!(b.build(), Err(BuildError::Degenerate)));
     }
 
     #[test]
@@ -919,8 +805,7 @@ mod tests {
         b.add_arc((t1, p2));
 
         assert!(b.remove_place(p1));
-        assert!(!b.has_place(p1));
-        assert!(!b.arcs().any(|a| matches!(a, BuilderArc::PlaceToTransition(p, _) if p == p1)));
+        assert!(!b.arcs().any(|a| matches!(a, Arc::PlaceToTransition(p, _) if p == p1)));
     }
 
     #[test]
@@ -942,7 +827,6 @@ mod tests {
         b.add_arc((t1, p0));
 
         assert!(b.remove_transition(t0));
-        assert!(!b.has_transition(t0));
     }
 
     #[test]
@@ -954,8 +838,8 @@ mod tests {
         b.add_arc((t0, p1));
 
         assert!(b.remove_arc((p0, t0)));
-        assert!(!b.arcs().any(|a| matches!(a, BuilderArc::PlaceToTransition(pp, tt) if pp == p0 && tt == t0)));
-        assert!(b.arcs().any(|a| matches!(a, BuilderArc::TransitionToPlace(tt, pp) if tt == t0 && pp == p1)));
+        assert!(!b.arcs().any(|a| matches!(a, Arc::PlaceToTransition(pp, tt) if pp == p0 && tt == t0)));
+        assert!(b.arcs().any(|a| matches!(a, Arc::TransitionToPlace(tt, pp) if tt == t0 && pp == p1)));
     }
 
     #[test]
@@ -1007,7 +891,7 @@ mod tests {
         b.add_arc((p, t));
         b.add_arc((t, p));
         let net = b.build().unwrap();
-        let pd = net.dense_place(p);
-        assert_eq!(net.place_key(pd), p);
+        let pd = net.place_index(p).unwrap();
+        assert_eq!(net.get_place(pd), p);
     }
 }

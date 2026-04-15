@@ -4,8 +4,8 @@
 //! struct with two parts:
 //!
 //! 1. **Uniform fields**: always valid regardless of which method was used.
-//!    For example, `BoundednessAnalysis.place_bounds` always contains per-place
-//!    bounds (tight or upper-estimate depending on method).
+//!    For example, [`BoundednessAnalysis::place_bound`] always returns a
+//!    per-place bound (tight or upper-estimate depending on method).
 //!
 //! 2. **Evidence enum**: describes *how* the answer was obtained and carries
 //!    method-specific artifacts. Marked `#[non_exhaustive]` so new analytical
@@ -14,15 +14,13 @@
 //! This design allows users to write code that is agnostic to the specific
 //! analysis method used, while still providing access to method-specific
 //! details when needed.
+//!
+//! All public APIs in this module use [`Place`] and [`Transition`] as the
+//! authoritative identifiers. Dense internal indices are implementation details.
 
-use crate::marking::Marking;
-use crate::marking::OmegaMarking;
 use crate::net::{Place, Transition};
-use crate::{Omega, PlaceMap, TransitionMap};
+use crate::{ApiMarking, ApiOmegaMarking, Omega};
 use std::collections::HashSet;
-
-pub type Siphon = HashSet<Place>;
-pub type Trap = HashSet<Place>;
 
 /// Result of the Commoner/Hack criterion check.
 ///
@@ -56,24 +54,24 @@ impl CommonerHackCriterionResult {
 /// and whether that trap is marked.
 #[derive(Debug, Clone)]
 pub struct SiphonTrapPair {
-    /// The minimal siphon (a set of places D with •D ⊆ D•).
-    pub siphon: Siphon,
-    /// The maximal trap contained in this siphon (a set of places Q with Q• ⊆ •Q).
-    /// Empty if no trap was found.
-    pub trap: Trap,
+    /// The minimal siphon (a set of places D with •D ⊆ D•), identified by stable handles.
+    pub siphon: HashSet<Place>,
+    /// The maximal trap contained in this siphon (a set of places Q with Q• ⊆ •Q),
+    /// identified by stable handles. Empty if no trap was found.
+    pub trap: HashSet<Place>,
     /// Whether at least one place in the trap is marked in the reference marking.
     pub trap_is_marked: bool,
 }
 
 /// Result of boundedness analysis.
 ///
-/// `place_bounds` is always populated. When proved via the structural LP,
-/// bounds are derived upper estimates (potentially loose). When proved via
-/// the coverability graph, bounds are exact.
+/// `place_bound` returns the bound for any place in the net by its key.
+/// When proved via the structural LP, bounds are derived upper estimates
+/// (potentially loose). When proved via the coverability graph, bounds are exact.
 #[derive(Debug, Clone)]
 pub struct BoundednessAnalysis {
-    /// Per-place bounds, indexed by place index.
-    pub place_bounds: PlaceMap<Omega>,
+    /// All places in the net paired with their bounds. The order is not guaranteed.
+    pub(crate) bounds: Box<[(Place, Omega)]>,
     /// How the result was obtained.
     pub method: BoundednessAnalysisMethod,
 }
@@ -82,23 +80,20 @@ impl BoundednessAnalysis {
     /// Returns the bound of the system as a whole: the maximum over all places.
     #[must_use]
     pub fn system_bound(&self) -> Omega {
-        self.place_bounds.values().max().copied().unwrap_or_default()
+        self.bounds.iter().map(|(_, b)| *b).max().unwrap_or_default()
     }
 
-    /// Returns the bound for a specific place.
-    /// 
-    /// # Panics
-    /// 
-    /// Panics if the provided place is not found in the net.
+    /// Returns the bound for a specific place identified by its [`Place`].
+    ///
+    /// Returns `None` if the key does not belong to the analysed net.
     #[must_use]
-    pub fn place_bound(&self, p: Place) -> Omega {
-        self.place_bounds[p]
+    pub fn place_bound(&self, pk: Place) -> Option<Omega> {
+        self.bounds.iter().find(|(k, _)| *k == pk).map(|(_, b)| *b)
     }
 
-    /// Per-place bounds in dense index order.
-    #[must_use]
-    pub fn place_bounds_dense(&self) -> Vec<Omega> {
-        self.place_bounds.values().copied().collect()
+    /// Per-place bounds as `(Place, Omega)` pairs in dense-index order.
+    pub fn place_bounds_iter(&self) -> impl Iterator<Item = (Place, Omega)> + '_ {
+        self.bounds.iter().copied()
     }
 }
 
@@ -109,7 +104,7 @@ pub enum BoundednessAnalysisMethod {
     /// Structural LP found a positive vector y with yᵀN ≤ 0.
     /// Bounds are derived as M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋: valid but
     /// potentially loose.
-    PositivePlaceSubvariant(PlaceMap<f64>),
+    PositivePlaceSubvariant(Box<[f64]>),
     /// Full coverability graph explored. Bounds are exact.
     CoverabilityGraph,
 }
@@ -161,15 +156,13 @@ impl LivenessLevel {
 }
 
 /// Result of liveness analysis.
-///
-/// `levels` is always populated with one entry per transition. When proved
-/// via Commoner's theorem (free-choice nets), all transitions are L4.
+/// When proved via Commoner's theorem (free-choice nets), all transitions are L4.
 /// When proved via SCC analysis on the reachability graph, levels are
 /// individually computed.
 #[derive(Debug, Clone)]
 pub struct LivenessAnalysis {
-    /// Per-transition liveness levels.
-    pub levels: TransitionMap<LivenessLevel>,
+    /// All transitions in the net paired with their liveness levels.
+    pub levels: Box<[(Transition, LivenessLevel)]>,
     /// How the result was obtained.
     pub method: LivenessMethod,
 }
@@ -179,22 +172,18 @@ impl LivenessAnalysis {
     #[must_use]
     pub fn net_level(&self) -> LivenessLevel {
         self.levels
-            .values()
-            .copied()
+            .iter()
+            .map(|(_, level)| *level)
             .min()
             .unwrap_or(LivenessLevel::L4)
     }
 
-    /// Liveness level of a specific transition.
+    /// Liveness level of a specific transition identified by its [`Transition`].
+    ///
+    /// Returns `None` if the key does not belong to the analysed net.
     #[must_use]
-    pub fn transition_level(&self, t: Transition) -> LivenessLevel {
-        self.levels[t]
-    }
-
-    /// Per-transition liveness levels in dense index order.
-    #[must_use]
-    pub fn levels_dense(&self) -> Vec<LivenessLevel> {
-        self.levels.values().copied().collect()
+    pub fn transition_level(&self, tk: Transition) -> Option<LivenessLevel> {
+        self.levels.iter().find(|(k, _)| *k == tk).map(|(_, level)| *level)
     }
 }
 
@@ -274,7 +263,7 @@ pub struct TNetComponent {
     /// Places internal to this SCC (both endpoint transitions in the same SCC).
     pub places: Box<[Place]>,
     /// Whether all directed circuits within this SCC carry at least one token
-    /// under M₀. (Trivially true for acyclic/singleton SCCs.)
+    /// under M₀. (Vacuously true for acyclic/singleton SCCs.)
     pub all_circuits_marked: bool,
     /// Whether all predecessor SCCs in the DAG are live.
     /// Combined with `all_circuits_marked`, determines if transitions here are L4.
@@ -310,23 +299,8 @@ pub enum LivenessMethod {
     Inconclusive,
 }
 
-/// A reachable deadlock marking with a firing sequence to reach it.
-#[derive(Debug, Clone)]
-pub struct Deadlock {
-    /// A firing sequence from M₀.
-    pub firing_sequence: Box<[Transition]>,
-    /// The marking reached at the end of the firing sequence where no transitions are enabled.
-    pub marking: Marking,
-}
-
-impl Deadlock {
-    /// The firing sequence as dense transition indices (`u32`), for FFI and other callers that
-    /// cannot name [`Transition`].
-    #[must_use]
-    pub fn firing_sequence_indices(&self) -> Vec<u32> {
-        firing_sequence_to_indices(&self.firing_sequence)
-    }
-}
+/// A reachable marking which does not enable any transition in the net.
+pub type Deadlock = ApiMarking;
 
 /// Evidence for a deadlock-freedom result.
 #[derive(Debug, Clone)]
@@ -402,41 +376,27 @@ impl ReachabilityResult {
     }
 }
 
+/// A stable-handle firing sequence: a sequence of [`Transition`]s
+/// representing the order in which transitions fire.
 pub type FiringSequence = Box<[Transition]>;
-
-/// Converts a firing sequence of dense [`Transition`] handles to a vector of
-/// raw `u32` indices. Useful for external crates that cannot name [`Transition`].
-#[must_use]
-pub fn firing_sequence_to_indices(seq: &[Transition]) -> Vec<u32> {
-    seq.iter().map(|t| t.index()).collect()
-}
-
-/// Witness that a marking is reachable: a firing sequence from M₀ to the target.
-#[derive(Debug, Clone)]
-pub struct ReachabilityWitness {
-    /// The firing sequence from M₀ to the target marking.
-    pub firing_sequence: FiringSequence,
-}
-
-pub type ParikhVector<T> = TransitionMap<T>;
 
 #[derive(Debug, Clone)]
 pub enum ReachabilityProof {
     StronglyConnectedSNetTokenConservation {
         marking_sum: u32,
     },
-    SNetMarkingEquationRationalSolution(ParikhVector<f64>),
-    TNetMarkingEquationIntegerSolution(ParikhVector<u32>),
-    FiringSequence(FiringSequence),
+    SNetMarkingEquationRationalSolution(Box<[(Transition, f64)]>),
+    TNetMarkingEquationIntegerSolution(Box<[(Transition, u32)]>),
+    FiringSequence(Box<[Transition]>),
 }
 
 impl ReachabilityProof {
-    /// If this is a `FiringSequence` proof, returns the sequence as dense
-    /// transition indices. Returns `None` for structural proofs.
+    /// If this is a `FiringSequence` proof, returns the sequence of transition keys.
+    /// Returns `None` for structural proofs.
     #[must_use]
-    pub fn firing_sequence_indices(&self) -> Option<Vec<u32>> {
+    pub fn firing_sequence(&self) -> Option<&[Transition]> {
         match self {
-            Self::FiringSequence(seq) => Some(firing_sequence_to_indices(seq)),
+            Self::FiringSequence(seq) => Some(seq),
             _ => None,
         }
     }
@@ -519,29 +479,14 @@ impl CoverabilityResult {
 ///
 /// The witness firing sequence reaches a node in the coverability graph. The
 /// node marking may contain ω.
-///
-/// todo: good idea to always include firing sequence? Maybe some callers don't need it
-///  and it is not necessarily cheap to construct. But how to provide ergonomic access
-///  otherwise? Maybe a 'witness' method for lazy computation? But I guess without the
-///  firing sequence it is not so much proof as just a statement of existence.
-///
-/// todo: instead of pub fields, provide read-only accessor methods and no public constructors
-///  so that the struct is type-system proof.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CoverabilityProof {
-    /// A firing sequence from M₀ to a node whose marking covers the target.
-    pub firing_sequence: FiringSequence,
+    /// A firing sequence of stable transition handles from M₀ to a node whose
+    /// marking covers the target.
+    pub firing_sequence: Box<[Transition]>,
     /// The node marking M″ with M″ ≥ target (may contain ω).
-    pub covering_marking: OmegaMarking,
-}
-
-impl CoverabilityProof {
-    /// The firing sequence as dense transition indices.
-    #[must_use]
-    pub fn firing_sequence_indices(&self) -> Vec<u32> {
-        firing_sequence_to_indices(&self.firing_sequence)
-    }
+    pub covering_marking: ApiOmegaMarking,
 }
 
 /// Various methods to demonstrate that a marking is not coverable

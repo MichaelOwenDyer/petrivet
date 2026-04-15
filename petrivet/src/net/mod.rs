@@ -8,100 +8,93 @@
 pub mod builder;
 pub mod class;
 pub mod keys;
-pub mod node_map;
 pub mod sorted_set;
+pub mod metadata;
 
-pub use keys::{PlaceKey, TransitionKey};
-pub(crate) use node_map::{PlaceMap, TransitionMap};
+pub use keys::{Place, Transition};
 pub use sorted_set::SortedSet;
 
-use crate::analysis;
+use crate::{analysis, ApiMarking, System};
 use crate::class::NetClass;
 use std::collections::HashMap;
-use std::fmt;
-use crate::node_map::IndexMap;
+
+use metadata::NetLabels;
+use crate::pnml::convert::PnmlGraphics;
+use std::iter::Peekable;
+use std::ops::Index;
+use crate::marking::Marking;
+use crate::state_space::explorer::TokenOps;
+
+pub trait IteratorExt: Iterator + Sized {
+    fn nths<I>(self, indices: I) -> Nths<Self, I::IntoIter>
+    where
+        I: IntoIterator<Item = usize>,
+    {
+        Nths {
+            iter: self.enumerate(),
+            indices: indices.into_iter().peekable(),
+        }
+    }
+}
+
+// Implement this for all types that implement Iterator
+impl<I: Iterator> IteratorExt for I {}
+
+pub struct Nths<I: Iterator, J: Iterator<Item = usize>> {
+    iter: std::iter::Enumerate<I>,
+    indices: Peekable<J>,
+}
+
+impl<I, J> Iterator for Nths<I, J>
+where
+    I: Iterator,
+    J: Iterator<Item = usize>,
+{
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((i, val)) = self.iter.next() {
+            if let Some(&target) = self.indices.peek() {
+                if i == target {
+                    self.indices.next();
+                    return Some(val);
+                }
+            } else {
+                // Optimization: if no more indices, stop iterating
+                return None;
+            }
+        }
+        None
+    }
+}
 
 /// A place in a built [`Net`], identified by a dense index in `0 .. place_count`.
 ///
 /// This is a crate-internal handle used by analysis algorithms. External users
-/// interact with [`PlaceKey`] instead.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct Place {
-    pub(crate) idx: u32,
-}
-
-impl Place {
-    #[must_use]
-    pub(crate) fn from_index(index: u32) -> Self {
-        Place { idx: index }
-    }
-
-    #[must_use]
-    pub(crate) fn index(self) -> u32 {
-        self.idx
-    }
-
-    #[inline]
-    #[must_use]
-    pub(crate) fn usize_index(self) -> usize {
-        self.idx as usize
-    }
-}
-
-impl fmt::Display for Place {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "p{}", self.idx)
-    }
-}
+/// interact with [`Place`] instead.
+pub(crate) type PlaceIdx = usize;
 
 /// A transition in a built [`Net`], identified by a dense index in `0 .. transition_count`.
 ///
 /// This is a crate-internal handle used by analysis algorithms. External users
-/// interact with [`TransitionKey`] instead.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct Transition {
-    pub(crate) idx: u32,
-}
-
-impl Transition {
-    #[must_use]
-    pub(crate) fn from_index(index: u32) -> Self {
-        Transition { idx: index }
-    }
-
-    #[must_use]
-    pub(crate) fn index(self) -> u32 {
-        self.idx
-    }
-
-    #[inline]
-    #[must_use]
-    pub(crate) fn usize_index(self) -> usize {
-        self.idx as usize
-    }
-}
-
-impl fmt::Display for Transition {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "t{}", self.idx)
-    }
-}
+/// interact with [`Transition`] instead.
+pub(crate) type TransitionIdx = usize;
 
 /// An arc in the flow relation, using public key handles.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Arc {
-    PlaceToTransition(PlaceKey, TransitionKey),
-    TransitionToPlace(TransitionKey, PlaceKey),
+    PlaceToTransition(Place, Transition),
+    TransitionToPlace(Transition, Place),
 }
 
-impl From<(PlaceKey, TransitionKey)> for Arc {
-    fn from((p, t): (PlaceKey, TransitionKey)) -> Self {
+impl From<(Place, Transition)> for Arc {
+    fn from((p, t): (Place, Transition)) -> Self {
         Arc::PlaceToTransition(p, t)
     }
 }
 
-impl From<(TransitionKey, PlaceKey)> for Arc {
-    fn from((t, p): (TransitionKey, PlaceKey)) -> Self {
+impl From<(Transition, Place)> for Arc {
+    fn from((t, p): (Transition, Place)) -> Self {
         Arc::TransitionToPlace(t, p)
     }
 }
@@ -109,38 +102,19 @@ impl From<(TransitionKey, PlaceKey)> for Arc {
 /// A node in the net: either a place or a transition, using public key handles.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Node {
-    Place(PlaceKey),
-    Transition(TransitionKey),
-}
-
-impl From<PlaceKey> for Node {
-    fn from(p: PlaceKey) -> Self {
-        Node::Place(p)
-    }
-}
-
-impl From<TransitionKey> for Node {
-    fn from(t: TransitionKey) -> Self {
-        Node::Transition(t)
-    }
-}
-
-/// Dense-index flavours of Arc and Node, for internal use by graph algorithms.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum DenseNode {
     Place(Place),
     Transition(Transition),
 }
 
-impl From<Place> for DenseNode {
+impl From<Place> for Node {
     fn from(p: Place) -> Self {
-        DenseNode::Place(p)
+        Node::Place(p)
     }
 }
 
-impl From<Transition> for DenseNode {
+impl From<Transition> for Node {
     fn from(t: Transition) -> Self {
-        DenseNode::Transition(t)
+        Node::Transition(t)
     }
 }
 
@@ -149,34 +123,50 @@ impl From<Transition> for DenseNode {
 /// - T is a finite, nonempty set of transitions,
 /// - F ⊆ (S × T) ∪ (T × S) is the flow relation.
 ///
-/// The public API uses [`PlaceKey`] and [`TransitionKey`] exclusively.
-/// Dense indices ([`Place`] / [`Transition`]) are `pub(crate)` for
+/// The public API uses [`Place`] and [`Transition`] exclusively.
+/// Dense indices ([`PlaceIdx`] / [`TransitionIdx`]) are `pub(crate)` for
 /// internal analysis code.
 #[derive(Debug, Clone)]
 pub struct Net {
     /// Structural class of the net, cached at build time for efficient queries.
     class: NetClass,
 
-    /// Transition presets: for each transition t, the sorted set of places in •t.
-    preset_t: IndexMap<Transition, SortedSet<Place>>,
-    /// Transition postsets: for each transition t, the sorted set of places in t•.
-    postset_t: IndexMap<Transition, SortedSet<Place>>,
-    /// Place presets: for each place p, the sorted set of transitions in •p.
-    preset_p: IndexMap<Place, SortedSet<Transition>>,
-    /// Place postsets: for each place p, the sorted set of transitions in p•.
-    postset_p: IndexMap<Place, SortedSet<Transition>>,
+    /// Maps the public place handle to its internal dense index.
+    place_to_index: HashMap<Place, PlaceIdx>,
+    /// Maps the public transition handle to its internal dense index.
+    transition_to_index: HashMap<Transition, TransitionIdx>,
+    /// Maps internal dense place indices back to their public handles.
+    index_to_place: Box<[Place]>,
+    /// Maps internal dense transition indices back to their public handles.
+    index_to_transition: Box<[Transition]>,
 
-    /// Given a public handle to a place, return the internal dense index of that place.
-    ///
-    /// Stored as a [`HashMap`] so key lookups do not depend on slot-map–style key equality across
-    /// separate arenas.
-    place_index_for_key: HashMap<PlaceKey, Place>,
-    /// Given a public handle to a transition, return the internal dense index of that transition.
-    transition_index_for_key: HashMap<TransitionKey, Transition>,
-    /// Public place handles indexed by internal dense indices.
-    place_key_for_index: IndexMap<Place, PlaceKey>,
-    /// Public transition handles indexed by internal dense indices.
-    transition_key_for_index: IndexMap<Transition, TransitionKey>,
+    /// Transition presets: for each transition t, the sorted set of places in •t.
+    preset_t: Box<[SortedSet<PlaceIdx>]>,
+    /// Transition postsets: for each transition t, the sorted set of places in t•.
+    postset_t: Box<[SortedSet<PlaceIdx>]>,
+    /// Place presets: for each place p, the sorted set of transitions in •p.
+    preset_p: Box<[SortedSet<TransitionIdx>]>,
+    /// Place postsets: for each place p, the sorted set of transitions in p•.
+    postset_p: Box<[SortedSet<TransitionIdx>]>,
+
+    /// The annotations on the net.
+    /// Boxed so that it only adds a single pointer's worth of overhead to the Net struct.
+    pub labels: Option<Box<NetLabels>>,
+
+    /// The visual properties of the net.
+    /// Boxed so that it only adds a single pointer's worth of overhead to the Net struct.
+    pub graphics: Option<Box<PnmlGraphics>>
+}
+
+impl Net {
+
+    // todo: temporary solution, work this into NetBuilder ideally!
+    pub(crate) fn set_labels(&mut self, labels: NetLabels) {
+        self.labels = Some(Box::new(labels));
+    }
+    pub(crate) fn set_graphics(&mut self, graphics: PnmlGraphics) {
+        self.graphics = Some(Box::new(graphics));
+    }
 }
 
 impl Net {
@@ -186,20 +176,25 @@ impl Net {
         builder::NetBuilder::new()
     }
 
+    /// Creates a system by combining this net with the given marking.
+    pub fn with_marking(self, marking: impl IntoIterator<Item = (Place, u32)>) -> System<Self> {
+        System::new(self, marking)
+    }
+
     /// Number of places in the net.
     #[must_use]
     pub fn place_count(&self) -> u32 {
-        self.preset_p.len() as u32
+        self.index_to_place.len() as u32
     }
 
     /// Iterator over all internal places.
-    pub(crate) fn places(&self) -> impl Iterator<Item = Place> + '_ {
-        (0..self.place_count()).map(Place::from_index)
+    pub(crate) fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
+        0..self.place_count() as usize
     }
 
     /// Iterator over all places in dense index order.
-    pub fn place_keys(&self) -> impl Iterator<Item = PlaceKey> + '_ {
-        self.places().map(|p| self.place_key_for_index[p])
+    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
+        self.index_to_place.iter().copied()
     }
 
     /// Number of transitions in the net.
@@ -209,13 +204,19 @@ impl Net {
     }
 
     /// Iterator over all internal transitions.
-    pub(crate) fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
-        (0..self.transition_count()).map(Transition::from_index)
+    pub(crate) fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
+        0..self.transition_count() as usize
     }
 
     /// Iterator over all places in dense index order.
-    pub fn transition_keys(&self) -> impl Iterator<Item = TransitionKey> + '_ {
-        self.transitions().map(|t| self.transition_key_for_index[t])
+    pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
+        self.index_to_transition.iter().copied()
+    }
+
+    pub(crate) fn transition_io(&self) -> impl Iterator<Item = (TransitionIdx, &SortedSet<PlaceIdx>, &SortedSet<PlaceIdx>)> + '_ {
+        self.transition_indices()
+            .zip(self.preset_t.iter().zip(self.postset_t.iter()))
+            .map(|(t, (preset, postset))| (t, preset, postset))
     }
 
     /// Number of nodes in the net (places + transitions).
@@ -227,7 +228,7 @@ impl Net {
     /// Number of arcs in the net.
     #[must_use]
     pub fn arc_count(&self) -> usize {
-        std::iter::zip(self.preset_p.values(), self.postset_p.values())
+        std::iter::zip(&self.preset_p, &self.postset_p)
             .map(|(pre, post)| pre.len() + post.len())
             .sum()
     }
@@ -235,103 +236,123 @@ impl Net {
     /// Iterator over all nodes (places then transitions) as [`Node`].
     pub fn nodes(&self) -> impl Iterator<Item = Node> + '_ {
         Iterator::chain(
-            self.place_keys().map(Node::Place),
-            self.transition_keys().map(Node::Transition),
+            self.places().map(Node::Place),
+            self.transitions().map(Node::Transition),
         )
     }
 
     /// Iterator over all arcs, yielding key-based [`Arc`] values.
     pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
-        self.transition_keys().flat_map(move |tk| {
-            let input_arcs = self.input_places(tk).map(move |pk| Arc::PlaceToTransition(pk, tk));
-            let output_arcs = self.output_places(tk).map(move |pk| Arc::TransitionToPlace(tk, pk));
-            Iterator::chain(input_arcs, output_arcs)
-        })
+        self.transitions()
+            .zip(self.preset_t.iter().zip(self.postset_t.iter()))
+            .flat_map(move |(tk, (preset, postset))| {
+                let input_arcs = self.places()
+                    .nths(preset.iter().copied())
+                    .map(move |pk| Arc::PlaceToTransition(pk, tk));
+                let output_arcs = self.places()
+                    .nths(postset.iter().copied())
+                    .map(move |pk| Arc::TransitionToPlace(tk, pk));
+                Iterator::chain(input_arcs, output_arcs)
+            })
     }
 
     // TODO: Reconsider return type of input/output methods?
     /// Preset of a transition: places that this transition consumes tokens from (•t).
     #[must_use]
-    pub fn input_places(&self, t: TransitionKey) -> impl Iterator<Item = PlaceKey> + '_ {
-        let dt = *self.transition_index_for_key.get(&t).expect("transition key");
+    pub fn input_places(&self, t: Transition) -> impl Iterator<Item = Place> + '_ {
+        let dt = *self.transition_to_index.get(&t).expect("transition key");
         self.preset_t[dt]
             .iter()
-            .map(|&p| self.place_key_for_index[p])
+            .map(|&p| self.index_to_place[p])
     }
 
     /// Postset of a transition: places that this transition produces tokens into (t•).
     #[must_use]
-    pub fn output_places(&self, t: TransitionKey) -> impl Iterator<Item = PlaceKey> + '_ {
-        let dt = *self.transition_index_for_key.get(&t).expect("transition key");
+    pub fn output_places(&self, t: Transition) -> impl Iterator<Item = Place> + '_ {
+        let dt = *self.transition_to_index.get(&t).expect("transition key");
         self.postset_t[dt]
             .iter()
-            .map(|&p| self.place_key_for_index[p])
+            .map(|&p| self.index_to_place[p])
     }
 
     /// Preset of a place: transitions that produce tokens into this place (•p).
     #[must_use]
-    pub fn input_transitions(&self, p: PlaceKey) -> impl Iterator<Item = TransitionKey> + '_ {
-        let dp = *self.place_index_for_key.get(&p).expect("place key");
+    pub fn input_transitions(&self, p: Place) -> impl Iterator<Item = Transition> + '_ {
+        let dp = *self.place_to_index.get(&p).expect("place key");
         self.preset_p[dp]
             .iter()
-            .map(|&t| self.transition_key_for_index[t])
+            .map(|&t| self.index_to_transition[t])
     }
 
     /// Postset of a place: transitions that consume tokens from this place (p•).
     #[must_use]
-    pub fn output_transitions(&self, p: PlaceKey) -> impl Iterator<Item = TransitionKey> + '_ {
-        let dp = *self.place_index_for_key.get(&p).expect("place key");
+    pub fn output_transitions(&self, p: Place) -> impl Iterator<Item = Transition> + '_ {
+        let dp = *self.place_to_index.get(&p).expect("place key");
         self.postset_p[dp]
             .iter()
-            .map(|&t| self.transition_key_for_index[t])
+            .map(|&t| self.index_to_transition[t])
     }
 
     /// Dense preset of a transition (•t), for analysis code.
     #[must_use]
-    pub(crate) fn dense_input_places(&self, t: Transition) -> &SortedSet<Place> {
+    pub(crate) fn preset_t(&self, t: TransitionIdx) -> &SortedSet<PlaceIdx> {
         &self.preset_t[t]
     }
 
     /// Dense postset of a transition (t•), for analysis code.
     #[must_use]
-    pub(crate) fn dense_output_places(&self, t: Transition) -> &SortedSet<Place> {
+    pub(crate) fn postset_t(&self, t: TransitionIdx) -> &SortedSet<PlaceIdx> {
         &self.postset_t[t]
     }
 
     /// Dense preset of a place (•p), for analysis code.
     #[must_use]
-    pub(crate) fn dense_input_transitions(&self, p: Place) -> &SortedSet<Transition> {
+    pub(crate) fn preset_p(&self, p: PlaceIdx) -> &SortedSet<TransitionIdx> {
         &self.preset_p[p]
     }
 
     /// Dense postset of a place (p•), for analysis code.
     #[must_use]
-    pub(crate) fn dense_output_transitions(&self, p: Place) -> &SortedSet<Transition> {
+    pub(crate) fn postset_p(&self, p: PlaceIdx) -> &SortedSet<TransitionIdx> {
         &self.postset_p[p]
     }
 
-    /// Translate a [`PlaceKey`] to its dense [`Place`] index.
+    /// Translate a [`Place`] to its dense [`PlaceIdx`] index.
     #[must_use]
-    pub(crate) fn dense_place(&self, key: PlaceKey) -> Place {
-        *self.place_index_for_key.get(&key).expect("place key")
+    pub(crate) fn place_index(&self, key: Place) -> Option<PlaceIdx> {
+        self.place_to_index.get(&key).copied()
     }
 
-    /// Translate a [`TransitionKey`] to its dense [`Transition`] index.
+    /// Translate a [`Transition`] to its dense [`TransitionIdx`] index.
     #[must_use]
-    pub(crate) fn dense_transition(&self, key: TransitionKey) -> Transition {
-        *self.transition_index_for_key.get(&key).expect("transition key")
+    pub(crate) fn transition_index(&self, key: Transition) -> Option<TransitionIdx> {
+        self.transition_to_index.get(&key).copied()
     }
 
-    /// Translate a dense [`Place`] back to its [`PlaceKey`].
+    /// Translate a dense [`PlaceIdx`] back to its [`Place`].
     #[must_use]
-    pub(crate) fn place_key(&self, p: Place) -> PlaceKey {
-        self.place_key_for_index[p]
+    pub(crate) fn get_place(&self, p: PlaceIdx) -> Place {
+        self.index_to_place[p]
     }
 
-    /// Translate a dense [`Transition`] back to its [`TransitionKey`].
+    /// Translate a dense [`TransitionIdx`] back to its [`Transition`].
     #[must_use]
-    pub(crate) fn transition_key(&self, t: Transition) -> TransitionKey {
-        self.transition_key_for_index[t]
+    pub(crate) fn get_transition(&self, t: TransitionIdx) -> Transition {
+        self.index_to_transition[t]
+    }
+
+    pub(crate) fn convert_marking<T: TokenOps>(&self, marking: Marking<T>) -> ApiMarking<T> {
+        self.places().zip(marking).collect()
+    }
+
+    pub(crate) fn convert_api_marking<T: TokenOps>(&self, api_marking: ApiMarking<T>) -> Marking<T> {
+        let mut marking = Marking::zeros(self.place_count());
+        api_marking.into_iter().for_each(|(place, count)| {
+            if let Some(dense) = self.place_index(place) {
+                marking[dense] = count;
+            }
+        });
+        marking
     }
 
     /// A net is a circuit if it is both an S-net and a T-net.
@@ -387,14 +408,20 @@ impl Net {
     #[must_use]
     pub fn is_strongly_connected(&self) -> bool {
         use petgraph::graph::NodeIndex;
-        let mut graph = petgraph::Graph::<DenseNode, ()>::with_capacity(self.node_count(), self.arc_count());
-        let p_indices: IndexMap<Place, NodeIndex> = self.places().map(|p| graph.add_node(DenseNode::Place(p))).collect();
-        let t_indices: IndexMap<Transition, NodeIndex> = self.transitions().map(|t| graph.add_node(DenseNode::Transition(t))).collect();
-        for t in self.transitions() {
-            for &p in self.dense_input_places(t) {
+        let mut graph = petgraph::Graph::<(), ()>::with_capacity(self.node_count(), self.arc_count());
+        let p_indices: Box<[NodeIndex]> = self.places()
+            .map(|_| graph.add_node(()))
+            .collect();
+        let t_indices: Box<[NodeIndex]> = self.transitions()
+            .map(|_| graph.add_node(()))
+            .collect();
+        for ((t, _tk), (preset, postset)) in self.transitions()
+            .enumerate()
+            .zip(self.preset_t.iter().zip(self.postset_t.iter())) {
+            for &p in preset {
                 graph.add_edge(p_indices[p], t_indices[t], ());
             }
-            for &p in self.dense_output_places(t) {
+            for &p in postset {
                 graph.add_edge(t_indices[t], p_indices[p], ());
             }
         }
@@ -409,9 +436,10 @@ impl Net {
 
     /// Checks if a single place is structurally bounded.
     #[must_use]
-    pub fn is_place_structurally_bounded(&self, pk: PlaceKey) -> bool {
-        let place = self.dense_place(pk);
-        analysis::semi_decision::find_place_subvariant_covering(self, place).is_some()
+    pub fn is_place_structurally_bounded(&self, pk: Place) -> bool {
+        self.place_index(pk).map_or(false, |place| {
+            analysis::semi_decision::find_place_subvariant_covering(self, place).is_some()
+        })
     }
 }
 
@@ -441,10 +469,7 @@ mod tests {
         let mut net = Net::builder();
         let [p0, p1] = net.add_places();
         let [t0, t1] = net.add_transitions();
-        net.add_arc((p0, t0));
-        net.add_arc((t0, p1));
-        net.add_arc((p1, t1));
-        net.add_arc((t1, p0));
+        net.add_arcs((p0, t0, p1, t1, p0));
         net.build().expect("valid net")
     }
 

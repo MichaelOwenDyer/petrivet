@@ -38,13 +38,14 @@
 //! assert!(!result.is_reachable());
 //! ```
 
-use crate::analysis::model::ParikhVector;
 use crate::marking::Marking;
-use crate::net::{Net, Place, PlaceMap, TransitionMap};
+use crate::net::{Net, PlaceIdx};
+use crate::Transition;
 use good_lp::{
     constraint, variable, Expression, ProblemVariables, Solution,
     SolverModel, Variable,
 };
+use std::collections::HashMap;
 
 /// Checks the marking equation M = M₀ + N · x for a non-negative rational solution x,
 /// where N: |P|×|T| is the incidence matrix of the net.
@@ -67,23 +68,23 @@ pub fn find_marking_equation_rational_solution(
     net: &Net,
     initial: &Marking,
     target: &Marking,
-) -> Option<ParikhVector<f64>> {
+) -> Option<Box<[(Transition, f64)]>> {
     let incidence = net.incidence_matrix();
 
     let mut variables = ProblemVariables::new();
-    let firing_counts: TransitionMap<Variable> = net
-        .transitions()
+    let firing_counts: Box<[Variable]> = net
+        .transition_indices()
         .map(|_| variables.add(variable().min(0.0)))
         .collect();
 
-    let objective: Expression = firing_counts.values().copied().sum();
+    let objective: Expression = firing_counts.iter().copied().sum();
 
     let constraints = net
-        .places()
+        .place_indices()
         .map(|p| {
             let lhs: Expression = net
-                .transitions()
-                .map(|t| incidence.get(p, t) as f64 * firing_counts[t])
+                .transition_indices()
+                .map(|t| incidence.get_dense(p, t) as f64 * firing_counts[t])
                 .sum();
             let rhs = f64::from(target[p]) - f64::from(initial[p]);
             constraint!(lhs == rhs)
@@ -96,9 +97,8 @@ pub fn find_marking_equation_rational_solution(
         .solve()
         .ok()
         .map(|solution| {
-            firing_counts
-                .into_iter()
-                .map(|v| solution.value(v))
+            net.transitions()
+                .zip(firing_counts.into_iter().map(|v| solution.value(v)))
                 .collect()
         })
 }
@@ -123,22 +123,22 @@ pub fn find_marking_equation_integer_solution(
     net: &Net,
     initial: &Marking,
     target: &Marking,
-) -> Option<ParikhVector<u32>> {
+) -> Option<Box<[(Transition, u32)]>> {
     let mut variables = ProblemVariables::new();
-    let firing_counts: TransitionMap<Variable> = net
-        .transitions()
+    let firing_counts: Box<[Variable]> = net
+        .transition_indices()
         .map(|_| variables.add(variable().integer().min(0)))
         .collect();
 
-    let objective: Expression = firing_counts.values().copied().sum();
+    let objective: Expression = firing_counts.iter().copied().sum();
 
     let incidence = net.incidence_matrix();
     let constraints = net
-        .places()
+        .place_indices()
         .map(|p| {
             let lhs: Expression = net
-                .transitions()
-                .map(|t| incidence.get(p, t) as f64 * firing_counts[t])
+                .transition_indices()
+                .map(|t| incidence.get_dense(p, t) as f64 * firing_counts[t])
                 .sum();
             let rhs = f64::from(target[p]) - f64::from(initial[p]);
             constraint!(lhs == rhs)
@@ -151,8 +151,8 @@ pub fn find_marking_equation_integer_solution(
         .solve()
         .ok()
         .map(|solution| {
-            firing_counts.values()
-                .map(|&v| solution.value(v).round() as u32)
+            net.transitions()
+                .zip(firing_counts.into_iter().map(|v| solution.value(v).round() as u32))
                 .collect()
         })
 }
@@ -173,27 +173,27 @@ pub fn find_covering_equation_rational_solution(
     net: &Net,
     initial: &Marking,
     threshold: &Marking,
-) -> Option<ParikhVector<f64>> {
+) -> Option<HashMap<Transition, f64>> {
     let mut variables = ProblemVariables::new();
-    let parikh_vector: TransitionMap<Variable> = net
-        .transitions()
+    let parikh_vector: Box<[Variable]> = net
+        .transition_indices()
         .map(|_| variables.add(variable().min(0.0)))
         .collect();
 
     let incidence = net.incidence_matrix();
     let constraints = net
-        .places()
+        .place_indices()
         .map(|p| {
             let change: Expression = net
-                .transitions()
-                .map(|t| f64::from(incidence.get(p, t)) * parikh_vector[t])
+                .transition_indices()
+                .map(|t| f64::from(incidence.get_dense(p, t)) * parikh_vector[t])
                 .sum();
             let m0_p = f64::from(initial[p]);
             let thresh = f64::from(threshold[p]);
             constraint!(change >= thresh - m0_p)
         });
 
-    let objective: Expression = parikh_vector.values().copied().sum();
+    let objective: Expression = parikh_vector.iter().copied().sum();
     variables
         .minimise(objective)
         .using(good_lp::microlp)
@@ -201,9 +201,8 @@ pub fn find_covering_equation_rational_solution(
         .solve()
         .ok()
         .map(|solution| {
-            parikh_vector
-                .into_iter()
-                .map(|v| solution.value(v))
+            net.transitions()
+                .zip(parikh_vector.into_iter().map(|v| solution.value(v)))
                 .collect()
         })
 }
@@ -222,9 +221,9 @@ pub fn find_covering_equation_integer_solution(
     net: &Net,
     initial: &Marking,
     threshold: &Marking,
-) -> Option<ParikhVector<u32>> {
+) -> Option<HashMap<Transition, u32>> {
     let mut variables = ProblemVariables::new();
-    let parikh_vector: TransitionMap<Variable> = net
+    let parikh_vector: Box<[Variable]> = net
         .transitions()
         .map(|_| variables.add(variable().integer().min(0)))
         .collect();
@@ -232,17 +231,18 @@ pub fn find_covering_equation_integer_solution(
     let incidence = net.incidence_matrix();
     let constraints = net
         .places()
-        .map(|p| {
+        .enumerate()
+        .map(|(p, _pk)| {
             let change: Expression = net
-                .transitions()
-                .map(|t| incidence.get(p, t) as f64 * parikh_vector[t])
+                .transition_indices()
+                .map(|t| incidence.get_dense(p, t) as f64 * parikh_vector[t])
                 .sum();
             let m0_p = f64::from(initial[p]);
             let thresh = f64::from(threshold[p]);
             constraint!(change >= thresh - m0_p)
         });
 
-    let objective: Expression = parikh_vector.values().copied().sum();
+    let objective: Expression = parikh_vector.iter().copied().sum();
     variables
         .minimise(objective)
         .using(good_lp::microlp)
@@ -250,9 +250,8 @@ pub fn find_covering_equation_integer_solution(
         .solve()
         .ok()
         .map(|solution| {
-            parikh_vector
-                .into_iter()
-                .map(|v| solution.value(v).round() as u32)
+            net.transitions()
+                .zip(parikh_vector.into_iter().map(|v| solution.value(v).round() as u32))
                 .collect()
         })
 }
@@ -282,13 +281,13 @@ pub fn find_covering_equation_integer_solution(
 /// returns the weight vector y. Given a specific initial marking M₀,
 /// per-place upper bounds can be derived: M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋.
 #[must_use]
-pub fn find_positive_place_subvariant(net: &Net) -> Option<PlaceMap<f64>> {
+pub(crate) fn find_positive_place_subvariant(net: &Net) -> Option<Box<[f64]>> {
     if net.place_count() == 0 {
-        return Some(PlaceMap::from([]));
+        return Some(Box::from([]));
     }
 
     let mut variables = ProblemVariables::new();
-    let place_weights: PlaceMap<Variable> = net
+    let place_weights: Box<[Variable]> = net
         .places()
         .map(|_| variables.add(variable().min(1.0)))
         .collect();
@@ -296,9 +295,11 @@ pub fn find_positive_place_subvariant(net: &Net) -> Option<PlaceMap<f64>> {
     let incidence = net.incidence_matrix();
     let constraints = net
         .transitions()
-        .map(|t| {
+        .enumerate()
+        .map(|(t, _tk)| {
             let token_delta: Expression = net.places()
-                .map(|p| f64::from(incidence.get(p, t)) * place_weights[p])
+                .enumerate()
+                .map(|(p, _pk)| f64::from(incidence.get_dense(p, t)) * place_weights[p])
                 .sum();
             constraint!(token_delta <= 0.0)
         });
@@ -335,10 +336,14 @@ pub fn is_structurally_bounded(net: &Net) -> bool {
 /// Feasible → place is structurally bounded; Infeasible → structurally
 /// unbounded (there exists an initial marking under which it is unbounded).
 #[must_use]
-pub fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<PlaceMap<f64>> {
+pub(crate) fn find_place_subvariant_covering(
+    net: &Net,
+    place: PlaceIdx
+) -> Option<Box<[f64]>> {
     let mut variables = ProblemVariables::new();
-    let place_weights: PlaceMap<Variable> = net.places()
-        .map(|p| {
+    let place_weights: Box<[Variable]> = net.places()
+        .enumerate()
+        .map(|(p, _pk)| {
             if p == place {
                 variables.add(variable().min(1.0))
             } else {
@@ -350,10 +355,12 @@ pub fn find_place_subvariant_covering(net: &Net, place: Place) -> Option<PlaceMa
     let incidence = net.incidence_matrix();
     let constraints = net
         .transitions()
-        .map(|t| {
+        .enumerate()
+        .map(|(t, _tk)| {
             let token_delta: Expression = net
                 .places()
-                .map(|p| f64::from(incidence.get(p, t)) * place_weights[p])
+                .enumerate()
+                .map(|(p, _pk)| f64::from(incidence.get_dense(p, t)) * place_weights[p])
                 .sum();
             constraint!(token_delta <= 0.0)
         });
@@ -436,11 +443,9 @@ mod tests {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p1));
-        b.add_arc((p1, t1));
-        b.add_arc((t1, p0));
-        b.build().unwrap()    }
+        b.add_arcs((p0, t0, p1, t1, p0));
+        b.build().unwrap()
+    }
 
     #[test]
     fn reachable_marking_feasible() {
@@ -455,7 +460,6 @@ mod tests {
     fn unreachable_marking_infeasible() {
         let net = two_place_cycle();
         let m0 = Marking::from([1u32, 0]);
-        // [2, 0] requires creating a token - not possible in a conservative net
         let m1 = Marking::from([2u32, 0]);
         let result = find_marking_equation_rational_solution(&net, &m0, &m1);
         assert!(result.is_none());
@@ -469,8 +473,6 @@ mod tests {
 
     #[test]
     fn producer_structurally_bounded() {
-        // t0 consumes p1, produces p0; t1 consumes p0, produces p1.
-        // This is a cycle, so it IS structurally bounded.
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
@@ -484,24 +486,18 @@ mod tests {
 
     #[test]
     fn source_transition_not_structurally_bounded() {
-        // t0 produces into p0 with no input - a true source transition.
         let mut b = NetBuilder::new();
         let p0 = b.add_place();
         let t0 = b.add_transition();
         b.add_arc((t0, p0));
         let net = b.build().unwrap();
-        let p0 = net.dense_place(p0);
+        let p0 = net.place_index(p0).unwrap();
         assert!(!is_structurally_bounded(&net));
         assert!(find_place_subvariant_covering(&net, p0).is_none());
     }
 
     #[test]
     fn nonuniform_weights_structurally_bounded() {
-        // t0: p0 → {p1, p2}   (1 input, 2 outputs)  C[t0] = [-1, +1, +1]
-        // t1: {p1, p2} → p0   (2 inputs, 1 output)   C[t1] = [+1, -1, -1]
-        //
-        // Uniform y=(1,1,1) fails: C[t0]·y = 1 > 0.
-        // But y=(2,1,1) works: C[t0]·y = 0, C[t1]·y = 0.
         let mut b = NetBuilder::new();
         let [p0, p1, p2] = b.add_places();
         let [t0, t1] = b.add_transitions();
@@ -530,7 +526,7 @@ mod tests {
         let result = find_marking_equation_rational_solution(&net, &m0, &m0);
         assert!(result.is_some());
         if let Some(x) = &result {
-            assert!(x.values().all(|&v| v >= -1e-9));
+            assert!(x.iter().all(|&(_, v)| v >= -1e-9));
         }
     }
 

@@ -9,7 +9,7 @@
 use petrivet::pnml::convert::PetriNetKind;
 use petrivet::pnml::PnmlDocument;
 use petrivet::system::System;
-use petrivet::labeled::NetLabels;
+use petrivet::net::metadata::NetLabels;
 use petrivet::net::Net;
 
 fn load(path: &str) -> PnmlDocument {
@@ -19,10 +19,11 @@ fn load(path: &str) -> PnmlDocument {
         .unwrap_or_else(|e| panic!("could not parse fixture {path}: {e}"))
 }
 
-fn first_pt_net(doc: &PnmlDocument) -> (System<Net>, NetLabels) {
-    let (sys, labels, _graphics) = doc.nets[0]
+fn first_pt_net(doc: &PnmlDocument) -> (System<Net>, Box<NetLabels>) {
+    let sys = doc.nets[0]
         .to_pt_system()
         .expect("conversion failed");
+    let labels = sys.net().labels.as_ref().unwrap().clone();
     (sys, labels)
 }
 
@@ -53,8 +54,8 @@ fn philo_initial_marking() {
     let doc = load("tests/fixtures/philo.pnml");
     let (sys, _) = first_pt_net(&doc);
 
-    let total: u32 = sys.current_marking().iter().copied().sum();
-    let marked = sys.current_marking().iter().filter(|&&t| t > 0).count();
+    let total: u32 = sys.current_marking().total_tokens();
+    let marked = sys.current_marking().support().count();
     assert_eq!(total, 12, "total tokens");
     assert_eq!(marked, 12, "marked places");
 }
@@ -110,7 +111,7 @@ fn token_ring_zero_initial_marking() {
     let doc = load("tests/fixtures/token-ring.pnml");
     let (sys, _) = first_pt_net(&doc);
 
-    let total: u32 = sys.current_marking().iter().copied().sum();
+    let total: u32 = sys.current_marking().total_tokens();
     assert_eq!(total, 0, "token-ring has no initial marking in the file");
 }
 
@@ -160,8 +161,8 @@ fn pool_initial_marking() {
     let doc = load("tests/fixtures/swimming-pool.pnml");
     let (sys, _) = first_pt_net(&doc);
 
-    let total: u32 = sys.current_marking().iter().copied().sum();
-    let marked = sys.current_marking().iter().filter(|&&t| t > 0).count();
+    let total: u32 = sys.current_marking().total_tokens();
+    let marked = sys.current_marking().support().count();
     assert_eq!(total, 5, "total tokens");
     assert_eq!(marked, 3, "marked places");
 }
@@ -193,16 +194,4 @@ fn to_petri_nets_batch() {
     let results = doc.to_petri_nets();
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0], Ok(PetriNetKind::PtNet(..))));
-}
-
-#[test]
-fn philo_graphics_extracted() {
-    // PnmlGraphics fields are PlaceMap/TransitionMap (pub(crate) types), so
-    // from an integration test we can only verify that the conversion succeeds
-    // and returns a graphics struct. Per-place/per-transition graphics checks
-    // live in the convert.rs unit tests which have pub(crate) access.
-    let doc = load("tests/fixtures/philo.pnml");
-    let (_sys, _labels, _graphics) = doc.nets[0]
-        .to_pt_system()
-        .unwrap();
 }

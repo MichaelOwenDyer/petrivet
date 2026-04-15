@@ -35,11 +35,10 @@
 //! Run: `cargo run --example workflow_analysis`
 
 use petrivet::analysis::structural;
-use petrivet::marking::Marking;
 use petrivet::net::builder::NetBuilder;
 use petrivet::state_space::ExplorationOrder;
 use petrivet::system::System;
-use petrivet::{OmegaMarking, ReachabilityExplorer, ReachabilityGraph};
+use petrivet::{ReachabilityExplorer, ReachabilityGraph};
 
 fn main() {
     println!("=== PCB Assembly Line Analysis ===\n");
@@ -138,17 +137,16 @@ fn main() {
     println!("\n--- Behavioral Analysis (3 boards, 1 station) ---\n");
 
     // 3 raw boards, 1 station slot, everything else empty
-    let sys = System::new(&net, Marking::from([3, 1, 0, 0, 0, 0]));
+    let sys = System::new(&net, [(raw, 3), (station, 1)]);
     let boundedness = sys.analyze_boundedness();
 
-    println!("Bounded: {}", boundedness.system_bound());
+    println!("Bounded: {:?}", boundedness.system_bound());
     println!("Live (every transition always eventually firable): {}", sys.is_live());
 
     // TODO: need public key-based API for analysis results
     // LivenessAnalysis::transition_level takes dense Transition, not accessible from examples
     // println!("\nPer-transition liveness levels:");
-    // for (i, name) in trans_names.iter().enumerate() {
-    //     let t = petrivet::net::Transition::from_index(i as u32);
+    // for (t, name) in trans_names.iter().enumerate() {
     //     let level = liveness.transition_level(t);
     //     println!("  {}: {:?} (dead: {})", name, level, level.is_dead());
     // }
@@ -156,8 +154,7 @@ fn main() {
     println!("\n--- Reachability Analysis ---\n");
 
     // Can all 3 boards reach "done"?
-    let target_all_done = Marking::from([0u32, 1, 0, 0, 0, 3]);
-    let result = sys.analyze_reachability(&target_all_done);
+    let result = sys.analyze_reachability([(station, 1), (done, 3)].into());
     println!(
         "All 3 boards done? {}",
         if result.is_reachable() { "reachable" }
@@ -166,8 +163,8 @@ fn main() {
     );
 
     // Can we magically get 4 boards done from 3?
-    let impossible = Marking::from([0u32, 1, 0, 0, 0, 4]);
-    let result2 = sys.analyze_reachability(&impossible);
+    let impossible = [(station, 1), (done, 4)].into();
+    let result2 = sys.analyze_reachability(impossible);
     println!(
         "4 boards done from 3? {}",
         if result2.is_reachable() { "reachable" }
@@ -181,10 +178,10 @@ fn main() {
     println!("Markings: {}, Edges: {}", cg.marking_count(), cg.edge_count());
     println!("Bounded: {}", cg.is_bounded());
 
-    let threshold = OmegaMarking::from([0u32.into(), 1.into(), 0.into(), 0.into(), 0.into(), 3.into()]);
+    let threshold = [(station, 1.into()), (done, 3.into())].into();
     println!(
         "All-done marking coverable: {}",
-        cg.cover(&threshold).map_or_else(
+        cg.cover(threshold).map_or_else(
             || "no".to_string(),
             |cover| format!("yes: {cover:?}")
         )
@@ -199,13 +196,7 @@ fn main() {
     if !rg.is_deadlock_free() {
         println!("Deadlocks found:");
         for dl in rg.deadlocks() {
-            let desc: Vec<String> = dl
-                .iter()
-                .enumerate()
-                .filter(|&(_, &v)| v > 0)
-                .map(|(i, v)| format!("{}={}", place_names[i], v))
-                .collect();
-            println!("  {{{}}}", desc.join(", "));
+            println!("  {:?}", dl);
         }
     }
 
@@ -218,7 +209,7 @@ fn main() {
     //         path.len()
     //     );
     //     for (i, t) in path.iter().enumerate() {
-    //         println!("  {}: {}", i + 1, trans_names[t.usize_index()]);
+    //         println!("  {}: {}", i + 1, trans_names[t as usize]);
     //     }
     // }
 
@@ -263,9 +254,9 @@ fn main() {
 
     println!("\n--- Commoner's Theorem (Free-Choice Liveness) ---\n");
 
-    let m0 = Marking::from([3u32, 1, 0, 0, 0, 0]);
+    let m0 = [(raw, 3), (station, 1)].into();
     if net.is_free_choice_net() {
-        let live = structural::commoner_hack_criterion(&net, &m0).is_satisfied();
+        let live = structural::commoner_hack_criterion(&net, m0).is_satisfied();
         println!(
             "Net is free-choice. Commoner criterion: every siphon contains a marked trap? {live}",
         );

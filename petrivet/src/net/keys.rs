@@ -7,63 +7,63 @@
 //! with newly minted keys.
 
 use std::fmt;
-use std::num::NonZeroU64;
+use std::num::NonZeroU32;
 
 /// Opaque handle to a place. Valid from the moment it is returned by
 /// [`super::builder::NetBuilder::add_place`] through the lifetime of any
 /// [`super::Net`] built from that builder (provided the place was not
 /// removed before building).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PlaceKey(NonZeroU64);
+pub struct Place(pub(crate) NonZeroU32);
 
-/// Opaque handle to a transition. See [`PlaceKey`] for lifetime semantics.
+/// Opaque handle to a transition. See [`Place`] for lifetime semantics.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TransitionKey(NonZeroU64);
+pub struct Transition(pub(crate) NonZeroU32);
 
-impl PlaceKey {
+impl Place {
     #[must_use]
-    pub(crate) fn from_raw(raw: u64) -> Self {
-        Self(NonZeroU64::new(raw).expect("place key id must be non-zero"))
+    pub(crate) fn from_raw(raw: u32) -> Self {
+        Self(NonZeroU32::new(raw).expect("place key id must be non-zero"))
     }
 
     #[must_use]
-    pub(crate) fn into_raw(self) -> u64 {
+    pub(crate) fn into_raw(self) -> u32 {
         self.0.get()
     }
 }
 
-impl Default for PlaceKey {
+impl Default for Place {
     fn default() -> Self {
         // [`super::node_map::IndexMap::new`] pads with defaults before every slot is filled.
         Self::from_raw(1)
     }
 }
 
-impl TransitionKey {
+impl Transition {
     #[must_use]
-    pub(crate) fn from_raw(raw: u64) -> Self {
-        Self(NonZeroU64::new(raw).expect("transition key id must be non-zero"))
+    pub(crate) fn from_raw(raw: u32) -> Self {
+        Self(NonZeroU32::new(raw).expect("transition key id must be non-zero"))
     }
 
     #[must_use]
-    pub(crate) fn into_raw(self) -> u64 {
+    pub(crate) fn into_raw(self) -> u32 {
         self.0.get()
     }
 }
 
-impl Default for TransitionKey {
+impl Default for Transition {
     fn default() -> Self {
         Self::from_raw(1)
     }
 }
 
-impl fmt::Display for PlaceKey {
+impl fmt::Display for Place {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "p{}", self.0.get())
     }
 }
 
-impl fmt::Display for TransitionKey {
+impl fmt::Display for Transition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "t{}", self.0.get())
     }

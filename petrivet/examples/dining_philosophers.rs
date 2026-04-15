@@ -19,23 +19,12 @@
 //! Run: `cargo run --example dining_philosophers`
 
 use petrivet::analysis::structural;
-use petrivet::marking::Marking;
 use petrivet::net::builder::NetBuilder;
-use petrivet::net::PlaceKey;
 use petrivet::state_space::ExplorationOrder;
 use petrivet::state_space::ReachabilityGraph;
 use petrivet::system::System;
 
 const N: usize = 4;
-
-/// Build a marking vector where the given place keys each receive one token.
-/// Uses `net.places()` to determine dense ordering without accessing pub(crate) types.
-fn marking_with_tokens(place_order: &[PlaceKey], marked: &[PlaceKey]) -> Vec<u32> {
-    place_order
-        .iter()
-        .map(|pk| if marked.contains(pk) { 1 } else { 0 })
-        .collect()
-}
 
 fn main() {
     println!("=== Dining Philosophers ({N} philosophers) ===\n");
@@ -76,15 +65,9 @@ fn main() {
     let net = net.build().expect("valid net");
     println!("Structural class: {}\n", net.class());
 
-    // Initial marking: all philosophers thinking, all forks on table.
-    // Build from PlaceKey order exposed by net.place_keys() (dense index order).
-    let place_order: Vec<PlaceKey> = net.place_keys().collect();
-    let mut marked_places: Vec<PlaceKey> = Vec::new();
-    for i in 0..N {
-        marked_places.push(thinking[i]);
-        marked_places.push(forks[i]);
-    }
-    let initial = marking_with_tokens(&place_order, &marked_places);
+    let initial = thinking.into_iter()
+        .chain(forks)
+        .map(|p| (p, 1));
 
     let mut sys = System::new(&net, initial.clone());
 
@@ -98,7 +81,7 @@ fn main() {
         println!("Philosopher {i} takes left fork");
     }
 
-    println!("Marking after all take left fork: {}", sys.current_marking());
+    println!("Marking after all take left fork: {:?}", sys.current_marking());
     if sys.is_deadlocked() {
         println!("All philosophers have taken their left fork, but no one can eat! DEADLOCK\n");
     } else {
@@ -106,6 +89,7 @@ fn main() {
     }
 
     println!("--- State Space Analysis ---\n");
+
 
     let sys = System::new(&net, initial.clone());
     let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
@@ -115,18 +99,18 @@ fn main() {
 
     println!("Deadlock states:");
     for (i, dl) in rg.deadlocks().enumerate() {
-        println!("  {}: {}", i + 1, dl);
+        println!("  {}: {:?}", i + 1, dl);
     }
 
     // TODO: path_to() returns Box<[Transition]> where Transition is pub(crate).
     // Cannot use from outside the crate. Need a public path_to variant that returns
-    // TransitionKey, or a public method on Net to convert Transition → TransitionKey.
+    // Transition, or a public method on Net to convert TransitionIdx → Transition.
 
     println!("\n--- Liveness ---\n");
 
     // TODO: liveness_levels() returns TransitionMap<LivenessLevel> where TransitionMap
     // is pub(crate). Cannot bind or iterate it from outside the crate. Need a public
-    // return type (e.g., Vec<(TransitionKey, LivenessLevel)> or a key-indexed map).
+    // return type (e.g., Vec<(Transition, LivenessLevel)> or a key-indexed map).
     println!("System live: {}", rg.is_live());
 
     println!("\n--- Structural Analysis ---\n");
@@ -144,14 +128,13 @@ fn main() {
     );
 
     // TODO: minimal_siphons() returns Box<[HashSet<Place>]> where Place is pub(crate).
-    // Cannot use from outside the crate. Need a public variant returning PlaceKey sets.
+    // Cannot use from outside the crate. Need a public variant returning Place sets.
 
-    let m0 = Marking::from(initial);
-    let chc = structural::commoner_hack_criterion(&net, &m0);
-    println!("Every siphon contains a marked trap: {}", chc.is_satisfied());
-    if !chc.is_satisfied() {
-        println!("→ Commoner criterion violated: system is not live (confirmed).");
-    }
-
-    println!("\n=== Done ===");
+    // let chc = structural::commoner_hack_criterion(&net, &m0);
+    // println!("Every siphon contains a marked trap: {}", chc.is_satisfied());
+    // if !chc.is_satisfied() {
+    //     println!("→ Commoner criterion violated: system is not live (confirmed).");
+    // }
+    //
+    // println!("\n=== Done ===");
 }

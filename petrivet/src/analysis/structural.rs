@@ -33,14 +33,15 @@
 //! assert!(inv.is_covered_by_s_invariants(net.place_count() as usize));
 //! ```
 
+use crate::analysis::has_zero_token_cycle;
 use crate::analysis::math::integer_null_space;
 use crate::analysis::model::{CommonerHackCriterionResult, LivenessAnalysis, LivenessMethod, SNetComponent, SNetLivenessEvidence, TNetComponent, TNetLivenessEvidence};
 use crate::marking::Marking;
-use crate::net::{Net, Place, PlaceMap, Transition};
+use crate::net::{Net, Place, PlaceIdx, Transition, TransitionIdx};
+use crate::{ApiMarking, LivenessLevel};
+use good_lp::Variable;
 use std::collections::HashSet;
 use std::fmt;
-use crate::{LivenessLevel, TransitionMap};
-use crate::analysis::has_zero_token_cycle;
 
 /// The incidence matrix N of a Petri net.
 ///
@@ -59,6 +60,9 @@ pub struct IncidenceMatrix {
     data: Vec<i32>,
     rows: usize,
     cols: usize,
+    /// Key→dense-index maps cloned from the net at construction time.
+    place_keys: Box<[Place]>,
+    transition_keys: Box<[Transition]>,
 }
 
 impl IncidenceMatrix {
@@ -68,22 +72,28 @@ impl IncidenceMatrix {
         let rows = net.place_count() as usize;
         let cols = net.transition_count() as usize;
         let mut data = vec![0; rows * cols];
-        for t in net.transitions() {
-            for &p in net.dense_input_places(t) {
-                data[p.usize_index() * cols + t.usize_index()] -= 1;
+        for (t, preset, postset) in net.transition_io() {
+            for &p in preset {
+                data[p * cols + t] -= 1;
             }
-            for &p in net.dense_output_places(t) {
-                data[p.usize_index() * cols + t.usize_index()] += 1;
+            for &p in postset {
+                data[p * cols + t] += 1;
             }
         }
-        IncidenceMatrix { data, rows, cols }
+        IncidenceMatrix {
+            data,
+            rows,
+            cols,
+            place_keys: net.places().collect(),
+            transition_keys: net.transitions().collect(),
+        }
     }
 
     /// Constructs an incidence matrix from raw data in row-major order.
     #[must_use]
     pub fn from_raw(data: Vec<i32>, rows: usize, cols: usize) -> Self {
         debug_assert_eq!(data.len(), rows * cols);
-        Self { data, rows, cols }
+        Self { data, rows, cols, place_keys: Box::new([]), transition_keys: Box::new([]) }
     }
 
     /// Number of rows (places).
@@ -98,23 +108,46 @@ impl IncidenceMatrix {
         self.cols
     }
 
-    /// Entry at (row, col) = N\[place\]\[transition\].
+    /// Entry at (row, col) = N\[place\]\[transition\] (crate-internal, by dense index).
     #[must_use]
-    pub fn get(&self, row: Place, col: Transition) -> i32 {
-        self.data[row.usize_index() * self.cols + col.usize_index()]
+    pub(crate) fn get_dense(&self, row: PlaceIdx, col: TransitionIdx) -> i32 {
+        self.data[row * self.cols + col]
     }
 
-    /// Row slice for a given place.
+    /// Entry at (place, transition) using stable handles.
+    ///
+    /// Returns `None` if either key is not present in this matrix.
     #[must_use]
-    pub fn row(&self, p: Place) -> &[i32] {
-        let start = p.usize_index() * self.cols;
+    pub fn get(&self, pk: Place, tk: Transition) -> Option<i32> {
+        let row = self.place_keys.iter().position(|&k| k == pk)?;
+        let col = self.transition_keys.iter().position(|&k| k == tk)?;
+        Some(self.data[row * self.cols + col])
+    }
+
+    /// Row slice for a given place (crate-internal, by dense index).
+    #[must_use]
+    pub(crate) fn row_dense(&self, p: PlaceIdx) -> &[i32] {
+        let start = p * self.cols;
         &self.data[start..start + self.cols]
     }
 
-    /// Returns a column vector (extracting one transition across all places).
+    /// Row slice for a given place by its [`Place`].
+    ///
+    /// Returns `None` if the key is not present in this matrix.
     #[must_use]
-    pub fn col(&self, t: Transition) -> Vec<i32> {
-        (0..self.rows).map(|p| self.data[p * self.cols + t.usize_index()]).collect()
+    pub fn row(&self, pk: Place) -> Option<&[i32]> {
+        let idx = self.place_keys.iter().position(|&k| k == pk)?;
+        let start = idx * self.cols;
+        Some(&self.data[start..start + self.cols])
+    }
+
+    /// Returns a column vector for a given transition by its [`Transition`].
+    ///
+    /// Returns `None` if the key is not present in this matrix.
+    #[must_use]
+    pub fn col(&self, tk: Transition) -> Option<Vec<i32>> {
+        let idx = self.transition_keys.iter().position(|&k| k == tk)?;
+        Some((0..self.rows).map(|p| self.data[p * self.cols + idx]).collect())
     }
 
     /// Returns the transpose (|T| × |P| matrix).
@@ -126,7 +159,15 @@ impl IncidenceMatrix {
                 data[c * self.rows + r] = self.data[r * self.cols + c];
             }
         }
-        Self { data, rows: self.cols, cols: self.rows }
+        Self {
+            data,
+            rows: self.cols,
+            cols: self.rows,
+            // Key maps are not meaningful for the transpose (row↔col swap),
+            // so leave them empty. Callers use dense methods on the transpose.
+            place_keys: Box::new([]),
+            transition_keys: Box::new([]),
+        }
     }
 }
 
@@ -134,7 +175,7 @@ impl fmt::Display for IncidenceMatrix {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for idx in 0..self.rows {
             write!(f, "[")?;
-            for (t, val) in self.row(Place::from_index(idx as u32)).iter().enumerate() {
+            for (t, val) in self.row_dense(idx).iter().enumerate() {
                 if t > 0 { write!(f, ", ")?; }
                 write!(f, "{val:>3}")?;
             }
@@ -314,20 +355,20 @@ pub fn compute_invariants(net: &Net) -> Invariants {
 /// iteratively remove any place p where some transition t ∈ •p has no
 /// input place in the current set. Runs in O(|S|² · |T|²).
 #[must_use]
-pub fn maximal_siphon_in(
+pub(crate) fn maximal_siphon_in(
     net: &Net,
-    subset: &HashSet<Place>
-) -> HashSet<Place> {
-    let mut d: HashSet<Place> = subset.clone();
+    subset: &HashSet<PlaceIdx>
+) -> HashSet<PlaceIdx> {
+    let mut d: HashSet<PlaceIdx> = subset.clone();
     loop {
         let mut removed = false;
-        let to_remove: Vec<Place> = d.iter().copied().filter(|&p| {
+        let to_remove: Vec<PlaceIdx> = d.iter().copied().filter(|&p| {
             // Check if some t ∈ •p has no input place in D.
-            net.dense_input_transitions(p).iter().any(|&t| {
+            net.preset_p(p).iter().any(|&t| {
                 // t ∈ •p. For the siphon property, we need t ∈ D•,
                 // i.e. t consumes from some place in D.
                 // If it doesn't, then p cannot be in the siphon.
-                net.dense_input_places(t).iter().all(|&q| !d.contains(&q))
+                net.preset_t(t).iter().all(|&q| !d.contains(&q))
             })
         }).collect();
         for p in to_remove {
@@ -341,29 +382,21 @@ pub fn maximal_siphon_in(
     d
 }
 
-/// Finds all minimal siphons of a net.
-///
-/// A siphon is a set of places D where •D ⊆ D•: every transition that
-/// outputs into D also has an input from D. Once all places in a siphon
-/// become empty, they stay empty forever - a potential deadlock cause.
-///
-/// Starts by computing the maximal siphon (all places), then recursively
-/// tries excluding each place to find smaller siphons. Results are filtered
-/// to keep only minimal ones.
+/// Finds all minimal siphons of a net as sets of dense [`PlaceIdx`] indices.
+/// Internal helper; use [`minimal_siphons`] for the public key-based API.
 #[must_use]
-pub fn minimal_siphons(net: &Net) -> Box<[HashSet<Place>]> {
-    let all_places: HashSet<Place> = net.places().collect();
-    let mut results: Vec<HashSet<Place>> = Vec::new();
-    let mut stack: Vec<HashSet<Place>> = vec![all_places];
-    let mut visited: HashSet<Vec<u32>> = HashSet::new();
+pub(crate) fn minimal_siphons_dense(net: &Net) -> Box<[HashSet<PlaceIdx>]> {
+    let all_places: HashSet<PlaceIdx> = net.place_indices().collect();
+    let mut results: Vec<HashSet<PlaceIdx>> = Vec::new();
+    let mut stack: Vec<HashSet<PlaceIdx>> = vec![all_places];
+    let mut visited: HashSet<Vec<PlaceIdx>> = HashSet::new();
 
     while let Some(candidate_set) = stack.pop() {
         let siphon = maximal_siphon_in(net, &candidate_set);
         if siphon.is_empty() {
             continue;
         }
-
-        let mut key: Vec<u32> = siphon.iter().map(|p| p.index()).collect();
+        let mut key: Vec<PlaceIdx> = siphon.iter().copied().collect();
         key.sort_unstable();
         if !visited.insert(key) {
             continue;
@@ -396,6 +429,21 @@ pub fn minimal_siphons(net: &Net) -> Box<[HashSet<Place>]> {
     results.into_boxed_slice()
 }
 
+/// Finds all minimal siphons of a net.
+///
+/// A siphon is a set of places D where •D ⊆ D•: every transition that
+/// outputs into D also has an input from D. Once all places in a siphon
+/// become empty, they stay empty forever - a potential deadlock cause.
+///
+/// Returns each siphon as a [`HashSet`] of [`Place`] handles.
+#[must_use]
+pub fn minimal_siphons(net: &Net) -> Box<[HashSet<Place>]> {
+    minimal_siphons_dense(net)
+        .into_iter()
+        .map(|s| s.into_iter().map(|p| net.get_place(p)).collect())
+        .collect()
+}
+
 /// Computes the maximal trap contained in a given set of places.
 ///
 /// A trap Q satisfies Q• ⊆ •Q: every transition that consumes from Q also
@@ -404,23 +452,23 @@ pub fn minimal_siphons(net: &Net) -> Box<[HashSet<Place>]> {
 /// Uses the dual of the shrinking algorithm: iteratively remove any place p
 /// where some transition t ∈ p• has no output place in the current set.
 #[must_use]
-pub fn maximal_trap_in<S: std::hash::BuildHasher + Clone>(
+pub(crate) fn maximal_trap_in<S: std::hash::BuildHasher + Clone>(
     net: &Net,
-    subset: &HashSet<Place, S>
-) -> HashSet<Place, S> {
+    subset: &HashSet<PlaceIdx, S>
+) -> HashSet<PlaceIdx, S> {
     let mut maximal_trap = subset.clone();
     loop {
         let mut removed = false;
-        let to_remove: Vec<Place> = maximal_trap
+        let to_remove: Vec<PlaceIdx> = maximal_trap
             .iter()
             .filter(|&&p| {
                 // Check if some t ∈ p• has no output place in Q.
                 // p• = transitions that consume from p = postset_p(p)
-                net.dense_output_transitions(p).iter().any(|&t| {
+                net.postset_p(p).iter().any(|&t| {
                     // t ∈ p•. For the trap property, we need t ∈ •Q,
                     // i.e. t produces into some place in Q.
                     // t• = postset_t(t) = output places of t.
-                    !net.dense_output_places(t).iter().any(|&r| maximal_trap.contains(&r))
+                    !net.postset_t(t).iter().any(|&r| maximal_trap.contains(&r))
                 })
             })
             .copied()
@@ -436,21 +484,14 @@ pub fn maximal_trap_in<S: std::hash::BuildHasher + Clone>(
     maximal_trap
 }
 
-/// Finds all minimal traps of a net.
-///
-/// A trap is a set of places D where D• ⊆ •D: every transition that
-/// takes tokens out of D also puts tokens into D. Once a token is present
-/// in a trap, the trap can never become unmarked again.
-///
-/// Starts by computing the maximal trap (all places), then recursively
-/// tries excluding each place to find smaller traps. Results are filtered
-/// to keep only minimal ones.
+/// Finds all minimal traps of a net as sets of dense [`PlaceIdx`] indices.
+/// Internal helper; use [`minimal_traps`] for the public key-based API.
 #[must_use]
-pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
-    let all_places: HashSet<Place> = net.places().collect();
-    let mut results: Vec<HashSet<Place>> = Vec::new();
-    let mut stack: Vec<HashSet<Place>> = vec![all_places];
-    let mut visited: HashSet<Vec<u32>> = HashSet::new();
+pub(crate) fn minimal_traps_dense(net: &Net) -> Box<[HashSet<PlaceIdx>]> {
+    let all_places: HashSet<PlaceIdx> = net.place_indices().collect();
+    let mut results: Vec<HashSet<PlaceIdx>> = Vec::new();
+    let mut stack: Vec<HashSet<PlaceIdx>> = vec![all_places];
+    let mut visited: HashSet<Vec<PlaceIdx>> = HashSet::new();
 
     while let Some(candidate_set) = stack.pop() {
         let trap = maximal_trap_in(net, &candidate_set);
@@ -458,7 +499,7 @@ pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
             continue;
         }
 
-        let mut key: Vec<u32> = trap.iter().map(|p| p.index()).collect();
+        let mut key: Vec<PlaceIdx> = trap.iter().copied().collect();
         key.sort_unstable();
         if !visited.insert(key) {
             continue;
@@ -490,6 +531,21 @@ pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
     results.into_boxed_slice()
 }
 
+/// Finds all minimal traps of a net.
+///
+/// A trap is a set of places D where D• ⊆ •D: every transition that
+/// takes tokens out of D also puts tokens into D. Once a token is present
+/// in a trap, the trap can never become unmarked again.
+///
+/// Returns each trap as a [`HashSet`] of [`Place`] handles.
+#[must_use]
+pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
+    minimal_traps_dense(net)
+        .iter()
+        .map(|t| t.iter().map(|&p| net.get_place(p)).collect())
+        .collect()
+}
+
 /// Finds all minimal siphons using ILP enumeration.
 ///
 /// Encodes the siphon property as binary constraints and iteratively
@@ -497,48 +553,48 @@ pub fn minimal_traps(net: &Net) -> Box<[HashSet<Place>]> {
 /// exclude previously found solutions. Slower than the backtracking
 /// approach for small nets but more systematic.
 #[must_use]
-pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
+pub(crate) fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<PlaceIdx>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
     if net.place_count() == 0 {
         return Box::new([]);
     }
 
-    let mut results: Vec<HashSet<Place>> = Vec::new();
+    let mut results: Vec<HashSet<PlaceIdx>> = Vec::new();
 
     let mut vars = ProblemVariables::new();
-    let x: PlaceMap<_> = net
-        .places()
+    let place_selectors: Box<[Variable]> = net
+        .place_indices()
         .map(|_| vars.add(variable().binary()))
         .collect();
 
     let mut constraints = Vec::new();
 
-    let at_least_one: Expression = x.values().copied().sum();
-    constraints.push(constraint!(at_least_one >= 1.0));
+    let selected_count: Expression = place_selectors.iter().copied().sum();
+    constraints.push(constraint!(selected_count >= 1.0));
 
     // Siphon property: x[p] ≤ Σ_{q ∈ •t} x[q]  for all p, t ∈ •p
-    for p in net.places() {
-        for &t in net.dense_input_transitions(p) {
+    for p in net.place_indices() {
+        for &t in net.preset_p(p) {
             let sum_preset: Expression = net
-                .dense_input_places(t)
+                .preset_t(t)
                 .iter()
-                .map(|&q| x[q])
+                .map(|&q| place_selectors[q])
                 .sum();
-            constraints.push(constraint!(x[p] <= sum_preset));
+            constraints.push(constraint!(place_selectors[p] <= sum_preset));
         }
     }
 
-    let objective: Expression = x.values().copied().sum();
+    let objective: Expression = place_selectors.iter().copied().sum();
     while let Ok(solution) = vars.clone()
         .minimise(&objective)
         .using(good_lp::microlp)
         .with_all(constraints.clone())
         .solve() {
 
-        let siphon: HashSet<Place> = net
-            .places()
-            .filter(|&p| solution.value(x[p]) > 0.5)
+        let siphon: HashSet<PlaceIdx> = net
+            .place_indices()
+            .filter(|&p| solution.value(place_selectors[p]) > 0.5)
             .collect();
 
         if siphon.is_empty() {
@@ -551,7 +607,7 @@ pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
             results.push(siphon.clone());
         }
 
-        let prev_sum: Expression = siphon.iter().map(|&p| x[p]).sum();
+        let prev_sum: Expression = siphon.iter().map(|&p| place_selectors[p]).sum();
         constraints.push(constraint!(prev_sum <= siphon.len() as f64 - 1.0));
     }
 
@@ -560,33 +616,31 @@ pub fn minimal_siphons_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 
 /// Finds all minimal traps using ILP enumeration.
 #[must_use]
-pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
+pub(crate) fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<PlaceIdx>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
     if net.place_count() == 0 {
         return Box::new([]);
     }
 
-    let mut results: Vec<HashSet<Place>> = Vec::new();
-    let mut no_good_sets: Vec<HashSet<Place>> = Vec::new();
+    let mut results: Vec<HashSet<PlaceIdx>> = Vec::new();
+    let mut no_good_sets: Vec<HashSet<PlaceIdx>> = Vec::new();
 
     loop {
         let mut vars = ProblemVariables::new();
-        let x: PlaceMap<_> = net
-            .places()
+        let x: Box<[Variable]> = net
+            .place_indices()
             .map(|_| vars.add(variable().binary()))
             .collect();
 
-        let objective: Expression = x.values().copied().sum();
-
         let mut constraints = Vec::new();
-        let at_least_one: Expression = x.values().copied().sum();
-        constraints.push(constraint!(at_least_one >= 1.0));
+        let selected_places: Expression = x.iter().copied().sum();
+        constraints.push(constraint!(selected_places.clone() >= 1.0));
 
         // Trap property: x[p] ≤ Σ_{q ∈ t•} x[q]  for all p, t ∈ p•
-        for p in net.places() {
-            for &t in net.dense_output_transitions(p) {
-                let sum_postset: Expression = net.dense_output_places(t).iter()
+        for p in net.place_indices() {
+            for &t in net.postset_p(p) {
+                let sum_postset: Expression = net.postset_t(t).iter()
                     .map(|&q| x[q])
                     .sum();
                 constraints.push(constraint!(x[p] <= sum_postset));
@@ -599,13 +653,13 @@ pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
         }
 
         let Ok(solution) = vars
-            .minimise(objective)
+            .minimise(selected_places)
             .using(good_lp::microlp)
             .with_all(constraints)
             .solve() else { break };
 
-        let trap: HashSet<Place> = net
-            .places()
+        let trap: HashSet<PlaceIdx> = net
+            .place_indices()
             .filter(|&p| solution.value(x[p]) > 0.5)
             .collect();
 
@@ -649,7 +703,7 @@ pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 /// ```
 /// use petrivet::net::builder::NetBuilder;
 /// use petrivet::marking::Marking;
-/// use petrivet::analysis::structural::{minimal_siphons, commoner_hack_criterion};
+/// use petrivet::analysis::structural::{minimal_siphons, commoner_hack_criterion_inner};
 ///
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
@@ -660,11 +714,11 @@ pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 ///
 /// let m0 = Marking::from([1u32, 0]);
 /// // With a token, the siphon {p0, p1} contains a marked trap → live
-/// assert!(commoner_hack_criterion(&net, &m0).is_satisfied());
+/// assert!(commoner_hack_criterion_inner(&net, &m0).is_satisfied());
 ///
 /// // Without tokens, the trap is unmarked → not live
 /// let m_empty = Marking::from([0u32, 0]);
-/// assert!(!commoner_hack_criterion(&net, &m_empty).is_satisfied());
+/// assert!(!commoner_hack_criterion_inner(&net, &m_empty).is_satisfied());
 /// ```
 ///
 /// References:
@@ -675,15 +729,24 @@ pub fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<Place>]> {
 #[must_use] // todo: move this out of structural module since marking is relevant?
 pub fn commoner_hack_criterion(
     net: &Net,
+    marking: ApiMarking,
+) -> CommonerHackCriterionResult {
+    let marking = net.convert_api_marking(marking);
+    commoner_hack_criterion_inner(net, &marking)
+}
+
+#[must_use] // todo: move this out of structural module since marking is relevant?
+pub(crate) fn commoner_hack_criterion_inner(
+    net: &Net,
     marking: &Marking,
 ) -> CommonerHackCriterionResult {
     use super::model::SiphonTrapPair;
-    let siphon_trap_pairs: Box<[SiphonTrapPair]> = minimal_siphons(net).into_iter().map(|siphon| {
+    let siphon_trap_pairs: Box<[SiphonTrapPair]> = minimal_siphons_dense(net).into_iter().map(|siphon| {
         let trap = maximal_trap_in(net, &siphon);
         let trap_is_marked = !trap.is_empty() && trap.iter().any(|&p| marking[p] > 0);
         SiphonTrapPair {
-            siphon,
-            trap,
+            siphon: siphon.into_iter().map(|p| net.get_place(p)).collect(),
+            trap: trap.into_iter().map(|p| net.get_place(p)).collect(),
             trap_is_marked,
         }
     }).collect();
@@ -710,7 +773,9 @@ pub fn commoner_hack_criterion(
 /// - [Primer, Definition 5.9](crate::literature#definition-59--s-components-and-t-components)
 #[derive(Debug, Clone)]
 pub struct SComponent {
+    /// Places in this S-component.
     pub places: HashSet<Place>,
+    /// Transitions in this S-component.
     pub transitions: HashSet<Transition>,
 }
 
@@ -728,7 +793,9 @@ pub struct SComponent {
 /// - [Primer, Definition 5.9](crate::literature#definition-59--s-components-and-t-components)
 #[derive(Debug, Clone)]
 pub struct TComponent {
+    /// Places in this T-component.
     pub places: HashSet<Place>,
+    /// Transitions in this T-component.
     pub transitions: HashSet<Transition>,
 }
 
@@ -750,45 +817,48 @@ pub fn s_components(net: &Net) -> Vec<SComponent> {
     }
 
     let mut components = Vec::new();
-    let mut found_supports: HashSet<Vec<u32>> = HashSet::new();
+    let mut found_supports: HashSet<Vec<PlaceIdx>> = HashSet::new();
 
     // A place can belong to multiple S-components (e.g. crit1 in both the
     // process cycle and the mutex cycle). Query every place to find all
     // distinct components.
-    for p in net.places() {
+    for idx in net.place_indices() {
         let Some(support) = find_nonneg_invariant_support(
             &inv.s_invariants,
-            p.usize_index(),
+            idx,
             net.place_count() as usize
         ) else {
             continue;
         };
 
-        let mut key: Vec<u32> = support.iter().map(|&i| i as u32).collect();
+        let mut key: Vec<PlaceIdx> = support.iter().copied().collect();
         key.sort_unstable();
         if !found_supports.insert(key) {
             continue;
         }
 
-        let places: HashSet<Place> = support
+        let place_indices: HashSet<PlaceIdx> = support
             .into_iter()
-            .map(|i| Place::from_index(i as u32))
             .collect();
 
-        let transitions: HashSet<Transition> = net
-            .transitions()
+        let dense_transitions: HashSet<TransitionIdx> = net
+            .transition_indices()
             .filter(|&t| {
-                let pre_count = net.dense_input_places(t).iter().filter(|p| places.contains(p)).count();
-                let post_count = net.dense_output_places(t).iter().filter(|p| places.contains(p)).count();
-                pre_count == 1 && post_count == 1
+                let exactly_one_in_set = |neighbors: &[PlaceIdx]| {
+                    let mut it = neighbors.iter().filter(|&p| place_indices.contains(p));
+                    it.next().is_some() && it.next().is_none()
+                };
+                exactly_one_in_set(net.preset_t(t)) && exactly_one_in_set(net.postset_t(t))
             })
             .collect();
 
-        if transitions.is_empty() {
+        if dense_transitions.is_empty() {
             continue;
         }
 
-        if is_subnet_strongly_connected(net, &places, &transitions) {
+        if is_subnet_strongly_connected(net, &place_indices, &dense_transitions) {
+            let places = place_indices.iter().map(|&p| net.get_place(p)).collect();
+            let transitions = dense_transitions.iter().map(|&t| net.get_transition(t)).collect();
             components.push(SComponent { places, transitions });
         }
     }
@@ -841,7 +911,7 @@ fn find_nonneg_invariant_support(
         .ok()?;
 
     let lambda_vals: Vec<f64> = lambda.iter().map(|&l| solution.value(l)).collect();
-    let support: HashSet<usize> = (0..dimension)
+    let support: HashSet<_> = (0..dimension)
         .filter(|&i| {
             let y_i: f64 = lambda_vals
                 .iter()
@@ -860,48 +930,54 @@ fn find_nonneg_invariant_support(
 /// A T-component is a strongly connected subnet where every place has exactly
 /// one input and one output transition within the subnet. Found by examining
 /// the support of each T-invariant basis vector.
+///
+/// Places and transitions are returned as stable [`Place`]/[`Transition`] handles.
 #[must_use]
 pub fn t_components(net: &Net) -> Vec<TComponent> {
-    let inv = compute_invariants(net);
-    if inv.t_invariants.is_empty() {
+    let t_invariants = integer_null_space(&net.incidence_matrix());
+    if t_invariants.is_empty() {
         return Vec::new();
     }
 
     let mut components = Vec::new();
 
-    for t in net.transitions() {
+    for (idx, _tk) in net.transitions().enumerate() {
         let Some(support) = find_nonneg_invariant_support(
-            &inv.t_invariants,
-            t.usize_index(),
+            &t_invariants,
+            idx,
             net.transition_count() as usize,
         ) else {
             continue;
         };
 
-        let transitions: HashSet<Transition> = support
+        let dense_transitions: HashSet<TransitionIdx> = support
             .into_iter()
-            .map(|i| Transition::from_index(i as u32))
             .collect();
 
-        if components.iter().any(|c: &TComponent| c.transitions == transitions) {
+        let transition_keys: HashSet<Transition> = dense_transitions.iter()
+            .map(|&t| net.get_transition(t))
+            .collect();
+
+        if components.iter().any(|c: &TComponent| c.transitions == transition_keys) {
             continue;
         }
 
-        let places: HashSet<Place> = net
-            .places()
+        let dense_places: HashSet<PlaceIdx> = net
+            .place_indices()
             .filter(|&p| {
-                let pre_count = net.dense_input_transitions(p).iter().filter(|t| transitions.contains(t)).count();
-                let post_count = net.dense_output_transitions(p).iter().filter(|t| transitions.contains(t)).count();
+                let pre_count = net.preset_p(p).iter().filter(|t| dense_transitions.contains(t)).count();
+                let post_count = net.postset_p(p).iter().filter(|t| dense_transitions.contains(t)).count();
                 pre_count == 1 && post_count == 1
             })
             .collect();
 
-        if places.is_empty() {
+        if dense_places.is_empty() {
             continue;
         }
 
-        if is_subnet_strongly_connected(net, &places, &transitions) {
-            components.push(TComponent { places, transitions });
+        if is_subnet_strongly_connected(net, &dense_places, &dense_transitions) {
+            let places = dense_places.iter().map(|&p| net.get_place(p)).collect();
+            components.push(TComponent { places, transitions: transition_keys });
         }
     }
 
@@ -920,7 +996,7 @@ pub fn t_components(net: &Net) -> Vec<TComponent> {
 /// - [Primer, Theorem 5.34](crate::literature#theorem-534--boundedness-criterion-for-live-free-choice-systems) (live FC boundedness via S-components)
 #[must_use]
 pub fn is_covered_by_s_components(net: &Net, components: &[SComponent]) -> bool {
-    net.places().all(|p| components.iter().any(|c| c.places.contains(&p)))
+    net.places().all(|pk| components.iter().any(|c| c.places.contains(&pk)))
 }
 
 /// Whether every transition in the net belongs to at least one T-component.
@@ -934,14 +1010,14 @@ pub fn is_covered_by_s_components(net: &Net, components: &[SComponent]) -> bool 
 /// - [Murata 1989, §VI-C](crate::literature#vi-c--s-components-and-t-components)
 #[must_use]
 pub fn is_covered_by_t_components(net: &Net, components: &[TComponent]) -> bool {
-    net.transitions().all(|t| components.iter().any(|c| c.transitions.contains(&t)))
+    net.transitions().all(|tk| components.iter().any(|c| c.transitions.contains(&tk)))
 }
 
 /// Checks strong connectivity of a subnet induced by a set of places and transitions.
 fn is_subnet_strongly_connected(
     net: &Net,
-    places: &HashSet<Place>,
-    transitions: &HashSet<Transition>,
+    places: &HashSet<PlaceIdx>,
+    transitions: &HashSet<TransitionIdx>,
 ) -> bool {
     use petgraph::graph::NodeIndex;
 
@@ -951,8 +1027,8 @@ fn is_subnet_strongly_connected(
     }
 
     let mut graph = petgraph::Graph::<(), ()>::with_capacity(n_nodes, n_nodes * 2);
-    let mut p_map: std::collections::HashMap<Place, NodeIndex> = std::collections::HashMap::new();
-    let mut t_map: std::collections::HashMap<Transition, NodeIndex> = std::collections::HashMap::new();
+    let mut p_map: std::collections::HashMap<PlaceIdx, NodeIndex> = std::collections::HashMap::new();
+    let mut t_map: std::collections::HashMap<TransitionIdx, NodeIndex> = std::collections::HashMap::new();
 
     for &p in places {
         p_map.insert(p, graph.add_node(()));
@@ -962,12 +1038,12 @@ fn is_subnet_strongly_connected(
     }
 
     for &t in transitions {
-        for &p in net.dense_input_places(t) {
+        for &p in net.preset_t(t) {
             if let Some(&p_idx) = p_map.get(&p) {
                 graph.add_edge(p_idx, t_map[&t], ());
             }
         }
-        for &p in net.dense_output_places(t) {
+        for &p in net.postset_t(t) {
             if let Some(&p_idx) = p_map.get(&p) {
                 graph.add_edge(t_map[&t], p_idx, ());
             }
@@ -992,7 +1068,7 @@ fn is_subnet_strongly_connected(
 ///
 /// References: [Murata 1989 Theorem 4](crate::literature#theorem-4--liveness-of-s-nets-state-machines),
 /// [Primer Corollary 5.30](crate::literature#corollary-530--liveness-of-s-systems).
-pub fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
+pub(crate) fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
     use petgraph::graph::NodeIndex;
 
     let place_count = net.place_count() as usize;
@@ -1000,15 +1076,16 @@ pub fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
 
     // Build the place graph: places are nodes, transitions are directed edges
     // from their single input place to their single output place.
-    let mut place_graph = petgraph::Graph::<Place, Transition>::with_capacity(place_count, transition_count);
-    let p_nodes: Vec<NodeIndex> = net.places()
+    let mut place_graph = petgraph::Graph::<PlaceIdx, TransitionIdx>::with_capacity(place_count, transition_count);
+    let p_nodes: Vec<NodeIndex> = net.place_indices()
         .map(|p| place_graph.add_node(p))
         .collect();
 
-    for t in net.transitions() {
-        let src = net.dense_input_places(t)[0];
-        let dst = net.dense_output_places(t)[0];
-        place_graph.add_edge(p_nodes[src.usize_index()], p_nodes[dst.usize_index()], t);
+    for t in net.transition_indices() {
+        // safety: s-net
+        let src = net.preset_t(t)[0];
+        let dst = net.postset_t(t)[0];
+        place_graph.add_edge(p_nodes[src], p_nodes[dst], t);
     }
 
     // Compute SCCs (Kosaraju returns them in reverse topological order).
@@ -1022,7 +1099,7 @@ pub fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
         let scc_idx = n_sccs - 1 - rev_idx;
         for &node_idx in scc {
             let place = place_graph[node_idx];
-            place_to_scc[place.usize_index()] = scc_idx;
+            place_to_scc[place] = scc_idx;
         }
     }
 
@@ -1033,37 +1110,46 @@ pub fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
     // Classify each transition as internal (same SCC) or inter-SCC,
     // and track which SCCs have outgoing transitions.
     let mut transition_scc: Vec<Option<usize>> = vec![None; transition_count];
-    for t in net.transitions() {
-        let src = net.dense_input_places(t)[0];
-        let dst = net.dense_output_places(t)[0];
-        let src_scc = place_to_scc[src.usize_index()];
-        let dst_scc = place_to_scc[dst.usize_index()];
+    for t in net.transition_indices() {
+        let src = net.preset_t(t)[0];
+        let dst = net.postset_t(t)[0];
+        let src_scc = place_to_scc[src];
+        let dst_scc = place_to_scc[dst];
         if src_scc == dst_scc {
-            transition_scc[t.usize_index()] = Some(src_scc);
+            transition_scc[t] = Some(src_scc);
         } else {
             scc_has_outgoing[src_scc] = true;
         }
     }
 
-    // Build components in topological order.
-    for (rev_idx, scc) in sccs.iter().enumerate() {
-        let scc_idx = n_sccs - 1 - rev_idx;
-        let places: Box<[Place]> = scc.iter()
-            .map(|&ni| place_graph[ni])
-            .collect();
-        let token_sum: u32 = places.iter()
-            .map(|&p| marking[p])
-            .sum();
-        let transitions: Box<[Transition]> = net.transitions()
-            .filter(|t| transition_scc[t.usize_index()] == Some(scc_idx))
-            .collect();
-        let is_sink = !scc_has_outgoing[scc_idx];
+    // Build components in topological order (domain data, still in dense-index form).
+    struct DenseSNetScc {
+        places: Vec<PlaceIdx>,
+        token_sum: u32,
+        is_sink: bool,
+    }
+    let dense_sccs: Vec<DenseSNetScc> = sccs.iter().enumerate()
+        .map(|(rev_idx, scc)| {
+            let scc_idx = n_sccs - 1 - rev_idx;
+            let places: Vec<PlaceIdx> = scc.iter().map(|&ni| place_graph[ni]).collect();
+            let token_sum = places.iter().map(|&p| marking[p]).sum();
+            DenseSNetScc { places, token_sum, is_sink: !scc_has_outgoing[scc_idx] }
+        })
+        .collect();
 
+    // Translate to key-based public representation.
+    for (rev_idx, dscc) in dense_sccs.iter().enumerate() {
+        let scc_idx = n_sccs - 1 - rev_idx;
+        let places = dscc.places.iter().map(|&p| net.get_place(p)).collect();
+        let transitions = net.transition_indices()
+            .filter(|t| transition_scc[*t] == Some(scc_idx))
+            .map(|t| net.get_transition(t))
+            .collect();
         components.push(SNetComponent {
             places,
             transitions,
-            token_sum,
-            is_sink,
+            token_sum: dscc.token_sum,
+            is_sink: dscc.is_sink,
         });
     }
 
@@ -1080,11 +1166,11 @@ pub fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
         }
     }
     // Propagate reachability along inter-SCC transitions (topological order).
-    for t in net.transitions() {
-        let src = net.dense_input_places(t)[0];
-        let dst = net.dense_output_places(t)[0];
-        let src_scc = place_to_scc[src.usize_index()];
-        let dst_scc = place_to_scc[dst.usize_index()];
+    for t in net.transition_indices() {
+        let src = net.preset_t(t)[0];
+        let dst = net.postset_t(t)[0];
+        let src_scc = place_to_scc[src];
+        let dst_scc = place_to_scc[dst];
         if src_scc != dst_scc && scc_reachable[src_scc] {
             scc_reachable[dst_scc] = true;
         }
@@ -1092,32 +1178,32 @@ pub fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
 
     // Assign liveness levels.
     let mut levels = vec![LivenessLevel::L0; transition_count];
-    for t in net.transitions() {
-        let src = net.dense_input_places(t)[0];
-        let dst = net.dense_output_places(t)[0];
-        let src_scc = place_to_scc[src.usize_index()];
-        let dst_scc = place_to_scc[dst.usize_index()];
+    for t in net.transition_indices() {
+        let src = net.preset_t(t)[0];
+        let dst = net.postset_t(t)[0];
+        let src_scc = place_to_scc[src];
+        let dst_scc = place_to_scc[dst];
 
         if src_scc == dst_scc {
             // Internal transition
             let comp = &components[src_scc];
             if comp.token_sum > 0 || scc_reachable[src_scc] {
                 if comp.is_sink {
-                    levels[t.usize_index()] = LivenessLevel::L4;
+                    levels[t] = LivenessLevel::L4;
                 } else {
-                    levels[t.usize_index()] = LivenessLevel::L3;
+                    levels[t] = LivenessLevel::L3;
                 }
             }
         } else {
             // Inter-SCC transition: L1 if the source SCC has/receives tokens
             if scc_reachable[src_scc] {
-                levels[t.usize_index()] = LivenessLevel::L1;
+                levels[t] = LivenessLevel::L1;
             }
         }
     }
 
     LivenessAnalysis {
-        levels: TransitionMap::from(levels),
+        levels: net.transitions().zip(levels).collect(),
         method: LivenessMethod::SNet(SNetLivenessEvidence {
             components: components.into_boxed_slice(),
         }),
@@ -1144,7 +1230,7 @@ pub fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
 ///    circuits are marked AND all predecessor SCCs are L4.
 ///
 /// References: [Murata 1989 Theorems 7 & 26](crate::literature#theorem-7--liveness-of-t-nets-marked-graphs), [Primer Theorem 5.31](crate::literature#theorem-531--liveness-and-realisability-in-t-systems).
-pub fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
+pub(crate) fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
     use petgraph::graph::NodeIndex;
 
     let place_count = net.place_count() as usize;
@@ -1152,15 +1238,15 @@ pub fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
 
     // Build the transition graph: transitions are nodes, places are directed
     // edges from their single input transition to their single output transition.
-    let mut trans_graph = petgraph::Graph::<Transition, Place>::with_capacity(transition_count, place_count);
-    let t_nodes: Vec<NodeIndex> = net.transitions()
+    let mut trans_graph = petgraph::Graph::<TransitionIdx, PlaceIdx>::with_capacity(transition_count, place_count);
+    let t_nodes: Vec<NodeIndex> = net.transition_indices()
         .map(|t| trans_graph.add_node(t))
         .collect();
 
-    for p in net.places() {
-        let src = net.dense_input_transitions(p)[0];
-        let dst = net.dense_output_transitions(p)[0];
-        trans_graph.add_edge(t_nodes[src.usize_index()], t_nodes[dst.usize_index()], p);
+    for p in net.place_indices() {
+        let src = net.preset_p(p)[0];
+        let dst = net.postset_p(p)[0];
+        trans_graph.add_edge(t_nodes[src], t_nodes[dst], p);
     }
 
     // Compute SCCs (Kosaraju returns reverse topological order).
@@ -1173,7 +1259,7 @@ pub fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
         let scc_idx = n_sccs - 1 - rev_idx;
         for &node_idx in scc {
             let transition = trans_graph[node_idx];
-            trans_to_scc[transition.usize_index()] = scc_idx;
+            trans_to_scc[transition] = scc_idx;
         }
     }
 
@@ -1186,28 +1272,39 @@ pub fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
     // Efficient check: if any internal place has 0 tokens, check if there's a
     // zero-token cycle through it using DFS on zero-token internal places.
     let mut components: Vec<TNetComponent> = Vec::with_capacity(n_sccs);
+    // Keep dense copies for internal propagation computations.
+    let mut dense_transitions_per_scc: Vec<Vec<TransitionIdx>> = Vec::with_capacity(n_sccs);
+    let mut dense_places_per_scc: Vec<Vec<PlaceIdx>> = Vec::with_capacity(n_sccs);
 
     for (rev_idx, scc) in sccs.iter().enumerate() {
         let scc_idx = n_sccs - 1 - rev_idx;
-        let transitions: Box<[Transition]> = scc.iter()
+        let dense_transitions: Vec<TransitionIdx> = scc.iter()
             .map(|&ni| trans_graph[ni])
             .collect();
 
-        let places: Box<[Place]> = net.places()
+        let dense_places: Vec<PlaceIdx> = net.place_indices()
             .filter(|&p| {
-                let src = net.dense_input_transitions(p)[0];
-                let dst = net.dense_output_transitions(p)[0];
-                trans_to_scc[src.usize_index()] == scc_idx && trans_to_scc[dst.usize_index()] == scc_idx
+                let src = net.preset_p(p)[0];
+                let dst = net.postset_p(p)[0];
+                trans_to_scc[src] == scc_idx && trans_to_scc[dst] == scc_idx
             })
             .collect();
 
         // For singleton or acyclic SCCs (no internal places forming cycles),
         // all_circuits_marked is vacuously true.
-        let all_circuits_marked = if places.is_empty() {
+        let all_circuits_marked = if dense_places.is_empty() {
             true
         } else {
-            !has_zero_token_cycle(net, marking, &places, &trans_to_scc, scc_idx)
+            !has_zero_token_cycle(net, marking, &dense_places, &trans_to_scc, scc_idx)
         };
+
+        // Convert to key-based handles for the public-facing component.
+        let transitions: Box<[Transition]> = dense_transitions.iter()
+            .map(|&t| net.get_transition(t))
+            .collect();
+        let places: Box<[Place]> = dense_places.iter()
+            .map(|&p| net.get_place(p))
+            .collect();
 
         components.push(TNetComponent {
             transitions,
@@ -1215,20 +1312,23 @@ pub fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
             all_circuits_marked,
             predecessors_live: false, // filled in below
         });
+        dense_transitions_per_scc.push(dense_transitions);
+        dense_places_per_scc.push(dense_places);
     }
 
     // Reverse to get topological order (sources first).
     components.reverse();
+    dense_transitions_per_scc.reverse();
 
     // Propagate predecessor liveness in topological order.
     // Also track which SCCs have all predecessors live.
     let mut scc_live = vec![false; n_sccs];
     for scc_idx in 0..n_sccs {
-        // Check all predecessor SCCs via inter-SCC places.
-        let all_preds_live = components[scc_idx].transitions.iter().all(|&t| {
-            net.dense_input_places(t).iter().all(|&p| {
-                let src_t = net.dense_input_transitions(p)[0];
-                let src_scc = trans_to_scc[src_t.usize_index()];
+        // Check all predecessor SCCs via inter-SCC places using dense indices.
+        let all_preds_live = dense_transitions_per_scc[scc_idx].iter().all(|&t| {
+            net.preset_t(t).iter().all(|&p| {
+                let src_t = net.preset_p(p)[0];
+                let src_scc = trans_to_scc[src_t];
                 src_scc == scc_idx || scc_live[src_scc]
             })
         });
@@ -1239,15 +1339,15 @@ pub fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
 
     // Assign liveness levels: L4 if SCC is live, L0 otherwise.
     let mut levels = vec![LivenessLevel::L0; transition_count];
-    for t in net.transitions() {
-        let scc_idx = trans_to_scc[t.usize_index()];
+    for t in net.transition_indices() {
+        let scc_idx = trans_to_scc[t];
         if scc_live[scc_idx] {
-            levels[t.usize_index()] = LivenessLevel::L4;
+            levels[t] = LivenessLevel::L4;
         }
     }
 
     LivenessAnalysis {
-        levels: TransitionMap::from(levels),
+        levels: net.transitions().zip(levels).collect(),
         method: LivenessMethod::TNet(TNetLivenessEvidence {
             components: components.into_boxed_slice(),
         }),
@@ -1257,8 +1357,8 @@ pub fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::builder::NetBuilder;
     use crate::net::class::NetClass;
+    use crate::net::{builder::NetBuilder, Place, Transition};
 
     fn two_place_cycle() -> Net {
         let mut b = NetBuilder::new();
@@ -1294,9 +1394,9 @@ mod tests {
         // siphon and the only minimal trap.
         assert_eq!(siphons.len(), 1);
         assert_eq!(traps.len(), 1);
-        let all_places: HashSet<Place> = net.places().collect();
-        assert_eq!(siphons[0], all_places);
-        assert_eq!(traps[0], all_places);
+        let all_place_keys: HashSet<Place> = net.places().collect();
+        assert_eq!(siphons[0], all_place_keys);
+        assert_eq!(traps[0], all_place_keys);
     }
 
     #[test]
@@ -1349,9 +1449,10 @@ mod tests {
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
         let net = b.build().unwrap();
-        let marking = Marking::from([1u32, 0, 0, 1, 0, 0, 1]);
+        let marking = [(idle1, 1), (idle2, 1), (mutex, 1)].into();
+        let marking = net.convert_api_marking(marking);
 
-        assert!(commoner_hack_criterion(&net, &marking).is_satisfied());
+        assert!(commoner_hack_criterion_inner(&net, &marking).is_satisfied());
     }
 
     #[test]
@@ -1380,10 +1481,10 @@ mod tests {
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p0, t1)); b.add_arc((t1, p2));
         let net = b.build().unwrap();
-        let p1 = net.dense_place(p1);
-        let p2 = net.dense_place(p2);
+        let p1 = net.place_index(p1).unwrap();
+        let p2 = net.place_index(p2).unwrap();
 
-        let all: HashSet<Place> = net.places().collect();
+        let all: HashSet<PlaceIdx> = net.place_indices().collect();
         let max = maximal_siphon_in(&net, &all);
         // The maximal siphon in {p0, p1, p2} should shrink:
         // p1: •p1 = {t0}, •t0 = {p0} which is in the set → p1 OK
@@ -1393,35 +1494,29 @@ mod tests {
         assert_eq!(max, all);
 
         // Now try just {p1, p2}: should shrink to empty.
-        let subset: HashSet<Place> = [p1, p2].into_iter().collect();
+        let subset: HashSet<PlaceIdx> = [p1, p2].into_iter().collect();
         let max2 = maximal_siphon_in(&net, &subset);
         assert!(max2.is_empty());
     }
 
     #[test]
     fn maximal_trap_shrinks_correctly() {
-        // Same choice net: p0 -> t0 -> p1, p0 -> t1 -> p2
-        // {p1, p2} is a trap: p1• = ∅, p2• = ∅, so Q• = ∅ ⊆ •Q trivially.
-        // {p0} is not a trap: p0• = {t0, t1}, t0 ∉ •{p0}, t1 ∉ •{p0}.
         let mut b = NetBuilder::new();
         let [p0, p1, p2] = b.add_places();
         let [t0, t1] = b.add_transitions();
-        b.add_arc((p0, t0)); b.add_arc((t0, p1));
-        b.add_arc((p0, t1)); b.add_arc((t1, p2));
+        b.add_arcs((p0, t0, p1));
+        b.add_arcs((p0, t1, p2));
         let net = b.build().unwrap();
 
-        let all: HashSet<Place> = net.places().collect();
+        let all: HashSet<PlaceIdx> = net.place_indices().collect();
         let max = maximal_trap_in(&net, &all);
-        // p0: p0• = {t0, t1}. t0• = {p1} in set → OK for t0. t1• = {p2} in set → OK.
-        // p1: p1• = ∅ → vacuously OK.
-        // p2: p2• = ∅ → vacuously OK.
         assert_eq!(max, all);
     }
 
     #[test]
     fn ilp_siphons_match_backtracking() {
         let net = two_place_cycle();
-        let bt = minimal_siphons(&net);
+        let bt = minimal_siphons_dense(&net);
         let ilp = minimal_siphons_ilp(&net);
         assert_eq!(bt.len(), ilp.len());
         for s in &bt {
@@ -1432,7 +1527,7 @@ mod tests {
     #[test]
     fn ilp_traps_match_backtracking() {
         let net = two_place_cycle();
-        let bt = minimal_traps(&net);
+        let bt = minimal_traps_dense(&net);
         let ilp = minimal_traps_ilp(&net);
         assert_eq!(bt.len(), ilp.len());
         for t in &bt {
@@ -1449,17 +1544,13 @@ mod tests {
         let [t_req1, t_enter1, t_exit1] = b.add_transitions();
         let [t_req2, t_enter2, t_exit2] = b.add_transitions();
 
-        b.add_arc((idle1, t_req1)); b.add_arc((t_req1, wait1));
-        b.add_arc((wait1, t_enter1)); b.add_arc((t_enter1, crit1));
-        b.add_arc((crit1, t_exit1)); b.add_arc((t_exit1, idle1));
-        b.add_arc((idle2, t_req2)); b.add_arc((t_req2, wait2));
-        b.add_arc((wait2, t_enter2)); b.add_arc((t_enter2, crit2));
-        b.add_arc((crit2, t_exit2)); b.add_arc((t_exit2, idle2));
-        b.add_arc((mutex, t_enter1)); b.add_arc((t_exit1, mutex));
-        b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
+        b.add_arcs((idle1, t_req1, wait1, t_enter1, crit1, t_exit1, idle1));
+        b.add_arcs((idle2, t_req2, wait2, t_enter2, crit2, t_exit2, idle2));
+        b.add_arcs((mutex, t_enter1, mutex));
+        b.add_arcs((mutex, t_enter2, mutex));
 
         let net = b.build().unwrap();
-        let bt = minimal_siphons(&net);
+        let bt = minimal_siphons_dense(&net);
         let ilp = minimal_siphons_ilp(&net);
         assert_eq!(bt.len(), ilp.len());
         for s in &bt {
@@ -1474,7 +1565,7 @@ mod tests {
         let marking = Marking::from([0u32, 0]);
         // The only siphon is {p0, p1}; its maximal trap is also {p0, p1},
         // but the trap is unmarked (both places have 0 tokens).
-        assert!(!commoner_hack_criterion(&net, &marking).is_satisfied());
+        assert!(!commoner_hack_criterion_inner(&net, &marking).is_satisfied());
     }
 
     #[test]
@@ -1512,13 +1603,6 @@ mod tests {
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
         let net = b.build().unwrap();
-        let idle1 = net.dense_place(idle1);
-        let wait1 = net.dense_place(wait1);
-        let crit1 = net.dense_place(crit1);
-        let idle2 = net.dense_place(idle2);
-        let wait2 = net.dense_place(wait2);
-        let crit2 = net.dense_place(crit2);
-        let mutex = net.dense_place(mutex);
         let s_comps = s_components(&net);
 
         // 3 S-components: process 1 cycle, process 2 cycle, mutex cycle
@@ -1553,12 +1637,6 @@ mod tests {
         b.add_arc((mutex, t_enter2)); b.add_arc((t_exit2, mutex));
 
         let net = b.build().unwrap();
-        let t_req1 = net.dense_transition(t_req1);
-        let t_enter1 = net.dense_transition(t_enter1);
-        let t_exit1 = net.dense_transition(t_exit1);
-        let t_req2 = net.dense_transition(t_req2);
-        let t_enter2 = net.dense_transition(t_enter2);
-        let t_exit2 = net.dense_transition(t_exit2);
         let t_comps = t_components(&net);
 
         // 2 T-components: one per process (req, enter, exit)
@@ -1608,8 +1686,6 @@ mod tests {
         b.add_arc((p0, t1)); b.add_arc((t1, p2));
         b.add_arc((p2, t2)); b.add_arc((t2, p0));
         let net = b.build().unwrap();
-        let p0 = net.dense_place(p0);
-        let p2 = net.dense_place(p2);
         assert!(net.is_free_choice_net());
 
         let marking = Marking::from([1u32, 0, 0]);
@@ -1618,6 +1694,6 @@ mod tests {
         let emptiable: HashSet<Place> = [p0, p2].into_iter().collect();
         assert!(siphons.contains(&emptiable), "should find siphon {{p0, p2}}");
 
-        assert!(!commoner_hack_criterion(&net, &marking).is_satisfied());
+        assert!(!commoner_hack_criterion_inner(&net, &marking).is_satisfied());
     }
 }

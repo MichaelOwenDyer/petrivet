@@ -1,7 +1,6 @@
-use std::fmt;
 use crate::{Place, Transition};
-use crate::net::{PlaceMap, TransitionMap};
-use super::sorted_set::SortedSet;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 
 /// TODO: Add examples of each class of net with doctests asserting the classification correctly identifies the class.
 /// Structural classification of a Petri net.
@@ -104,6 +103,9 @@ pub enum NetClass {
     /// let [bal_0, bal_5, bal_10, bal_15, bal_20] = b.add_places();
     /// let [bal_0_dep_5, bal_0_dep_10, bal_5_dep_5, bal_5_dep_10, bal_10_dep_5,
     ///     bal_10_dep_10, bal_15_dep_5, get_candy_for_15, get_candy_for_20] = b.add_transitions();
+    ///
+    /// // Note how in an S-net,
+    /// // every transition is just a simple bridge between two places.
     /// b.add_arcs((bal_0, bal_0_dep_5, bal_5));
     /// b.add_arcs((bal_0, bal_0_dep_10, bal_10));
     /// b.add_arcs((bal_5, bal_5_dep_5, bal_10));
@@ -113,6 +115,7 @@ pub enum NetClass {
     /// b.add_arcs((bal_15, bal_15_dep_5, bal_20));
     /// b.add_arcs((bal_15, get_candy_for_15, bal_0));
     /// b.add_arcs((bal_20, get_candy_for_20, bal_0));
+    /// b.add_arcs((bal_20, get_candy_for_15, bal_5));
     /// let net = b.build().unwrap();
     /// assert!(net.class() == NetClass::SNet);
     /// assert!(!net.is_circuit());
@@ -303,15 +306,15 @@ impl fmt::Display for NetClass {
 }
 
 #[must_use]
-pub fn classify(
-    preset_t: &TransitionMap<SortedSet<Place>>,
-    postset_t: &TransitionMap<SortedSet<Place>>,
-    preset_p: &PlaceMap<SortedSet<Transition>>,
-    postset_p: &PlaceMap<SortedSet<Transition>>,
+pub fn classify<S: std::hash::BuildHasher>(
+    preset_t: &HashMap<Transition, HashSet<Place, S>, S>,
+    postset_t: &HashMap<Transition, HashSet<Place, S>, S>,
+    preset_p: &HashMap<Place, HashSet<Transition, S>, S>,
+    postset_p: &HashMap<Place, HashSet<Transition, S>, S>
 ) -> NetClass {
-    let is_s = is_s_net(preset_t, postset_t);
-    let is_t = is_t_net(preset_p, postset_p);
-    match (is_s, is_t) {
+    let is_s_net = is_s_net(preset_t, postset_t);
+    let is_t_net = is_t_net(preset_p, postset_p);
+    match (is_s_net, is_t_net) {
         (true, true) => NetClass::Circuit,
         (true, false) => NetClass::SNet,
         (false, true) => NetClass::TNet,
@@ -322,32 +325,42 @@ pub fn classify(
 }
 
 /// S-net: |•t| = 1 and |t•| = 1 for every transition t.
-fn is_s_net(transition_presets: &TransitionMap<SortedSet<Place>>, transition_postsets: &TransitionMap<SortedSet<Place>>) -> bool {
-    transition_presets.values().all(|preset| preset.len() == 1) &&
-    transition_postsets.values().all(|postset| postset.len() == 1)
+fn is_s_net<S: std::hash::BuildHasher>(
+    transition_presets: &HashMap<Transition, HashSet<Place, S>, S>,
+    transition_postsets: &HashMap<Transition, HashSet<Place, S>, S>
+) -> bool {
+    transition_presets.values().all(|preset| preset.len() == 1)
+        && transition_postsets.values().all(|postset| postset.len() == 1)
 }
 
 /// T-net: |•p| = 1 and |p•| = 1 for every place p.
-fn is_t_net(place_presets: &PlaceMap<SortedSet<Transition>>, place_postsets: &PlaceMap<SortedSet<Transition>>) -> bool {
-    place_presets.values().all(|preset| preset.len() == 1) &&
-    place_postsets.values().all(|postset| postset.len() == 1)
+fn is_t_net<S: std::hash::BuildHasher>(
+    place_presets: &HashMap<Place, HashSet<Transition, S>, S>,
+    place_postsets: &HashMap<Place, HashSet<Transition, S>, S>
+) -> bool {
+    place_presets.values().all(|preset| preset.len() == 1)
+        && place_postsets.values().all(|postset| postset.len() == 1)
 }
 
 /// Free-choice: ∀ p1, p2: p1• ∩ p2• ≠ ∅ ⟹ p1• = p2•.
 /// Equivalently: for every place p, all transitions in p• share the same preset.
-fn is_free_choice_net(place_postsets: &PlaceMap<SortedSet<Transition>>, preset_t: &TransitionMap<SortedSet<Place>>) -> bool {
-    place_postsets.iter().all(|(_p, postset)| {
-        postset.array_windows().all(|&[t0, t1]| {
-            preset_t[t0] == preset_t[t1]
-        })
+fn is_free_choice_net<S: std::hash::BuildHasher>(
+    postset_p: &HashMap<Place, HashSet<Transition, S>, S>,
+    preset_t: &HashMap<Transition, HashSet<Place, S>, S>,
+) -> bool {
+    postset_p.values().all(|postset| {
+        let mut iter = postset.iter().map(|t| preset_t.get(t).unwrap());
+        iter.next().map_or(true, |first| iter.all(|preset| preset == first))
     })
 }
 
 /// Asymmetric-choice: ∀ p1, p2: p1• ∩ p2• ≠ ∅ ⟹ p1• ⊆ p2• ∨ p2• ⊆ p1•.
-fn is_asymmetric_choice_net(place_postsets: &PlaceMap<SortedSet<Transition>>) -> bool {
-    place_postsets.values().all(|a| {
-        place_postsets.values().all(|b| {
-            !a.intersects(b) || a.is_subset_of(b) || b.is_subset_of(a)
+fn is_asymmetric_choice_net<S: std::hash::BuildHasher>(
+    postset_p: &HashMap<Place, HashSet<Transition, S>, S>,
+) -> bool {
+    postset_p.values().all(|a| {
+        postset_p.values().all(|b| {
+            a.is_disjoint(b) || a.is_subset(b) || b.is_subset(a)
         })
     })
 }

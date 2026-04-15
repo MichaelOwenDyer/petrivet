@@ -32,12 +32,12 @@
 
 use crate::analysis::model::CoverabilityProof;
 use crate::marking::{Marking, Omega, OmegaMarking};
-use crate::net::{Net, Place};
+use crate::net::{Net, PlaceIdx};
 use crate::state_space::explorer::StateGraph;
 use crate::state_space::ReachabilityGraph;
 use crate::state_space::{explorer::StateSpaceExplorer, ExplorationOrder};
 use crate::system::System;
-use crate::{PlaceKey, PlaceMap, TransitionKey};
+use crate::{ApiOmegaMarking, Place, Transition};
 use petgraph::graph::NodeIndex;
 use std::fmt;
 
@@ -58,9 +58,9 @@ pub struct CoverabilityExplorer<'a> {
 #[derive(Debug, Clone)]
 pub struct CoverabilityStep {
     /// The transition that was fired.
-    pub transition: TransitionKey,
+    pub transition: Transition,
     /// The resulting marking (may contain ω after acceleration).
-    pub marking: OmegaMarking,
+    pub marking: ApiOmegaMarking,
     /// Whether this marking was newly discovered (vs. already seen).
     pub is_new: bool,
 }
@@ -70,10 +70,10 @@ impl<'a> CoverabilityExplorer<'a> {
     #[must_use]
     pub fn new<N: AsRef<Net>>(sys: &'a System<N>, order: ExplorationOrder) -> Self {
         let net = sys.net().as_ref();
-        let omega_marking = OmegaMarking::from(sys.current_marking());
+        let omega_marking = OmegaMarking::from(sys.marking.clone());
         Self {
             explorer: StateSpaceExplorer::new(net, omega_marking, order),
-            place_bounds: net.places().map(|_| Omega::Finite(0)).collect(),
+            place_bounds: net.place_indices().map(|_| Omega::Finite(0)).collect(),
         }
     }
 
@@ -95,18 +95,18 @@ impl<'a> CoverabilityExplorer<'a> {
     /// frontier is exhausted (graph fully explored).
     pub fn explore_next(&mut self) -> Option<CoverabilityStep> {
         loop {
-            let (src_idx, dense_t) = self.explorer.pop_frontier()?;
-            if !self.explorer.is_enabled(src_idx, dense_t) {
+            let (src_node_idx, t_idx) = self.explorer.pop_frontier()?;
+            if !self.explorer.is_enabled(src_node_idx, t_idx) {
                 continue;
             }
-            let mut marking = self.explorer.fire(src_idx, dense_t);
-            self.omega_accelerate(&mut marking, src_idx);
+            let mut marking = self.explorer.fire(src_node_idx, t_idx);
+            self.omega_accelerate(&mut marking, src_node_idx);
             self.update_place_bounds(&marking);
-            let (_, is_new) = self.explorer.register(src_idx, dense_t, marking.clone());
-            let transition_key = self.explorer.state_space.net.transition_key(dense_t);
+            let (_, is_new) = self.explorer.register(src_node_idx, t_idx, marking.clone());
+            let transition_key = self.explorer.state_space.net.get_transition(t_idx);
             return Some(CoverabilityStep {
                 transition: transition_key,
-                marking,
+                marking: self.explorer.state_space.net.convert_marking(marking),
                 is_new,
             });
         }
@@ -201,13 +201,16 @@ impl<'a> CoverabilityExplorer<'a> {
     /// **Note**: this will not consider already-discovered markings.
     pub fn find_cover(&mut self, target: &OmegaMarking) -> Option<CoverabilityProof> {
         while let Some(step) = self.explore_next() {
-            if step.marking >= *target {
-                let path = self.explorer.state_space.path_to(self.explorer.state_space.seen[&step.marking]).expect("marking is in graph");
-                return Some(CoverabilityProof {
-                    firing_sequence: path,
-                    covering_marking: step.marking,
-                });
+            // todo: this is inefficient! rewrite!
+            let marking = self.explorer.state_space.net.convert_api_marking(step.marking.clone());
+            if marking < *target {
+                continue;
             }
+            let path = self.explorer.state_space.path_to(self.explorer.state_space.seen[&marking]).expect("marking is in graph");
+            return Some(CoverabilityProof {
+                firing_sequence: path,
+                covering_marking: step.marking,
+            });
         }
         None
     }
@@ -244,8 +247,10 @@ impl<'a> CoverabilityGraph<'a> {
     }
 
     /// Iterator over all distinct markings in the coverability graph.
-    pub fn markings(&self) -> impl Iterator<Item = &OmegaMarking> {
+    pub fn markings(&self) -> impl Iterator<Item = ApiOmegaMarking> {
         self.state_space.graph.node_weights()
+            .cloned()
+            .map(|marking| self.state_space.net.convert_marking(marking))
     }
 
     /// Whether the given ω-marking has been discovered.
@@ -265,8 +270,9 @@ impl<'a> CoverabilityGraph<'a> {
 
     /// The initial marking.
     #[must_use]
-    pub fn initial_marking(&self) -> &OmegaMarking {
-        self.state_space.marking_at(self.state_space.initial_idx)
+    pub fn initial_marking(&self) -> ApiOmegaMarking {
+        let marking = self.state_space.marking_at(self.state_space.initial_idx).clone();
+        self.state_space.net.convert_marking(marking)
     }
 
     /// Whether the net is bounded: no ω appears in any discovered marking.
@@ -277,11 +283,11 @@ impl<'a> CoverabilityGraph<'a> {
 
     /// Upper bound on the token count for each place across all discovered markings.
     #[must_use]
-    pub fn place_bounds(&self) -> PlaceMap<Omega> {
+    pub fn place_bounds(&self) -> Box<[Omega]> {
         self.state_space
             .net
-            .places()
-            .map(|p| self.place_bound_dense(p))
+            .place_indices()
+            .map(|p| self.place_idx_bound(p))
             .collect()
     }
 
@@ -289,13 +295,17 @@ impl<'a> CoverabilityGraph<'a> {
     /// discovered markings. Returns `Omega::Unbounded` if the place is
     /// unbounded.
     #[must_use]
-    pub fn place_bound(&self, p: PlaceKey) -> Omega {
-        let dense = self.state_space.net.dense_place(p);
-        self.place_bound_dense(dense)
+    pub fn place_bound(&self, p: Place) -> Omega {
+        self.state_space.net
+            .place_index(p)
+            .map_or_else(
+                || Omega::Finite(0),
+                |idx| self.place_idx_bound(idx)
+            )
     }
 
     /// Dense-index version for internal use.
-    fn place_bound_dense(&self, p: Place) -> Omega {
+    fn place_idx_bound(&self, p: PlaceIdx) -> Omega {
         self.state_space
             .graph
             .node_weights()
@@ -311,15 +321,16 @@ impl<'a> CoverabilityGraph<'a> {
     /// Panics if no path can be found from the initial marking to the covering marking,
     /// which should never happen since the marking was discovered during exploration.
     #[must_use]
-    pub fn cover(&self, target: &OmegaMarking) -> Option<CoverabilityProof> {
+    pub fn cover(&self, target: ApiOmegaMarking) -> Option<CoverabilityProof> {
+        let target = self.state_space.net.convert_api_marking(target);
         self.state_space
             .graph
             .node_indices()
             .map(|idx| (idx, self.state_space.marking_at(idx)))
-            .find(|&(_, marking)| marking >= target)
+            .find(|&(_, marking)| marking >= &target)
             .map(|(idx, marking)| {
                 let firing_sequence = self.state_space.path_to(idx).expect("marking is in graph");
-                let covering_marking = marking.clone();
+                let covering_marking = self.state_space.net.convert_marking(marking.clone());
                 CoverabilityProof {
                     firing_sequence,
                     covering_marking,
@@ -368,32 +379,27 @@ impl fmt::Debug for CoverabilityGraph<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::marking::Marking;
     use crate::net::{builder::NetBuilder, class::NetClass, Net};
 
     /// Two-place cycle: p0 → t0 → p1 → t1 → p0 (bounded)
-    fn two_place_cycle() -> System<Net> {
+    fn two_place_cycle() -> (System<Net>, Place, Place) {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p1));
-        b.add_arc((p1, t1));
-        b.add_arc((t1, p0));
+        b.add_arcs((p0, t0, p1, t1, p0));
         let net = b.build().expect("valid net");
-        System::new(net, [1, 0])
+        (net.with_marking([(p0, 1)]), p0, p1)
     }
 
     /// Unbounded: t0 consumes from p0 and produces to both p0 and p1
-    fn unbounded_producer() -> (System<Net>, PlaceKey, PlaceKey) {
+    fn unbounded_producer() -> (System<Net>, Place, Place) {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p0));
+        b.add_arcs((p0, t0, p0));
         b.add_arc((t0, p1));
         let net = b.build().expect("valid net");
-        (System::new(net, [1, 0]), p0, p1)
+        (net.with_marking([(p0, 1)]), p0, p1)
     }
 
     /// Self-loop with 0 tokens: immediate deadlock
@@ -401,15 +407,14 @@ mod tests {
         let mut b = NetBuilder::new();
         let p0 = b.add_place();
         let [t0] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p0));
+        b.add_arcs((p0, t0, p0));
         let net = b.build().expect("valid net");
-        System::new(net, [0])
+        net.with_marking([])
     }
 
     #[test]
     fn bounded_net_fully_explored() {
-        let sys = two_place_cycle();
+        let (sys, _p0, _p1) = two_place_cycle();
         let cg = sys.build_coverability_graph();
 
         assert!(cg.is_bounded());
@@ -429,13 +434,13 @@ mod tests {
 
     #[test]
     fn coverability_check() {
-        let sys = two_place_cycle();
+        let (sys, p0, p1) = two_place_cycle();
         let cg = sys.build_coverability_graph();
 
         use Omega::Finite;
-        assert!(cg.cover(&OmegaMarking::from([Finite(1), Finite(0)])).is_some());
-        assert!(cg.cover(&OmegaMarking::from([Finite(0), Finite(1)])).is_some());
-        assert!(cg.cover(&OmegaMarking::from([Finite(1), Finite(1)])).is_none());
+        assert!(cg.cover([(p0, Finite(1))].into()).is_some());
+        assert!(cg.cover([(p1, Finite(1))].into()).is_some());
+        assert!(cg.cover([(p0, Finite(1)), (p1, Finite(1))].into()).is_none());
     }
 
     #[test]
@@ -449,7 +454,7 @@ mod tests {
 
     #[test]
     fn step_by_step_exploration() {
-        let sys = two_place_cycle();
+        let (sys, _p0, _p1) = two_place_cycle();
         let mut cg = CoverabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
 
         assert!(!cg.is_fully_explored());
@@ -458,7 +463,7 @@ mod tests {
         let mut steps = 0;
         while let Some(step) = cg.explore_next() {
             steps += 1;
-            assert!(!step.marking.iter().any(|o| !o.is_finite()));
+            assert!(!step.marking.as_ref().iter().any(|&(_, o)| !o.is_finite()));
         }
         assert!(cg.is_fully_explored());
         assert!(steps > 0);
@@ -471,7 +476,7 @@ mod tests {
         let mut cg = CoverabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
 
         while let Some(step) = cg.explore_next() {
-            if step.marking.iter().any(|&o| o == Omega::Unbounded) {
+            if step.marking.as_ref().iter().any(|&(_, o)| o == Omega::Unbounded) {
                 break;
             }
         }
@@ -481,12 +486,12 @@ mod tests {
 
     #[test]
     fn promotion_bounded() {
-        let sys = two_place_cycle();
+        let (sys, _p0, p1) = two_place_cycle();
         let cg = sys.build_coverability_graph();
         let rg = cg.into_reachability_graph().expect("should be bounded");
 
         assert_eq!(rg.state_count(), 2);
-        assert!(rg.is_reachable(&Marking::from([0, 1])));
+        assert!(rg.is_reachable([(p1, 1)].into()));
     }
 
     #[test]
@@ -499,8 +504,8 @@ mod tests {
 
     #[test]
     fn switch_order_mid_exploration() {
-        let sys = two_place_cycle();
-        let mut cg = CoverabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
+        let (sys, _p0, _p1) = two_place_cycle();
+        let mut cg = sys.explore_coverability(ExplorationOrder::BreadthFirst);
         cg.explore_next();
         cg.set_exploration_order(ExplorationOrder::DepthFirst);
         let cg = cg.build_coverability_graph();
@@ -525,7 +530,7 @@ mod tests {
         b.add_arc((t1, p0));
         b.add_arc((t1, p2));
         let net = b.build().expect("valid net");
-        let sys = System::new(net, [1, 0, 0]);
+        let sys = net.with_marking([(p0, 1)]);
         let cg = sys.build_coverability_graph();
 
         assert!(!cg.is_bounded());
@@ -548,7 +553,7 @@ mod tests {
         b.add_arc((t2, p0));
         let net = b.build().expect("valid net");
         assert_eq!(net.class(), NetClass::Circuit);
-        let sys = System::new(net, [2, 0, 0]);
+        let sys = net.with_marking([(p0, 2)]);
 
         let cg = sys.build_coverability_graph();
         assert!(cg.is_bounded());
@@ -570,16 +575,10 @@ mod tests {
         let mut b = NetBuilder::new();
         let [p0, p1, p_shared] = b.add_places();
         let [t0, t1, t2, t3] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p_shared));
-        b.add_arc((p_shared, t2));
-        b.add_arc((t2, p0));
-        b.add_arc((p1, t1));
-        b.add_arc((t1, p_shared));
-        b.add_arc((p_shared, t3));
-        b.add_arc((t3, p1));
+        b.add_arcs((p0, t0, p_shared, t2, p0));
+        b.add_arcs((p1, t1, p_shared, t3, p1));
         let net = b.build().expect("valid net");
-        let sys = System::new(net, [1, 1, 0]);
+        let sys = net.with_marking([(p0, 1), (p1, 1)]);
         let cg = sys.build_coverability_graph();
 
         assert!(cg.is_bounded());
@@ -598,7 +597,7 @@ mod tests {
         b.add_arc((t0, p1));
         b.add_arc((t0, p2));
         let net = b.build().expect("valid net");
-        let sys = System::new(net, [1, 0, 0]);
+        let sys = net.with_marking([(p0, 1)]);
         let cg = sys.build_coverability_graph();
 
         assert!(!cg.is_bounded());
@@ -606,13 +605,13 @@ mod tests {
         assert_eq!(cg.place_bound(p2), Omega::Unbounded);
 
         // use Omega::Finite;
-        // assert!(cg.cover(&OmegaMarking::from([Finite(1), Finite(100), Finite(100)])));
+        assert!(cg.cover([(p0, 1.into()), (p1, 100.into()), (p2, 100.into())].into()).is_some());
     }
 
     /// BFS and DFS produce same coverability results for bounded nets.
     #[test]
     fn bfs_dfs_same_coverability() {
-        let sys = two_place_cycle();
+        let (sys, _p0, _p1) = two_place_cycle();
         let cg_bfs = sys.explore_coverability(ExplorationOrder::BreadthFirst).build_coverability_graph();
         let cg_dfs = sys.explore_coverability(ExplorationOrder::DepthFirst).build_coverability_graph();
 
@@ -630,30 +629,16 @@ mod tests {
         let [t_req1, t_enter1, t_exit1] = b.add_transitions();
         let [t_req2, t_enter2, t_exit2] = b.add_transitions();
 
-        b.add_arc((idle1, t_req1));
-        b.add_arc((t_req1, wait1));
-        b.add_arc((wait1, t_enter1));
-        b.add_arc((t_enter1, crit1));
-        b.add_arc((crit1, t_exit1));
-        b.add_arc((t_exit1, idle1));
+        b.add_arcs((idle1, t_req1, wait1, t_enter1, crit1, t_exit1, idle1));
 
-        b.add_arc((idle2, t_req2));
-        b.add_arc((t_req2, wait2));
-        b.add_arc((wait2, t_enter2));
-        b.add_arc((t_enter2, crit2));
-        b.add_arc((crit2, t_exit2));
-        b.add_arc((t_exit2, idle2));
+        b.add_arcs((idle2, t_req2, wait2, t_enter2, crit2, t_exit2, idle2));
 
-        b.add_arc((mutex, t_enter1));
-        b.add_arc((t_exit1, mutex));
-        b.add_arc((mutex, t_enter2));
-        b.add_arc((t_exit2, mutex));
+        b.add_arcs((mutex, t_enter1, mutex));
+        b.add_arcs((mutex, t_enter2, mutex));
 
         let net = b.build().expect("valid net");
-        let crit1 = net.dense_place(crit1);
-        let crit2 = net.dense_place(crit2);
         assert_eq!(net.class(), NetClass::AsymmetricChoice);
-        let sys = System::new(net, [1, 0, 0, 1, 0, 0, 1]);
+        let sys = net.with_marking([(idle1, 1), (idle2, 1), (mutex, 1)]);
         let cg = sys.build_coverability_graph();
 
         assert!(cg.is_bounded());
@@ -665,8 +650,7 @@ mod tests {
             );
         }
 
-        // todo: OmegaMarking from nums
-        // assert!(cg.cover(&OmegaMarking::from([0, 0, 1, 0, 0, 1, 0])).is_none());
+        assert!(cg.cover([(crit1, 1.into()), (crit2, 1.into())].into()).is_none());
 
         let rg = cg.into_reachability_graph().expect("bounded");
         assert_eq!(rg.state_count(), 8);
