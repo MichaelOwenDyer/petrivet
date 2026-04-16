@@ -10,7 +10,7 @@
 //!
 //! ```rust
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::net::metadata::NetLabels;
+//! use petrivet::net::labels::NetLabels;
 //!
 //! let mut b = NetBuilder::new();
 //! let [idle, busy] = b.add_places();

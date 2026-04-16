@@ -10,7 +10,7 @@
 //! handles remain usable across round-trips.
 
 use crate::class::NetClass;
-use crate::net::keys::{Place, Transition};
+use crate::net::nodes::{Place, Transition};
 use crate::net::{Net, PlaceIdx, SortedSet, TransitionIdx};
 use crate::Arc;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -31,7 +31,7 @@ use std::{fmt, iter};
 ///
 /// We use [`HashMap`] for adjacency so keys from a built [`Net`] can coexist with keys minted
 /// after [`NetBuilder::from`]. [`Place`] / [`Transition`] are unique numeric ids (see
-/// [`crate::net::keys`]), so hash-based structures stay sound when mixing round-tripped and new
+/// [`crate::net::nodes`]), so hash-based structures stay sound when mixing round-tripped and new
 /// handles.
 #[derive(Debug, Clone)]
 pub struct NetBuilder {

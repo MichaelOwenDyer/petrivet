@@ -1,11 +1,11 @@
 //! Conversion from the PNML data model into petrivet's native types.
 //!
-//! The entry points are methods on [`super::Net`]:
+//! The entry points are methods on [`super::PnmlNet`]:
 //!
-//! - [`super::Net::to_petri_net`] — URI-dispatched conversion returning a
+//! - [`super::PnmlNet::to_petri_net`] — URI-dispatched conversion returning a
 //!   [`PetriNetKind`] enum. Use this when you do not know the net type in
 //!   advance or when you want to handle multiple net types uniformly.
-//! - [`super::Net::to_pt_system`] — convenience method that asserts the net
+//! - [`super::PnmlNet::to_pt_system`] — convenience method that asserts the net
 //!   is a P/T net and fails with [`PnmlConversionError::WrongNetType`] if not.
 //!
 //! Both methods return a triple `(System<Net>, NetLabels, PnmlGraphics)`.
@@ -37,19 +37,16 @@
 //! are not yet implemented. This is intentional: silently ignoring high-level
 //! inscriptions or color declarations would produce structurally wrong nets.
 
-use std::collections::HashMap;
-use crate::ApiMarking;
-use crate::net::builder::{NetError, NetBuilder};
-use crate::net::metadata::NetLabels;
+use super::{net, net_type, PageObject, PnmlDocument};
+use crate::net::builder::{NetBuilder, NetError};
+use crate::net::labels::NetLabels;
 use crate::net::{Arc, Net, Place, Transition};
+use crate::pnml::graphics::PnmlGraphics;
 use crate::system::System;
+use crate::ApiMarking;
+use std::collections::HashMap;
 
-use super::{
-    net_type, AnnotationGraphics, EdgeGraphics, NodeGraphics, PageObject,
-    PnmlDocument,
-};
-
-/// Errors that can occur when converting a [`super::Net`] PNML model into a
+/// Errors that can occur when converting a [`super::PnmlNet`] PNML model into a
 /// native petrivet [`System`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PnmlConversionError {
@@ -101,65 +98,6 @@ impl From<NetError> for PnmlConversionError {
     }
 }
 
-/// Graphical layout data extracted from a PNML document.
-///
-/// This type is returned alongside [`System`] and [`NetLabels`] by the
-/// conversion functions. It is a read-only record of the layout information
-/// present in the source PNML file. The library has no mechanism to actually
-/// *use* graphical data for rendering; this type exists solely so that
-/// round-tripping through petrivet does not silently discard layout.
-///
-/// # Known limitation: page structure
-///
-/// PNML's hierarchical page structure is **not** preserved. All nodes are
-/// flattened into a single pool during conversion. If you re-serialise to PNML
-/// after conversion, all elements will be placed on a single default page.
-/// Preserving page membership would require additional bookkeeping that is not
-/// yet implemented.
-///
-/// Graphics are indexed by the same [`PlaceIdx`], [`TransitionIdx`], and [`Arc`]
-/// handles as the rest of the library. Arcs use a sparse [`HashMap`] because
-/// most arcs carry no graphics and the library has no dense arc index.
-#[derive(Debug, Clone, Default)]
-pub struct PnmlGraphics {
-    /// Node graphics for each place, indexed by [`PlaceIdx`].
-    pub place_graphics: HashMap<Place, NodeGraphics>,
-    /// Annotation graphics for each place's `<name>` label.
-    pub place_name_graphics: HashMap<Place, AnnotationGraphics>,
-    /// Annotation graphics for each place's `<initialMarking>` label.
-    pub place_marking_graphics: HashMap<Place, AnnotationGraphics>,
-
-    /// Node graphics for each transition, indexed by [`TransitionIdx`].
-    pub transition_graphics: HashMap<Transition, NodeGraphics>,
-    /// Annotation graphics for each transition's `<name>` label.
-    pub transition_name_graphics: HashMap<Transition, AnnotationGraphics>,
-
-    /// Edge graphics for each arc (sparse).
-    pub arc_graphics: HashMap<Arc, EdgeGraphics>,
-    /// Annotation graphics for each arc's inscription label (sparse).
-    pub arc_inscription_graphics: HashMap<Arc, AnnotationGraphics>,
-}
-
-impl PnmlGraphics {
-    /// Returns the PNML position of the place at dense index `index`, if present.
-    #[must_use]
-    pub fn place_position(&self, index: &Place) -> Option<&super::Coordinates> {
-        self.place_graphics
-            .get(index)?
-            .position
-            .as_ref()
-    }
-
-    /// Returns the PNML position of the transition at dense index `index`, if present.
-    #[must_use]
-    pub fn transition_position(&self, transition: &Transition) -> Option<&super::Coordinates> {
-        self.transition_graphics
-            .get(transition)?
-            .position
-            .as_ref()
-    }
-}
-
 /// The result of a URI-dispatched PNML conversion.
 ///
 /// Each variant corresponds to a class of Petri net type. Currently only P/T
@@ -169,14 +107,14 @@ impl PnmlGraphics {
 /// # Adding support for new net types
 ///
 /// Add a new variant here (e.g. `ColoredNet(System<ColoredNet>, NetLabels,
-/// PnmlGraphics)`) and extend the `match` in [`super::Net::to_petri_net`].
+/// PnmlGraphics)`) and extend the `match` in [`super::PnmlNet::to_petri_net`].
 #[derive(Debug)]
 pub enum PetriNetKind {
     /// A fully converted P/T net system, ready for simulation and analysis.
     PtNet(System<Net>),
 
     /// The net's type URI is recognised but not yet supported by this library.
-    /// The raw PNML data model is available via [`super::PnmlDocument`] if
+    /// The raw PNML data model is available via [`PnmlDocument`] if
     /// needed.
     ///
     /// TODO(colored-nets): replace with `ColoredNet(...)` variant.
@@ -192,13 +130,13 @@ pub enum PetriNetKind {
 
 /// All data collected by walking the page tree of a single PNML net.
 struct FlatNet<'a> {
-    places:      Vec<&'a super::Place>,
-    transitions: Vec<&'a super::Transition>,
-    arcs:        Vec<&'a super::Arc>,
+    places:      Vec<&'a net::Place>,
+    transitions: Vec<&'a net::Transition>,
+    arcs:        Vec<&'a net::Arc>,
     /// Maps every PNML `id` that belongs to a place to the place.
-    place_by_id: HashMap<&'a str, &'a super::Place>,
+    place_by_id: HashMap<&'a str, &'a net::Place>,
     /// Maps every PNML `id` that belongs to a transition to the transition.
-    trans_by_id: HashMap<&'a str, &'a super::Transition>,
+    trans_by_id: HashMap<&'a str, &'a net::Transition>,
     /// Maps reference-node IDs to the `ref` target they point at.
     /// Used for a second pass to resolve chains.
     ref_map:     HashMap<&'a str, &'a str>,
@@ -283,7 +221,7 @@ impl<'a> FlatNet<'a> {
 /// shared by `to_petri_net` and `to_pt_system`.
 #[expect(clippy::too_many_lines)]
 fn convert_pt_net(
-    pnml_net: &super::Net,
+    pnml_net: &net::PnmlNet,
 ) -> Result<System<Net>, PnmlConversionError> {
     let mut flat = FlatNet::new();
     for page in &pnml_net.pages {
@@ -471,7 +409,7 @@ fn convert_pt_net(
     Ok(system)
 }
 
-impl super::Net {
+impl net::PnmlNet {
     /// Converts this PNML net into a native petrivet type by dispatching on
     /// the net's type URI.
     ///
@@ -512,9 +450,7 @@ impl super::Net {
     ///   net URI.
     /// - Any other [`PnmlConversionError`] variant if the topology is
     ///   structurally invalid.
-    pub fn to_pt_system(
-        &self,
-    ) -> Result<System<Net>, PnmlConversionError> {
+    pub fn to_pt_system(&self) -> Result<System<Net>, PnmlConversionError> {
         if self.net_type != net_type::PT_NET {
             return Err(PnmlConversionError::WrongNetType(self.net_type.clone()));
         }
@@ -529,7 +465,7 @@ impl PnmlDocument {
     /// document. Errors for individual nets do not affect the conversion of
     /// other nets.
     pub fn to_petri_nets(&self) -> Vec<Result<PetriNetKind, PnmlConversionError>> {
-        self.nets.iter().map(super::Net::to_petri_net).collect()
+        self.nets.iter().map(net::PnmlNet::to_petri_net).collect()
     }
 }
 

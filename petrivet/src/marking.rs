@@ -40,7 +40,7 @@ impl<T: Default + Eq + Hash> FromIterator<(Place, T)> for ApiMarking<T> {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect::<Box<_>>();
-        x.sort_unstable_by_key(|(p, _)| p.0);
+        x.sort_unstable_by_key(|(p, _)| p.into_raw());
         ApiMarking(x)
     }
 }

@@ -18,7 +18,7 @@ impl<N: AsRef<Net>> System<N> {
     #[must_use]
     pub fn is_enabled(&self, t: Transition) -> bool {
         let net = self.net.as_ref();
-        net.transition_index(t).map_or(false, |idx| {
+        net.transition_index(t).is_some_and(|idx| {
             net.preset_t(idx).iter().all(|&p| self.marking[p] >= 1)
         })
     }
@@ -123,14 +123,14 @@ impl<N: AsRef<Net>> System<N> {
     /// panic in debug mode and wrap in release mode.
     pub fn fire_unchecked(&mut self, t: Transition) {
         let net = self.net.as_ref();
-        net.transition_index(t).map(|idx| {
+        if let Some(idx) = net.transition_index(t) {
             for &p in net.preset_t(idx) {
                 self.marking[p] -= 1;
             }
             for &p in net.postset_t(idx) {
                 self.marking[p] += 1;
             }
-        });
+        }
     }
 }
 
@@ -215,7 +215,7 @@ pub struct NotEnabled(Transition);
 impl fmt::Display for NotEnabled {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NotEnabled(t) => write!(f, "transition {t} is not enabled"),
+            NotEnabled(_) => write!(f, "transition is not enabled"),
         }
     }
 }

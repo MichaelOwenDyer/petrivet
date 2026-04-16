@@ -7,23 +7,22 @@
 
 pub mod builder;
 pub mod class;
-pub mod keys;
+pub mod nodes;
 pub mod sorted_set;
-pub mod metadata;
+pub mod labels;
 
-pub use keys::{Place, Transition};
+pub use nodes::{Place, Transition};
 pub use sorted_set::SortedSet;
 
-use crate::{analysis, ApiMarking, System};
 use crate::class::NetClass;
+use crate::{analysis, ApiMarking, System};
 use std::collections::HashMap;
 
-use metadata::NetLabels;
-use crate::pnml::convert::PnmlGraphics;
-use std::iter::Peekable;
-use std::ops::Index;
 use crate::marking::IdxMarking;
+use crate::pnml::graphics::PnmlGraphics;
 use crate::state_space::explorer::TokenOps;
+use labels::NetLabels;
+use std::iter::Peekable;
 
 pub trait IteratorExt: Iterator + Sized {
     fn nths<I>(self, indices: I) -> Nths<Self, I::IntoIter>

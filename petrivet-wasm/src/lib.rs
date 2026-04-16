@@ -24,7 +24,7 @@ use petrivet::analysis::model::{
 use petrivet::marking::Omega;
 use petrivet::net::builder::NetBuilder;
 use petrivet::net::class::NetClass;
-use petrivet::net::metadata::NetLabels;
+use petrivet::net::labels::NetLabels;
 use petrivet::net::{Arc as PetriArc, Net, Place, Transition};
 use petrivet::pnml::convert::PnmlGraphics;
 use petrivet::pnml::PnmlDocument;
