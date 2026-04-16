@@ -270,7 +270,7 @@
 //! > analyse. Therefore, we will assume that there is at least one
 //! > transition and at least one place in the nets we consider.
 //!
-//! Used in: [`BuildError::Empty`](crate::net::builder::BuildError::Degenerate).
+//! Used in: [`BuildError::Empty`](crate::net::builder::NetError::Degenerate).
 //!
 //! ## Definition 4.1 — Incidence matrix
 //!

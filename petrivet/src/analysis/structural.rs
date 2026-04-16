@@ -36,7 +36,7 @@
 use crate::analysis::has_zero_token_cycle;
 use crate::analysis::math::integer_null_space;
 use crate::analysis::model::{CommonerHackCriterionResult, LivenessAnalysis, LivenessMethod, SNetComponent, SNetLivenessEvidence, TNetComponent, TNetLivenessEvidence};
-use crate::marking::Marking;
+use crate::marking::IdxMarking;
 use crate::net::{Net, Place, PlaceIdx, Transition, TransitionIdx};
 use crate::{ApiMarking, LivenessLevel};
 use good_lp::Variable;
@@ -702,7 +702,7 @@ pub(crate) fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<PlaceIdx>]> {
 ///
 /// ```
 /// use petrivet::net::builder::NetBuilder;
-/// use petrivet::marking::Marking;
+/// use petrivet::marking::IdxMarking;
 /// use petrivet::analysis::structural::{minimal_siphons, commoner_hack_criterion_inner};
 ///
 /// let mut b = NetBuilder::new();
@@ -712,12 +712,12 @@ pub(crate) fn minimal_traps_ilp(net: &Net) -> Box<[HashSet<PlaceIdx>]> {
 /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
 /// let net = b.build().unwrap();
 ///
-/// let m0 = Marking::from([1u32, 0]);
+/// let m0 = IdxMarking::from([1u32, 0]);
 /// // With a token, the siphon {p0, p1} contains a marked trap → live
 /// assert!(commoner_hack_criterion_inner(&net, &m0).is_satisfied());
 ///
 /// // Without tokens, the trap is unmarked → not live
-/// let m_empty = Marking::from([0u32, 0]);
+/// let m_empty = IdxMarking::from([0u32, 0]);
 /// assert!(!commoner_hack_criterion_inner(&net, &m_empty).is_satisfied());
 /// ```
 ///
@@ -738,7 +738,7 @@ pub fn commoner_hack_criterion(
 #[must_use] // todo: move this out of structural module since marking is relevant?
 pub(crate) fn commoner_hack_criterion_inner(
     net: &Net,
-    marking: &Marking,
+    marking: &IdxMarking,
 ) -> CommonerHackCriterionResult {
     use super::model::SiphonTrapPair;
     let siphon_trap_pairs: Box<[SiphonTrapPair]> = minimal_siphons_dense(net).into_iter().map(|siphon| {
@@ -1068,7 +1068,7 @@ fn is_subnet_strongly_connected(
 ///
 /// References: [Murata 1989 Theorem 4](crate::literature#theorem-4--liveness-of-s-nets-state-machines),
 /// [Primer Corollary 5.30](crate::literature#corollary-530--liveness-of-s-systems).
-pub(crate) fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
+pub(crate) fn analyze_liveness_s_net(net: &Net, marking: &IdxMarking) -> LivenessAnalysis {
     use petgraph::graph::NodeIndex;
 
     let place_count = net.place_count() as usize;
@@ -1230,7 +1230,7 @@ pub(crate) fn analyze_liveness_s_net(net: &Net, marking: &Marking) -> LivenessAn
 ///    circuits are marked AND all predecessor SCCs are L4.
 ///
 /// References: [Murata 1989 Theorems 7 & 26](crate::literature#theorem-7--liveness-of-t-nets-marked-graphs), [Primer Theorem 5.31](crate::literature#theorem-531--liveness-and-realisability-in-t-systems).
-pub(crate) fn analyze_liveness_t_net(net: &Net, marking: &Marking) -> LivenessAnalysis {
+pub(crate) fn analyze_liveness_t_net(net: &Net, marking: &IdxMarking) -> LivenessAnalysis {
     use petgraph::graph::NodeIndex;
 
     let place_count = net.place_count() as usize;
@@ -1562,7 +1562,7 @@ mod tests {
     fn commoner_fails_for_dead_net() {
         // Two-place cycle with zero initial marking - not live.
         let net = two_place_cycle();
-        let marking = Marking::from([0u32, 0]);
+        let marking = IdxMarking::from([0u32, 0]);
         // The only siphon is {p0, p1}; its maximal trap is also {p0, p1},
         // but the trap is unmarked (both places have 0 tokens).
         assert!(!commoner_hack_criterion_inner(&net, &marking).is_satisfied());
@@ -1688,7 +1688,7 @@ mod tests {
         let net = b.build().unwrap();
         assert!(net.is_free_choice_net());
 
-        let marking = Marking::from([1u32, 0, 0]);
+        let marking = IdxMarking::from([1u32, 0, 0]);
         let siphons = minimal_siphons(&net);
 
         let emptiable: HashSet<Place> = [p0, p2].into_iter().collect();

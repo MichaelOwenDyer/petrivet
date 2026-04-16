@@ -287,7 +287,7 @@ impl WasmSystem {
             NetClass::TNet => WasmNetClass::TNet,
             NetClass::FreeChoice => WasmNetClass::FreeChoice,
             NetClass::AsymmetricChoice => WasmNetClass::AsymmetricChoice,
-            NetClass::Unrestricted => WasmNetClass::Unrestricted,
+            NetClass::General => WasmNetClass::General,
         };
 
         WasmNetStructure {

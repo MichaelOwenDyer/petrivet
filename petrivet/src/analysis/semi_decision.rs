@@ -18,7 +18,7 @@
 //!
 //! ```
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::marking::Marking;
+//! use petrivet::marking::IdxMarking;
 //! use petrivet::system::System;
 //!
 //! let mut b = NetBuilder::new();
@@ -30,15 +30,15 @@
 //! let sys = System::new(net, [1u32, 0]);
 //!
 //! // Can we reach (0, 1)? The marking equation says: feasible
-//! let result = sys.analyze_reachability(&Marking::from([0u32, 1]));
+//! let result = sys.analyze_reachability(&IdxMarking::from([0u32, 1]));
 //! assert!(result.is_reachable());
 //!
 //! // Can we reach (2, 0)? Conservation law violated — definitely not
-//! let result = sys.analyze_reachability(&Marking::from([2u32, 0]));
+//! let result = sys.analyze_reachability(&IdxMarking::from([2u32, 0]));
 //! assert!(!result.is_reachable());
 //! ```
 
-use crate::marking::Marking;
+use crate::marking::IdxMarking;
 use crate::net::{Net, PlaceIdx};
 use crate::Transition;
 use good_lp::{
@@ -64,10 +64,10 @@ use std::collections::HashMap;
 /// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation)
 ///   (state equation as necessary condition)
 #[must_use]
-pub fn find_marking_equation_rational_solution(
+pub(crate) fn find_marking_equation_rational_solution(
     net: &Net,
-    initial: &Marking,
-    target: &Marking,
+    initial: &IdxMarking,
+    target: &IdxMarking,
 ) -> Option<Box<[(Transition, f64)]>> {
     let incidence = net.incidence_matrix();
 
@@ -84,7 +84,7 @@ pub fn find_marking_equation_rational_solution(
         .map(|p| {
             let lhs: Expression = net
                 .transition_indices()
-                .map(|t| incidence.get_dense(p, t) as f64 * firing_counts[t])
+                .map(|t| f64::from(incidence.get_dense(p, t)) * firing_counts[t])
                 .sum();
             let rhs = f64::from(target[p]) - f64::from(initial[p]);
             constraint!(lhs == rhs)
@@ -119,10 +119,10 @@ pub fn find_marking_equation_rational_solution(
 /// References:
 /// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation): the firing count vector must be a non-negative integer
 #[must_use]
-pub fn find_marking_equation_integer_solution(
+pub(crate) fn find_marking_equation_integer_solution(
     net: &Net,
-    initial: &Marking,
-    target: &Marking,
+    initial: &IdxMarking,
+    target: &IdxMarking,
 ) -> Option<Box<[(Transition, u32)]>> {
     let mut variables = ProblemVariables::new();
     let firing_counts: Box<[Variable]> = net
@@ -138,7 +138,7 @@ pub fn find_marking_equation_integer_solution(
         .map(|p| {
             let lhs: Expression = net
                 .transition_indices()
-                .map(|t| incidence.get_dense(p, t) as f64 * firing_counts[t])
+                .map(|t| f64::from(incidence.get_dense(p, t)) * firing_counts[t])
                 .sum();
             let rhs = f64::from(target[p]) - f64::from(initial[p]);
             constraint!(lhs == rhs)
@@ -169,10 +169,10 @@ pub fn find_marking_equation_integer_solution(
 ///
 /// Still a necessary condition only (LP relaxation of the marking equation).
 #[must_use]
-pub fn find_covering_equation_rational_solution(
+pub(crate) fn find_covering_equation_rational_solution(
     net: &Net,
-    initial: &Marking,
-    threshold: &Marking,
+    initial: &IdxMarking,
+    threshold: &IdxMarking,
 ) -> Option<HashMap<Transition, f64>> {
     let mut variables = ProblemVariables::new();
     let parikh_vector: Box<[Variable]> = net
@@ -217,10 +217,10 @@ pub fn find_covering_equation_rational_solution(
 /// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation) (state equation is a necessary condition)
 /// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (firing count vector must be integer)
 #[must_use]
-pub fn find_covering_equation_integer_solution(
+pub(crate) fn find_covering_equation_integer_solution(
     net: &Net,
-    initial: &Marking,
-    threshold: &Marking,
+    initial: &IdxMarking,
+    threshold: &IdxMarking,
 ) -> Option<HashMap<Transition, u32>> {
     let mut variables = ProblemVariables::new();
     let parikh_vector: Box<[Variable]> = net
@@ -235,7 +235,7 @@ pub fn find_covering_equation_integer_solution(
         .map(|(p, _pk)| {
             let change: Expression = net
                 .transition_indices()
-                .map(|t| incidence.get_dense(p, t) as f64 * parikh_vector[t])
+                .map(|t| f64::from(incidence.get_dense(p, t)) * parikh_vector[t])
                 .sum();
             let m0_p = f64::from(initial[p]);
             let thresh = f64::from(threshold[p]);
@@ -404,7 +404,11 @@ pub(crate) fn find_place_subvariant_covering(
 /// - Lautenbach & Thiagarajan 1979 (original result)
 /// todo: reconsider whether methods like these belong here
 #[must_use]
-pub fn is_reachable_s_net(net: &Net, initial: &Marking, target: &Marking) -> bool {
+pub(crate) fn is_reachable_s_net(
+    net: &Net,
+    initial: &IdxMarking,
+    target: &IdxMarking
+) -> bool {
     debug_assert!(net.is_s_net(), "is_reachable_s_net called on non-S-net");
     find_marking_equation_rational_solution(net, initial, target).is_some()
 }
@@ -429,7 +433,11 @@ pub fn is_reachable_s_net(net: &Net, initial: &Marking, target: &Marking) -> boo
 /// - [Murata 1989, Theorem 22](crate::literature#theorem-22--reachability-in-t-nets): for T-nets, a non-negative integer solution
 ///   to the marking equation is necessary and sufficient for reachability.
 #[must_use]
-pub fn is_reachable_t_net(net: &Net, initial: &Marking, target: &Marking) -> bool {
+pub(crate) fn is_reachable_t_net(
+    net: &Net,
+    initial: &IdxMarking,
+    target: &IdxMarking
+) -> bool {
     debug_assert!(net.is_t_net(), "is_reachable_t_net called on non-T-net");
     find_marking_equation_integer_solution(net, initial, target).is_some()
 }
@@ -450,8 +458,8 @@ mod tests {
     #[test]
     fn reachable_marking_feasible() {
         let net = two_place_cycle();
-        let m0 = Marking::from([1u32, 0]);
-        let m1 = Marking::from([0u32, 1]);
+        let m0 = IdxMarking::from([1u32, 0]);
+        let m1 = IdxMarking::from([0u32, 1]);
         let result = find_marking_equation_rational_solution(&net, &m0, &m1);
         assert!(result.is_some());
     }
@@ -459,8 +467,8 @@ mod tests {
     #[test]
     fn unreachable_marking_infeasible() {
         let net = two_place_cycle();
-        let m0 = Marking::from([1u32, 0]);
-        let m1 = Marking::from([2u32, 0]);
+        let m0 = IdxMarking::from([1u32, 0]);
+        let m1 = IdxMarking::from([2u32, 0]);
         let result = find_marking_equation_rational_solution(&net, &m0, &m1);
         assert!(result.is_none());
     }
@@ -514,7 +522,7 @@ mod tests {
     #[test]
     fn marking_equation_identity() {
         let net = two_place_cycle();
-        let m0 = Marking::from([1u32, 0]);
+        let m0 = IdxMarking::from([1u32, 0]);
         let result = find_marking_equation_rational_solution(&net, &m0, &m0);
         assert!(result.is_some());
     }
@@ -522,7 +530,7 @@ mod tests {
     #[test]
     fn marking_equation_round_trip() {
         let net = two_place_cycle();
-        let m0 = Marking::from([1u32, 0]);
+        let m0 = IdxMarking::from([1u32, 0]);
         let result = find_marking_equation_rational_solution(&net, &m0, &m0);
         assert!(result.is_some());
         if let Some(x) = &result {
@@ -533,8 +541,8 @@ mod tests {
     #[test]
     fn ilp_reachable_marking_feasible() {
         let net = two_place_cycle();
-        let m0 = Marking::from([1u32, 0]);
-        let target = Marking::from([0u32, 1]);
+        let m0 = IdxMarking::from([1u32, 0]);
+        let target = IdxMarking::from([0u32, 1]);
         let result = find_marking_equation_integer_solution(&net, &m0, &target);
         assert!(result.is_some());
     }
@@ -542,8 +550,8 @@ mod tests {
     #[test]
     fn ilp_unreachable_marking_infeasible() {
         let net = two_place_cycle();
-        let m0 = Marking::from([1u32, 0]);
-        let target = Marking::from([2u32, 0]);
+        let m0 = IdxMarking::from([1u32, 0]);
+        let target = IdxMarking::from([2u32, 0]);
         let result = find_marking_equation_integer_solution(&net, &m0, &target);
         assert!(result.is_none());
     }
@@ -551,7 +559,7 @@ mod tests {
     #[test]
     fn ilp_identity() {
         let net = two_place_cycle();
-        let m0 = Marking::from([1u32, 0]);
+        let m0 = IdxMarking::from([1u32, 0]);
         let result = find_marking_equation_integer_solution(&net, &m0, &m0);
         assert!(result.is_some());
     }
@@ -559,8 +567,8 @@ mod tests {
     #[test]
     fn covering_equation_feasible() {
         let net = two_place_cycle();
-        let m0 = Marking::from([1u32, 0]);
-        let threshold = Marking::from([0u32, 1]);
+        let m0 = IdxMarking::from([1u32, 0]);
+        let threshold = IdxMarking::from([0u32, 1]);
         let result = find_covering_equation_rational_solution(&net, &m0, &threshold);
         assert!(result.is_some());
     }
@@ -568,8 +576,8 @@ mod tests {
     #[test]
     fn covering_equation_infeasible() {
         let net = two_place_cycle();
-        let m0 = Marking::from([1u32, 0]);
-        let threshold = Marking::from([2u32, 0]);
+        let m0 = IdxMarking::from([1u32, 0]);
+        let threshold = IdxMarking::from([2u32, 0]);
         let result = find_covering_equation_rational_solution(&net, &m0, &threshold);
         assert!(result.is_none());
     }
@@ -579,9 +587,9 @@ mod tests {
         // Two-place cycle is an S-net (circuit, actually)
         let net = two_place_cycle();
         assert!(net.is_s_net());
-        let m0 = Marking::from([1u32, 0]);
+        let m0 = IdxMarking::from([1u32, 0]);
         // (0,1) is reachable: token moves from p0 to p1
-        assert!(is_reachable_s_net(&net, &m0, &Marking::from([0u32, 1])));
+        assert!(is_reachable_s_net(&net, &m0, &IdxMarking::from([0u32, 1])));
         // Identity is always reachable
         assert!(is_reachable_s_net(&net, &m0, &m0));
     }
@@ -589,11 +597,11 @@ mod tests {
     #[test]
     fn s_net_reachability_negative() {
         let net = two_place_cycle();
-        let m0 = Marking::from([1u32, 0]);
+        let m0 = IdxMarking::from([1u32, 0]);
         // Token sum mismatch: 1 ≠ 2
-        assert!(!is_reachable_s_net(&net, &m0, &Marking::from([2u32, 0])));
+        assert!(!is_reachable_s_net(&net, &m0, &IdxMarking::from([2u32, 0])));
         // Token sum mismatch: 1 ≠ 0
-        assert!(!is_reachable_s_net(&net, &m0, &Marking::from([0u32, 0])));
+        assert!(!is_reachable_s_net(&net, &m0, &IdxMarking::from([0u32, 0])));
     }
 
     #[test]
@@ -607,13 +615,13 @@ mod tests {
         let net = b.build().unwrap();
         assert!(net.is_s_net());
 
-        let m0 = Marking::from([1u32, 0, 0]);
+        let m0 = IdxMarking::from([1u32, 0, 0]);
         // (0, 0, 1) reachable: token flows down the chain
-        assert!(is_reachable_s_net(&net, &m0, &Marking::from([0u32, 0, 1])));
+        assert!(is_reachable_s_net(&net, &m0, &IdxMarking::from([0u32, 0, 1])));
         // (0, 1, 0) reachable: token stops at p1
-        assert!(is_reachable_s_net(&net, &m0, &Marking::from([0u32, 1, 0])));
+        assert!(is_reachable_s_net(&net, &m0, &IdxMarking::from([0u32, 1, 0])));
         // (1, 1, 0) NOT reachable: token sum 1 ≠ 2
-        assert!(!is_reachable_s_net(&net, &m0, &Marking::from([1u32, 1, 0])));
+        assert!(!is_reachable_s_net(&net, &m0, &IdxMarking::from([1u32, 1, 0])));
     }
 
     fn t_net_sync() -> Net {
@@ -632,9 +640,9 @@ mod tests {
     fn t_net_reachability_positive() {
         let net = t_net_sync();
         assert!(net.is_t_net());
-        let m0 = Marking::from([1u32, 1, 0]);
+        let m0 = IdxMarking::from([1u32, 1, 0]);
         // Fire t0: (1,1,0) → (0,0,1)
-        assert!(is_reachable_t_net(&net, &m0, &Marking::from([0u32, 0, 1])));
+        assert!(is_reachable_t_net(&net, &m0, &IdxMarking::from([0u32, 0, 1])));
         // Fire t0 then t1: back to (1,1,0)
         assert!(is_reachable_t_net(&net, &m0, &m0));
     }
@@ -642,10 +650,10 @@ mod tests {
     #[test]
     fn t_net_reachability_negative() {
         let net = t_net_sync();
-        let m0 = Marking::from([1u32, 1, 0]);
+        let m0 = IdxMarking::from([1u32, 1, 0]);
         // (1,0,0): violates marking equation (no integer solution)
-        assert!(!is_reachable_t_net(&net, &m0, &Marking::from([1u32, 0, 0])));
+        assert!(!is_reachable_t_net(&net, &m0, &IdxMarking::from([1u32, 0, 0])));
         // (2,2,0): would need negative firings of t0
-        assert!(!is_reachable_t_net(&net, &m0, &Marking::from([2u32, 2, 0])));
+        assert!(!is_reachable_t_net(&net, &m0, &IdxMarking::from([2u32, 2, 0])));
     }
 }

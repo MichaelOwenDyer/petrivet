@@ -54,7 +54,7 @@
 //! sys.fire_any();
 //! ```
 
-use crate::marking::Marking;
+use crate::marking::IdxMarking;
 use crate::net::Net;
 use crate::{ApiMarking, CoverabilityExplorer, CoverabilityGraph, ExplorationOrder, Place, ReachabilityExplorer};
 
@@ -66,7 +66,7 @@ use crate::{ApiMarking, CoverabilityExplorer, CoverabilityGraph, ExplorationOrde
 #[derive(Debug, Clone)]
 pub struct System<N: AsRef<Net>> {
     pub(crate) net: N,
-    pub(crate) marking: Marking<u32>,
+    pub(crate) marking: IdxMarking<u32>,
 }
 
 impl<N: AsRef<Net>> System<N> {
@@ -88,22 +88,8 @@ impl<N: AsRef<Net>> System<N> {
     }
 
     pub fn with_zero_marking(net: N) -> Self {
-        let marking = Marking::zeros(net.as_ref().place_count());
+        let marking = IdxMarking::zeros(net.as_ref().place_count());
         Self { net, marking }
-    }
-
-    pub fn set_token(&mut self, place: Place, count: u32) {
-        if let Some(idx) = self.net.as_ref().place_index(place) {
-            self.marking[idx] = count;
-        }
-    }
-
-    pub fn set_tokens(&mut self, tokens: impl IntoIterator<Item = (Place, u32)>) {
-        tokens.into_iter().for_each(|(place, count)| {
-            if let Some(dense) = self.net.as_ref().place_index(place) {
-                self.marking[dense] = count;
-            }
-        });
     }
 
     /// Returns a reference to the underlying net.
@@ -125,6 +111,20 @@ impl<N: AsRef<Net>> System<N> {
         self.net.as_ref()
             .place_index(p)
             .map_or(0, |idx| self.marking[idx])
+    }
+
+    pub fn set_token(&mut self, place: Place, count: u32) {
+        if let Some(idx) = self.net.as_ref().place_index(place) {
+            self.marking[idx] = count;
+        }
+    }
+
+    pub fn set_tokens(&mut self, tokens: impl IntoIterator<Item = (Place, u32)>) {
+        tokens.into_iter().for_each(|(place, count)| {
+            if let Some(dense) = self.net.as_ref().place_index(place) {
+                self.marking[dense] = count;
+            }
+        });
     }
 
     /// Consumes the system and returns (`net`, `marking`).
@@ -178,12 +178,12 @@ impl<N: AsRef<Net>> System<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::marking::Marking;
+    use crate::marking::IdxMarking;
     use crate::net::builder::NetBuilder;
     use crate::net::Transition;
 
     /// Shorthand for creating a `Marking<u32>` in tests.
-    fn m(val: impl Into<Marking>) -> Marking { val.into() }
+    fn m(val: impl Into<IdxMarking>) -> IdxMarking { val.into() }
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
     fn two_place_cycle() -> (Net, Place, Transition, Place, Transition) {

@@ -1,6 +1,6 @@
-use crate::{Place, Transition};
-use std::collections::{HashMap, HashSet};
-use std::fmt;
+use crate::{Node, Place, Transition};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::{fmt, iter};
 
 /// TODO: Add examples of each class of net with doctests asserting the classification correctly identifies the class.
 /// Structural classification of a Petri net.
@@ -8,8 +8,8 @@ use std::fmt;
 /// The classes form an inclusion hierarchy (each is a subclass of the next):
 ///
 /// ```text
-/// Circuit ⊂ S-net ⊂ Free-choice ⊂ AsymmetricChoice ⊂ Unrestricted
-/// Circuit ⊂ T-net ⊂ Free-choice ⊂ AsymmetricChoice ⊂ Unrestricted
+/// Circuit ⊂ S-net ⊂ Free-choice ⊂ AsymmetricChoice ⊂ General
+/// Circuit ⊂ T-net ⊂ Free-choice ⊂ AsymmetricChoice ⊂ General
 /// ```
 ///
 /// `classify_net` returns the most specific class.
@@ -279,17 +279,115 @@ pub enum NetClass {
     /// such that `|σ| ≤ bn(n+1)(n+2)/6`, where n = |T| is the number of transitions of N.
     FreeChoice,
 
-    /// TODO: write overview of asymmetric choice nets
-    /// A net `N = (S, T, F)` is an **Asymmetric-choice Net** if for every two transitions t1, t2:
-    /// if •t1 ∩ •t2 ≠ ∅ then •t1 ⊆ •t2 or •t2 ⊆ •t1.
-    /// For every two places s1, s2: if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
-    /// Asymmetric-choice nets allow one-sided resource sharing (e.g. a shared
-    /// resource plus a private resource), but forbid symmetric conflicts.
+    /// A net `N = (S, T, F)` is an **Asymmetric-choice Net** (also known as a **Simple Net**)
+    /// if for every two places `s1, s2 ∈ S`:
+    /// if `s1• ∩ s2• ≠ ∅` then `s1• ⊆ s2•` or `s2• ⊆ s1•`.
+    ///
+    /// Asymmetric-choice nets allow one-sided resource sharing (e.g., a shared
+    /// resource plus a private resource), but strictly forbid symmetric conflicts (symmetric confusion).
+    ///
+    /// Liveness theorem:
+    /// An asymmetric-choice net `(N, M<sub>0</sub>)` is live if (but not only if) every siphon
+    /// in `N` contains a marked trap at `M<sub>0</sub>`.
+    /// Furthermore, an asymmetric-choice net `(N, M<sub>0</sub>)` is live iff it is *place-live*;
+    /// that is, for each reachable marking `M` and each place `s ∈ S`, there exists a marking
+    /// `M'` reachable from `M` such that `M'(s) > 0`.
+    ///
+    /// ```
+    /// use petrivet::class::NetClass;
+    /// use petrivet::Net;
+    /// let mut b = Net::builder();
+    /// let [p1, p2] = b.add_places();
+    /// let [t1, t2] = b.add_transitions();
+    /// // A shared resource p2 and a private resource p1.
+    /// // p1• = {t1}, p2• = {t1, t2}. Since p1• ∩ p2• = {t1}, and p1• ⊆ p2•, this is an AC net.
+    /// b.add_arcs((p1, t1));
+    /// b.add_arcs((p2, t1));
+    /// b.add_arcs((p2, t2));
+    /// let net = b.build().unwrap();
+    /// assert!(net.class() == NetClass::AsymmetricChoice);
+    /// assert!(!net.is_free_choice_net());
+    /// assert!(net.is_asymmetric_choice_net());
+    /// ```
     AsymmetricChoice,
+
     /// No structural restrictions.
     /// Can model arbitrary concurrency, choices, and conflicts.
-    /// TODO: Write overview of unrestricted nets.
-    Unrestricted,
+    ///
+    /// A net falls into the **General** class if it does not satisfy the structural restrictions
+    /// of any of the more restrictive classes (Circuit, S-Net, T-Net, Free-Choice, or
+    /// Asymmetric-Choice). General Petri nets are fully expressive. While ordinary general Petri
+    /// nets are strictly less powerful than Turing machines, they can still model highly complex
+    /// distributed, asynchronous, and nondeterministic systems. (Adding inhibitor
+    /// arcs or prioritizing transitions increases their modeling power to the level of Turing machines).
+    ///
+    /// Because they lack structural restrictions, analyzing general Petri nets often requires
+    /// exhaustive state space exploration (e.g., constructing a reachability or coverability tree)
+    /// or solving algebraic state equations, rather than relying purely on polynomial-time structural
+    /// properties.
+    ///
+    /// Reachability theorem:
+    /// The reachability problem for general Petri nets is decidable, but it has been shown to be
+    /// [Ackermann-complete](https://en.wikipedia.org/wiki/Ackermann_function) [Czerwiński and Orlikowski 2021].
+    ///
+    /// ```
+    /// use petrivet::class::NetClass;
+    /// use petrivet::Net;
+    /// let mut b = Net::builder();
+    /// let [p1, p2] = b.add_places();
+    /// let [t1, t2, t3] = b.add_transitions();
+    ///
+    /// // Create a symmetric confusion (which violates Asymmetric-Choice rules).
+    /// // p1• = {t1, t2} and p2• = {t2, t3}
+    /// // p1• ∩ p2• = {t2}. Neither is a subset of the other.
+    /// b.add_arcs((p1, t1));
+    /// b.add_arcs((p1, t2));
+    /// b.add_arcs((p2, t2));
+    /// b.add_arcs((p2, t3));
+    /// let net = b.build().unwrap();
+    /// assert!(net.class() == NetClass::General);
+    /// assert!(!net.is_asymmetric_choice_net());
+    /// ```
+    General,
+}
+
+impl NetClass {
+    /// Returns true if this class is `Circuit`.
+    #[must_use]
+    pub fn is_circuit(&self) -> bool {
+        use NetClass::Circuit;
+        matches!(self, Circuit)
+    }
+
+    /// Returns true if this class is `SNet` or `Circuit` (since circuits are a subclass of S-nets).
+    #[must_use]
+    pub fn is_s_net(&self) -> bool {
+        use NetClass::*;
+        matches!(self, SNet | Circuit)
+    }
+
+    /// Returns true if this class is `TNet` or `Circuit` (since circuits are a subclass of T-nets).
+    #[must_use]
+    pub fn is_t_net(&self) -> bool {
+        use NetClass::*;
+        matches!(self, TNet | Circuit)
+    }
+
+    /// Returns true if this class is `FreeChoice` or any of its subclasses
+    /// (Circuit, SNet, TNet).
+    #[must_use]
+    pub fn is_free_choice(&self) -> bool {
+        use NetClass::*;
+        matches!(self, FreeChoice | SNet | TNet | Circuit)
+    }
+
+    /// Returns true if this class is `AsymmetricChoice` or any of its subclasses
+    /// (Circuit, SNet, TNet, FreeChoice).
+    #[must_use]
+    pub fn is_asymmetric_choice(&self) -> bool {
+        use NetClass::*;
+        matches!(self, AsymmetricChoice | FreeChoice | SNet | TNet | Circuit)
+    }
 }
 
 impl fmt::Display for NetClass {
@@ -298,30 +396,89 @@ impl fmt::Display for NetClass {
             NetClass::Circuit => write!(f, "Circuit"),
             NetClass::SNet => write!(f, "S-net"),
             NetClass::TNet => write!(f, "T-net"),
-            NetClass::FreeChoice => write!(f, "Free-choice"),
-            NetClass::AsymmetricChoice => write!(f, "Asymmetric-choice"),
-            NetClass::Unrestricted => write!(f, "Unrestricted"),
+            NetClass::FreeChoice => write!(f, "Free-choice net"),
+            NetClass::AsymmetricChoice => write!(f, "Asymmetric-choice net"),
+            NetClass::General => write!(f, "General net"),
         }
     }
 }
 
-#[must_use]
-pub fn classify<S: std::hash::BuildHasher>(
+/// Check if the net is strongly connected.
+/// This is a prerequisite for classifying or building a net in this library.
+pub fn is_connected<S: std::hash::BuildHasher>(
+    preset_t: &HashMap<Transition, HashSet<Place, S>, S>,
+    postset_t: &HashMap<Transition, HashSet<Place, S>, S>,
+    preset_p: &HashMap<Place, HashSet<Transition, S>, S>,
+    postset_p: &HashMap<Place, HashSet<Transition, S>, S>,
+) -> bool {
+    let n_places = preset_p.len();
+    let n_transitions = preset_t.len();
+    let n_nodes = n_places + n_transitions;
+    if n_nodes > 0 {
+        let mut visited_p = HashSet::new();
+        let mut visited_t = HashSet::new();
+        let mut queue = VecDeque::new();
+        if n_places > 0 {
+            let first_place = preset_p.keys().next().unwrap().to_owned();
+            visited_p.insert(first_place);
+            queue.push_back(Node::Place(first_place));
+        } else {
+            let first_transition = preset_t.keys().next().unwrap().to_owned();
+            visited_t.insert(first_transition);
+            queue.push_back(Node::Transition(first_transition));
+        }
+        while let Some(node) = queue.pop_front() {
+            match node {
+                Node::Place(p) => {
+                    for &t in iter::chain(preset_p.get(&p).unwrap().iter(), postset_p.get(&p).unwrap().iter()) {
+                        if visited_t.insert(t) {
+                            queue.push_back(Node::Transition(t));
+                        }
+                    }
+                }
+                Node::Transition(t) => {
+                    for &p in iter::chain(preset_t.get(&t).unwrap().iter(), postset_t.get(&t).unwrap().iter()) {
+                        if visited_p.insert(p) {
+                            queue.push_back(Node::Place(p));
+                        }
+                    }
+                }
+            }
+        }
+        if visited_p.len() + visited_t.len() != n_nodes {
+            return false;
+        }
+    }
+    true
+}
+
+/// Classify a net based on its structural properties.
+/// Returns the most specific class of net that it belongs to.
+/// If the net is not connected, returns None (since this library only supports connected nets).
+/// It is expected that these maps are symmetrically consistent
+/// (e.g. if `p` is in `preset_t[t]` then `t` is in `postset_p[p]`)
+/// and eagerly populated for all nodes (e.g. if `t` has no preset,
+/// then `preset_t[t]` is an empty set, not missing).
+pub(crate) fn classify<S: std::hash::BuildHasher>(
     preset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     postset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     preset_p: &HashMap<Place, HashSet<Transition, S>, S>,
     postset_p: &HashMap<Place, HashSet<Transition, S>, S>
-) -> NetClass {
+) -> Option<NetClass> {
+    if !is_connected(preset_t, postset_t, preset_p, &postset_p) {
+        return None;
+    }
     let is_s_net = is_s_net(preset_t, postset_t);
     let is_t_net = is_t_net(preset_p, postset_p);
-    match (is_s_net, is_t_net) {
+    let class = match (is_s_net, is_t_net) {
         (true, true) => NetClass::Circuit,
         (true, false) => NetClass::SNet,
         (false, true) => NetClass::TNet,
         (false, false) if is_free_choice_net(postset_p, preset_t) => NetClass::FreeChoice,
         (false, false) if is_asymmetric_choice_net(postset_p) => NetClass::AsymmetricChoice,
-        _ => NetClass::Unrestricted,
-    }
+        _ => NetClass::General,
+    };
+    Some(class)
 }
 
 /// S-net: |•t| = 1 and |t•| = 1 for every transition t.

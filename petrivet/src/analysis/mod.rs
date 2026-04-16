@@ -23,7 +23,7 @@
 
 use crate::analysis::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof};
 use crate::net::PlaceIdx;
-use crate::{ApiMarking, ExplorationOrder, Marking, Net, Omega, OmegaMarking, Place, System};
+use crate::{ApiMarking, ExplorationOrder, IdxMarking, IdxOmegaMarking, Net, Omega, Place, System};
 
 pub mod structural;
 pub mod semi_decision;
@@ -267,7 +267,7 @@ impl<N: AsRef<Net>> System<N> {
         if self.marking >= target {
             return CoverabilityProof {
                 firing_sequence: Box::new([]),
-                covering_marking: net.convert_marking(OmegaMarking::from(self.marking.clone())),
+                covering_marking: net.convert_marking(IdxOmegaMarking::from(self.marking.clone())),
             }.into();
         }
 
@@ -289,7 +289,7 @@ impl<N: AsRef<Net>> System<N> {
         }
 
         self.explore_coverability(ExplorationOrder::BreadthFirst)
-            .find_cover(&OmegaMarking::from(target))
+            .find_cover_inner(&IdxOmegaMarking::from(target))
             .map_or_else(
                 || NonCoverabilityProof::ExhaustiveSearch.into(),
                 CoverabilityResult::Coverable
@@ -350,7 +350,7 @@ impl<N: AsRef<Net>> System<N> {
 /// in the SCC are marked.
 fn has_zero_token_cycle(
     net: &Net,
-    marking: &Marking,
+    marking: &IdxMarking,
     internal_places: &[PlaceIdx],
     trans_to_scc: &[usize],
     scc_idx: usize,

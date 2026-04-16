@@ -16,7 +16,7 @@ pub enum WasmNetClass {
     TNet,
     FreeChoice,
     AsymmetricChoice,
-    Unrestricted,
+    General,
 }
 
 #[derive(Debug, Clone, Serialize, Tsify)]

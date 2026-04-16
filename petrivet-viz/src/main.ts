@@ -452,7 +452,7 @@ const NET_CLASS_INFO: Record<string, { label: string; desc: string }> = {
       + 'the other\'s. A strict generalisation of Free-Choice. '
       + 'Many structural analysis results still apply.',
   },
-  Unrestricted: {
+  General: {
     label: 'P/T Net',
     desc: 'No structural restrictions. The most general class. ',
   },

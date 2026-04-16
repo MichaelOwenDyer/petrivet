@@ -3,20 +3,32 @@ direction LR
 
 class NetBuilder {
     +add_place()
+    +add_places()
     +add_transition()
+    +add_transitions()
     +add_arc()
+    +remove_place()
+    +remove_transition()
+    +remove_arc()
+    +classify() NetClass
     +build() Net
 }
 
 class Net {
-    +place_count()
-    +transition_count()
-    +arcs()
     +class()
+    +places()
+    +transitions()
+    +arcs()
+    +nodes()
+    +input_places()
 }
 
 class System {
+    +set_token()
+    +set_tokens()
+    +net()
     +current_marking()
+    +current_tokens()
     +enabled_transitions()
     +try_fire()
     +analyze_boundedness()

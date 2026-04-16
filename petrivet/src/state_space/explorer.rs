@@ -5,7 +5,7 @@
 //! [`ReachabilityGraph`](crate::ReachabilityGraph) instead.
 
 use crate::analysis::model::FiringSequence;
-use crate::marking::{Marking, Omega};
+use crate::marking::{IdxMarking, Omega};
 use crate::net::{Net, TransitionIdx};
 use petgraph::graph::NodeIndex;
 use petgraph::Graph;
@@ -83,7 +83,7 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     /// Seeds the frontier with source transitions (empty preset, always
     /// enabled) plus transitions whose presets overlap with the support
     /// of the initial marking.
-    pub fn new(net: &'a Net, initial_marking: Marking<T>, order: ExplorationOrder) -> Self {
+    pub fn new(net: &'a Net, initial_marking: IdxMarking<T>, order: ExplorationOrder) -> Self {
         let mut graph = Graph::new();
         let initial_idx = graph.add_node(initial_marking.clone());
 
@@ -136,7 +136,7 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     /// Compute the marking that results from firing `t` at `node`.
     ///
     /// Caller must ensure the transition is enabled.
-    pub fn fire(&self, node: NodeIndex, t: TransitionIdx) -> Marking<T> {
+    pub fn fire(&self, node: NodeIndex, t: TransitionIdx) -> IdxMarking<T> {
         let mut result = self.state_space.graph[node].clone();
         for &p in self.state_space.net.preset_t(t) {
             result[p].decrement();
@@ -156,7 +156,7 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
         &mut self,
         from: NodeIndex,
         over: TransitionIdx,
-        marking: Marking<T>,
+        marking: IdxMarking<T>,
     ) -> (NodeIndex, bool) {
         if let Some(&idx) = self.state_space.seen.get(&marking) {
             self.state_space.graph.add_edge(from, idx, over);
@@ -189,16 +189,16 @@ pub(super) struct StateGraph<'a, T: TokenOps> {
     /// Reference to the graph's initial node, for pathfinding.
     pub initial_idx: NodeIndex,
     /// The underlying graph structure. Nodes are markings, edges are transitions.
-    pub graph: Graph<Marking<T>, TransitionIdx>,
+    pub graph: Graph<IdxMarking<T>, TransitionIdx>,
     /// A hash table of seen markings to their node indices in the graph,
     /// for O(1) lookup.
-    pub seen: HashMap<Marking<T>, NodeIndex>,
+    pub seen: HashMap<IdxMarking<T>, NodeIndex>,
 }
 
 /// A fully explored state space.
 impl<T: TokenOps> StateGraph<'_, T> {
     /// Reference to the marking at a given node.
-    pub fn marking_at(&self, idx: NodeIndex) -> &Marking<T> {
+    pub fn marking_at(&self, idx: NodeIndex) -> &IdxMarking<T> {
         &self.graph[idx]
     }
 

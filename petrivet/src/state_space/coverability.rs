@@ -31,8 +31,8 @@
 //! ```
 
 use crate::analysis::model::CoverabilityProof;
-use crate::marking::{Marking, Omega, OmegaMarking};
-use crate::net::{Net, PlaceIdx};
+use crate::marking::{IdxMarking, Omega, IdxOmegaMarking};
+use crate::net::{Net, PlaceIdx, TransitionIdx};
 use crate::state_space::explorer::StateGraph;
 use crate::state_space::ReachabilityGraph;
 use crate::state_space::{explorer::StateSpaceExplorer, ExplorationOrder};
@@ -65,12 +65,21 @@ pub struct CoverabilityStep {
     pub is_new: bool,
 }
 
+pub(crate) struct CoverabilityStepIdx {
+    /// The transition that was fired.
+    pub transition_idx: TransitionIdx,
+    /// The resulting marking (may contain ω after acceleration).
+    pub marking: IdxOmegaMarking,
+    /// Whether this marking was newly discovered (vs. already seen).
+    pub is_new: bool,
+}
+
 impl<'a> CoverabilityExplorer<'a> {
     /// Create a new coverability explorer for a system and exploration order.
     #[must_use]
     pub fn new<N: AsRef<Net>>(sys: &'a System<N>, order: ExplorationOrder) -> Self {
         let net = sys.net().as_ref();
-        let omega_marking = OmegaMarking::from(sys.marking.clone());
+        let omega_marking = IdxOmegaMarking::from(sys.marking.clone());
         Self {
             explorer: StateSpaceExplorer::new(net, omega_marking, order),
             place_bounds: net.place_indices().map(|_| Omega::Finite(0)).collect(),
@@ -94,19 +103,28 @@ impl<'a> CoverabilityExplorer<'a> {
     /// ω-acceleration, and registers the result. Returns `None` when the
     /// frontier is exhausted (graph fully explored).
     pub fn explore_next(&mut self) -> Option<CoverabilityStep> {
+        self.explore_next_inner().map(|step_idx| {
+            CoverabilityStep {
+                transition: self.explorer.state_space.net.get_transition(step_idx.transition_idx),
+                marking: self.explorer.state_space.net.convert_marking(step_idx.marking),
+                is_new: step_idx.is_new,
+            }
+        })
+    }
+
+    pub(crate) fn explore_next_inner(&mut self) -> Option<CoverabilityStepIdx> {
         loop {
-            let (src_node_idx, t_idx) = self.explorer.pop_frontier()?;
-            if !self.explorer.is_enabled(src_node_idx, t_idx) {
+            let (src_node_idx, transition_idx) = self.explorer.pop_frontier()?;
+            if !self.explorer.is_enabled(src_node_idx, transition_idx) {
                 continue;
             }
-            let mut marking = self.explorer.fire(src_node_idx, t_idx);
+            let mut marking = self.explorer.fire(src_node_idx, transition_idx);
             self.omega_accelerate(&mut marking, src_node_idx);
             self.update_place_bounds(&marking);
-            let (_, is_new) = self.explorer.register(src_node_idx, t_idx, marking.clone());
-            let transition_key = self.explorer.state_space.net.get_transition(t_idx);
-            return Some(CoverabilityStep {
-                transition: transition_key,
-                marking: self.explorer.state_space.net.convert_marking(marking),
+            let (_, is_new) = self.explorer.register(src_node_idx, transition_idx, marking.clone());
+            return Some(CoverabilityStepIdx {
+                transition_idx,
+                marking,
                 is_new,
             });
         }
@@ -147,7 +165,7 @@ impl<'a> CoverabilityExplorer<'a> {
     }
 
     /// Iterator over all distinct ω-markings reached so far.
-    pub fn markings(&self) -> impl Iterator<Item = &OmegaMarking> {
+    pub fn markings(&self) -> impl Iterator<Item = &IdxOmegaMarking> {
         self.explorer.state_space.graph.node_weights()
     }
 
@@ -160,7 +178,7 @@ impl<'a> CoverabilityExplorer<'a> {
     /// Karp-Miller acceleration: if any previously seen marking is strictly
     /// smaller than `new_marking` AND lies on a path to `src`, replace the
     /// components where `new_marking` is strictly greater with ω.
-    fn omega_accelerate(&self, new_marking: &mut OmegaMarking, src: NodeIndex) {
+    fn omega_accelerate(&self, new_marking: &mut IdxOmegaMarking, src: NodeIndex) {
         for (seen_marking, &seen_idx) in &self.explorer.state_space.seen {
             if seen_marking < new_marking
                 && petgraph::algo::has_path_connecting(&self.explorer.state_space.graph, seen_idx, src, None)
@@ -174,7 +192,7 @@ impl<'a> CoverabilityExplorer<'a> {
         }
     }
 
-    fn update_place_bounds(&mut self, marking: &OmegaMarking) {
+    fn update_place_bounds(&mut self, marking: &IdxOmegaMarking) {
         for (component, bound) in marking.iter().zip(self.place_bounds.iter_mut()) {
             if *component > *bound {
                 *bound = *component;
@@ -184,33 +202,39 @@ impl<'a> CoverabilityExplorer<'a> {
 
     /// The initial ω-marking.
     #[must_use]
-    pub fn initial_marking(&self) -> &OmegaMarking {
-        self.explorer.state_space.marking_at(self.explorer.state_space.initial_idx)
+    pub fn initial_marking(&self) -> ApiOmegaMarking {
+        let marking = self.explorer.state_space.marking_at(self.explorer.state_space.initial_idx).clone();
+        self.explorer.state_space.net.convert_marking(marking)
     }
 
     /// All ω-markings discovered so far which enable no transitions.
-    #[must_use]
-    pub fn deadlocks(&self) -> impl Iterator<Item = &OmegaMarking> {
+    pub fn deadlocks(&self) -> impl Iterator<Item = ApiOmegaMarking> {
         self.explorer.state_space
             .deadlock_indices()
             .map(|idx| self.explorer.state_space.marking_at(idx))
+            .cloned()
+            .map(|marking| self.explorer.state_space.net.convert_marking(marking))
     }
 
     /// Advances exploration until a marking covering `target` is found,
     /// and returns the marking and a firing sequence from the initial marking to it.
     /// **Note**: this will not consider already-discovered markings.
-    pub fn find_cover(&mut self, target: &OmegaMarking) -> Option<CoverabilityProof> {
-        while let Some(step) = self.explore_next() {
-            // todo: this is inefficient! rewrite!
-            let marking = self.explorer.state_space.net.convert_api_marking(step.marking.clone());
+    pub fn find_cover(&mut self, target: ApiOmegaMarking) -> Option<CoverabilityProof> {
+        let target = self.explorer.state_space.net.convert_api_marking(target);
+        self.find_cover_inner(&target)
+    }
+
+    pub(crate) fn find_cover_inner(&mut self, target: &IdxOmegaMarking) -> Option<CoverabilityProof> {
+        while let Some(CoverabilityStepIdx { marking, .. }) = self.explore_next_inner() {
             if marking < *target {
                 continue;
             }
-            let path = self.explorer.state_space.path_to(self.explorer.state_space.seen[&marking]).expect("marking is in graph");
+            let firing_sequence = self.explorer.state_space.path_to(self.explorer.state_space.seen[&marking]).expect("marking is in graph");
+            let covering_marking = self.explorer.state_space.net.convert_marking(marking);
             return Some(CoverabilityProof {
-                firing_sequence: path,
-                covering_marking: step.marking,
-            });
+                firing_sequence,
+                covering_marking,
+            })
         }
         None
     }
@@ -258,7 +282,7 @@ impl<'a> CoverabilityGraph<'a> {
     /// **Note**: this checks for exact presence, not coverability.
     /// For coverability queries, use `cover()`.
     #[must_use]
-    pub fn contains_marking(&self, marking: &OmegaMarking) -> bool {
+    pub fn contains_marking(&self, marking: &IdxOmegaMarking) -> bool {
         self.state_space.seen.contains_key(marking)
     }
 
@@ -278,7 +302,7 @@ impl<'a> CoverabilityGraph<'a> {
     /// Whether the net is bounded: no ω appears in any discovered marking.
     #[must_use]
     pub fn is_bounded(&self) -> bool {
-        self.state_space.graph.node_weights().all(Marking::is_finite)
+        self.state_space.graph.node_weights().all(IdxMarking::is_finite)
     }
 
     /// Upper bound on the token count for each place across all discovered markings.
@@ -339,7 +363,7 @@ impl<'a> CoverabilityGraph<'a> {
     }
 
     /// All discovered markings that have no enabled transitions.
-    pub fn deadlocks(&self) -> impl Iterator<Item = &OmegaMarking> {
+    pub fn deadlocks(&self) -> impl Iterator<Item = &IdxOmegaMarking> {
         self.state_space
             .deadlock_indices()
             .map(|idx| self.state_space.marking_at(idx))

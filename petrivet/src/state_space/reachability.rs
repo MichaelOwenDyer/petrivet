@@ -43,7 +43,7 @@
 //! need fine-grained control, use [`ReachabilityExplorer`].
 
 use crate::analysis::model::LivenessLevel;
-use crate::marking::{Marking, Omega};
+use crate::marking::{IdxMarking, Omega};
 use crate::net::{Net, Transition};
 use crate::state_space::explorer::StateGraph;
 use crate::state_space::{explorer::StateSpaceExplorer, CoverabilityGraph, ExplorationOrder};
@@ -136,7 +136,7 @@ impl<'a> ReachabilityExplorer<'a> {
     /// use petrivet::net::builder::NetBuilder;
     /// use petrivet::system::System;
     /// use petrivet::{ReachabilityExplorer, ExplorationOrder};
-    /// use petrivet::marking::Marking;
+    /// use petrivet::marking::IdxMarking;
     ///
     /// let mut b = NetBuilder::new();
     /// let [p0, p1] = b.add_places();
@@ -149,7 +149,7 @@ impl<'a> ReachabilityExplorer<'a> {
     /// let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
     ///
     /// // Search for a specific marking
-    /// let target = Marking::from([0u32, 1]);
+    /// let target = IdxMarking::from([0u32, 1]);
     /// let found = explorer.iter().any(|s| s.marking == target);
     /// assert!(found);
     /// ```
@@ -265,7 +265,7 @@ impl std::fmt::Debug for ReachabilityExplorer<'_> {
 /// use petrivet::net::builder::NetBuilder;
 /// use petrivet::system::System;
 /// use petrivet::{ReachabilityGraph, ExplorationOrder};
-/// use petrivet::marking::Marking;
+/// use petrivet::marking::IdxMarking;
 ///
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
@@ -279,7 +279,7 @@ impl std::fmt::Debug for ReachabilityExplorer<'_> {
 ///
 /// // Query the graph
 /// assert_eq!(rg.state_count(), 2);
-/// assert!(rg.is_reachable(&Marking::from([0u32, 1])));
+/// assert!(rg.is_reachable(&IdxMarking::from([0u32, 1])));
 /// assert!(rg.is_deadlock_free());
 /// assert!(rg.is_live());
 /// ```
@@ -340,7 +340,7 @@ impl<'a> ReachabilityGraph<'a> {
         self.path_to_marking(&target)
     }
 
-    pub(crate) fn path_to_marking(&self, target: &Marking) -> Option<Box<[Transition]>> {
+    pub(crate) fn path_to_marking(&self, target: &IdxMarking) -> Option<Box<[Transition]>> {
         self.state_space.seen.get(target)
             .and_then(|&target_idx| self.state_space.path_to(target_idx))
     }
@@ -522,7 +522,7 @@ impl<'a> TryFrom<CoverabilityGraph<'a>> for ReachabilityGraph<'a> {
     }
 }
 
-fn unwrap_omega_marking_to_u32(om: &Marking<Omega>) -> Marking<u32> {
+fn unwrap_omega_marking_to_u32(om: &IdxMarking<Omega>) -> IdxMarking<u32> {
     om.iter()
         .map(|o| match o {
             Omega::Finite(n) => *n,
@@ -534,12 +534,12 @@ fn unwrap_omega_marking_to_u32(om: &Marking<Omega>) -> Marking<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::marking::Marking;
+    use crate::marking::IdxMarking;
     use crate::net::builder::NetBuilder;
     use crate::net::class::NetClass;
     use crate::Place;
 
-    fn m(val: impl Into<Marking>) -> Marking {
+    fn m(val: impl Into<IdxMarking>) -> IdxMarking {
         val.into()
     }
 

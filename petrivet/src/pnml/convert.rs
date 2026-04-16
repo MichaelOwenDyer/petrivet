@@ -39,7 +39,7 @@
 
 use std::collections::HashMap;
 use crate::ApiMarking;
-use crate::net::builder::{BuildError, NetBuilder};
+use crate::net::builder::{NetError, NetBuilder};
 use crate::net::metadata::NetLabels;
 use crate::net::{Arc, Net, Place, Transition};
 use crate::system::System;
@@ -73,7 +73,7 @@ pub enum PnmlConversionError {
     DuplicateId(String),
 
     /// The topology could not form a valid net (empty or disconnected).
-    InvalidTopology(BuildError),
+    InvalidTopology(NetError),
 }
 
 impl std::fmt::Display for PnmlConversionError {
@@ -95,8 +95,8 @@ impl std::fmt::Display for PnmlConversionError {
 
 impl std::error::Error for PnmlConversionError {}
 
-impl From<BuildError> for PnmlConversionError {
-    fn from(e: BuildError) -> Self {
+impl From<NetError> for PnmlConversionError {
+    fn from(e: NetError) -> Self {
         Self::InvalidTopology(e)
     }
 }

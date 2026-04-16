@@ -22,7 +22,7 @@ use metadata::NetLabels;
 use crate::pnml::convert::PnmlGraphics;
 use std::iter::Peekable;
 use std::ops::Index;
-use crate::marking::Marking;
+use crate::marking::IdxMarking;
 use crate::state_space::explorer::TokenOps;
 
 pub trait IteratorExt: Iterator + Sized {
@@ -159,7 +159,6 @@ pub struct Net {
 }
 
 impl Net {
-
     // todo: temporary solution, work this into NetBuilder ideally!
     pub(crate) fn set_labels(&mut self, labels: NetLabels) {
         self.labels = Some(Box::new(labels));
@@ -179,6 +178,44 @@ impl Net {
     /// Creates a system by combining this net with the given marking.
     pub fn with_marking(self, marking: impl IntoIterator<Item = (Place, u32)>) -> System<Self> {
         System::new(self, marking)
+    }
+
+    /// Returns the structural class of this net (cached at build time).
+    #[must_use]
+    pub fn class(&self) -> NetClass {
+        self.class
+    }
+
+    /// A net is a circuit if it is both an S-net and a T-net.
+    #[must_use]
+    pub fn is_circuit(&self) -> bool {
+        self.class.is_circuit()
+    }
+
+    /// A net is an S-net if every transition has exactly one input and one output place.
+    #[must_use]
+    pub fn is_s_net(&self) -> bool {
+        self.class.is_s_net()
+    }
+
+    /// A net is a T-net if every place has exactly one input and one output transition.
+    #[must_use]
+    pub fn is_t_net(&self) -> bool {
+        self.class.is_t_net()
+    }
+
+    /// A net is free-choice if for every two transitions t1, t2:
+    /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
+    #[must_use]
+    pub fn is_free_choice_net(&self) -> bool {
+        self.class.is_free_choice()
+    }
+
+    /// A net is asymmetric-choice if for every two places s1, s2:
+    /// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
+    #[must_use]
+    pub fn is_asymmetric_choice_net(&self) -> bool {
+        self.class.is_asymmetric_choice()
     }
 
     /// Number of places in the net.
@@ -341,61 +378,18 @@ impl Net {
         self.index_to_transition[t]
     }
 
-    pub(crate) fn convert_marking<T: TokenOps>(&self, marking: Marking<T>) -> ApiMarking<T> {
+    pub(crate) fn convert_marking<T: TokenOps>(&self, marking: IdxMarking<T>) -> ApiMarking<T> {
         self.places().zip(marking).collect()
     }
 
-    pub(crate) fn convert_api_marking<T: TokenOps>(&self, api_marking: ApiMarking<T>) -> Marking<T> {
-        let mut marking = Marking::zeros(self.place_count());
+    pub(crate) fn convert_api_marking<T: TokenOps>(&self, api_marking: ApiMarking<T>) -> IdxMarking<T> {
+        let mut marking = IdxMarking::zeros(self.place_count());
         api_marking.into_iter().for_each(|(place, count)| {
             if let Some(dense) = self.place_index(place) {
                 marking[dense] = count;
             }
         });
         marking
-    }
-
-    /// A net is a circuit if it is both an S-net and a T-net.
-    #[must_use]
-    pub fn is_circuit(&self) -> bool {
-        use NetClass::Circuit;
-        matches!(self.class, Circuit)
-    }
-
-    /// A net is an S-net if every transition has exactly one input and one output place.
-    #[must_use]
-    pub fn is_s_net(&self) -> bool {
-        use NetClass::*;
-        matches!(self.class, Circuit | SNet)
-    }
-
-    /// A net is a T-net if every place has exactly one input and one output transition.
-    #[must_use]
-    pub fn is_t_net(&self) -> bool {
-        use NetClass::*;
-        matches!(self.class, Circuit | TNet)
-    }
-
-    /// A net is free-choice if for every two transitions t1, t2:
-    /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
-    #[must_use]
-    pub fn is_free_choice_net(&self) -> bool {
-        use NetClass::*;
-        matches!(self.class, Circuit | SNet | TNet | FreeChoice)
-    }
-
-    /// A net is asymmetric-choice if for every two places s1, s2:
-    /// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
-    #[must_use]
-    pub fn is_asymmetric_choice_net(&self) -> bool {
-        use NetClass::*;
-        matches!(self.class, Circuit | SNet | TNet | FreeChoice | AsymmetricChoice)
-    }
-
-    /// Returns the structural class of this net (cached at build time).
-    #[must_use]
-    pub fn class(&self) -> NetClass {
-        self.class
     }
 
     /// Computes the incidence matrix N of the net.
