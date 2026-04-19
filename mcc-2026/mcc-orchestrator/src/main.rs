@@ -21,13 +21,13 @@ fn run() -> Result<(), String> {
 }
 
 struct Paths {
-    orchestrator_dir: PathBuf,
+    petrivet_mcc_build_file: PathBuf,
     runtime_cache_dir: PathBuf,
     artifacts_dir: PathBuf,
-    built_binary: PathBuf,
+    petrivet_mcc_binary: PathBuf,
     runtime_work_image: PathBuf,
-    runtime_output_image: PathBuf,
-    runtime_benchkit_head: PathBuf,
+    submission_image: PathBuf,
+    benchkit_head: PathBuf,
     base_vm_image: PathBuf,
     input_vm_image: PathBuf,
     contest_key: PathBuf,
@@ -43,34 +43,28 @@ impl Paths {
             ));
         }
 
-        let base_vm_image = env_path("MCC_BASE_IMAGE")
-            .unwrap_or_else(|| orchestrator_dir.join("SubmissionKit/mcc2026.vmdk"));
-        let input_vm_image = env_path("MCC_INPUT_IMAGE")
-            .unwrap_or_else(|| orchestrator_dir.join("SubmissionKit/mcc2026-input.vmdk"));
-        let contest_key = env_path("MCC_CONTEST_KEY")
-            .unwrap_or_else(|| orchestrator_dir.join("SubmissionKit/bk-private_key"));
+        let submission_kit_dir = orchestrator_dir.join("SubmissionKit");
         let runtime_cache_dir = orchestrator_dir.join("cache").join("runtime");
         let artifacts_dir = orchestrator_dir.join("artifacts");
 
         Ok(Self {
-            orchestrator_dir,
+            base_vm_image: submission_kit_dir.join("mcc2026.vmdk"),
+            input_vm_image: submission_kit_dir.join("mcc2026-input.vmdk"),
+            contest_key: submission_kit_dir.join("bk-private_key"),
+            petrivet_mcc_build_file: orchestrator_dir.join("../petrivet-mcc/default.nix"),
+            petrivet_mcc_binary: artifacts_dir.join("petrivet-mcc"),
             runtime_cache_dir: runtime_cache_dir.clone(),
-            artifacts_dir: artifacts_dir.clone(),
-            built_binary: artifacts_dir.join("petrivet-2026"),
             runtime_work_image: runtime_cache_dir.join("petrivet-2026-runtime.vmdk"),
-            runtime_output_image: artifacts_dir.join("petrivet-2026.vmdk"),
-            runtime_benchkit_head: runtime_cache_dir.join("BenchKit_head.sh"),
-            base_vm_image,
-            input_vm_image,
-            contest_key,
+            benchkit_head: runtime_cache_dir.join("BenchKit_head.sh"),
+            artifacts_dir: artifacts_dir.clone(),
+            submission_image: artifacts_dir.join("petrivet-2026.vmdk"),
         })
     }
 
     fn prepare(&self) -> Result<(), String> {
-        self.require_existing(&self.orchestrator_dir, "orchestrator directory")?;
-        self.require_existing(&self.base_vm_image, "boot VM image")?;
-        self.require_existing(&self.input_vm_image, "input VM image")?;
-        self.require_existing(&self.contest_key, "contest SSH key")?;
+        Paths::require_existing(&self.base_vm_image, "boot VM image")?;
+        Paths::require_existing(&self.input_vm_image, "input VM image")?;
+        Paths::require_existing(&self.contest_key, "contest SSH key")?;
 
         fs::create_dir_all(&self.runtime_cache_dir)
             .map_err(|error| format!("failed to create runtime cache: {error}"))?;
@@ -80,7 +74,7 @@ impl Paths {
         Ok(())
     }
 
-    fn require_existing(&self, path: &Path, label: &str) -> Result<(), String> {
+    fn require_existing(path: &Path, label: &str) -> Result<(), String> {
         if path.exists() {
             return Ok(());
         }
@@ -88,9 +82,9 @@ impl Paths {
     }
 
     fn write_runtime_benchkit_head(&self) -> Result<(), String> {
-        fs::write(&self.runtime_benchkit_head, BENCHKIT_HEAD_SCRIPT)
+        fs::write(&self.benchkit_head, BENCHKIT_HEAD_SCRIPT)
             .map_err(|error| format!("failed to write BenchKit_head.sh: {error}"))?;
-        set_executable(&self.runtime_benchkit_head)?;
+        set_executable(&self.benchkit_head)?;
         Ok(())
     }
 }
@@ -98,24 +92,21 @@ impl Paths {
 fn build_petrivet_mcc(paths: &Paths) -> Result<(), String> {
     println!("building petrivet-mcc with nix build...");
     let mut command = Command::new("nix");
-    let nix_file = paths.orchestrator_dir.join("default.nix");
-    if !nix_file.is_file() {
-        return Err(format!("missing Nix build file: {}", nix_file.display()));
-    }
     command
         .arg("build")
         .arg("--no-link")
         .arg("--print-out-paths")
         .arg("--file")
-        .arg(&nix_file)
-        .arg("petrivet-2026");
+        .arg(&paths.petrivet_mcc_build_file)
+        .arg("petrivet-mcc");
     let output = run_command_streaming_stdout(command, "build petrivet-mcc")?;
     let package_out = output
         .lines()
         .rev()
-        .find(|line| !line.trim().is_empty())
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(PathBuf::from)
         .ok_or_else(|| "nix build produced no output path".to_string())?;
-    let package_out = PathBuf::from(package_out.trim());
     let built_binary = package_out.join("bin").join("petrivet-mcc");
     if !built_binary.is_file() {
         return Err(format!(
@@ -123,17 +114,17 @@ fn build_petrivet_mcc(paths: &Paths) -> Result<(), String> {
             built_binary.display()
         ));
     }
-    fs::copy(&built_binary, &paths.built_binary).map_err(|error| {
+    fs::copy(&built_binary, &paths.petrivet_mcc_binary).map_err(|error| {
         format!(
             "failed to copy built binary into {}: {error}",
-            paths.built_binary.display()
+            paths.petrivet_mcc_binary.display()
         )
     })?;
-    set_executable(&paths.built_binary)?;
-    if !paths.built_binary.is_file() {
+    set_executable(&paths.petrivet_mcc_binary)?;
+    if !paths.petrivet_mcc_binary.is_file() {
         return Err(format!(
             "build finished but binary is missing: {}",
-            paths.built_binary.display()
+            paths.petrivet_mcc_binary.display()
         ));
     }
     Ok(())
@@ -141,7 +132,7 @@ fn build_petrivet_mcc(paths: &Paths) -> Result<(), String> {
 
 fn build_submission_image(paths: &Paths) -> Result<(), String> {
     println!("preparing runtime VM copy...");
-    cleanup_runtime_guest(paths)?;
+    cleanup_runtime_guest(paths);
     if paths.runtime_work_image.exists() {
         fs::remove_file(&paths.runtime_work_image).map_err(|error| {
             format!(
@@ -150,11 +141,11 @@ fn build_submission_image(paths: &Paths) -> Result<(), String> {
             )
         })?;
     }
-    if paths.runtime_output_image.exists() {
-        fs::remove_file(&paths.runtime_output_image).map_err(|error| {
+    if paths.submission_image.exists() {
+        fs::remove_file(&paths.submission_image).map_err(|error| {
             format!(
                 "failed to remove old submission image {}: {error}",
-                paths.runtime_output_image.display()
+                paths.submission_image.display()
             )
         })?;
     }
@@ -170,19 +161,18 @@ fn build_submission_image(paths: &Paths) -> Result<(), String> {
     flatten_runtime_overlay(paths)?;
 
     println!("done");
-    println!("  binary: {}", paths.built_binary.display());
-    println!("  submission image: {}", paths.runtime_output_image.display());
+    println!("  binary: {}", paths.petrivet_mcc_binary.display());
+    println!("  submission image: {}", paths.submission_image.display());
     Ok(())
 }
 
-fn cleanup_runtime_guest(paths: &Paths) -> Result<(), String> {
+fn cleanup_runtime_guest(paths: &Paths) {
     let mut cleanup_attempted = false;
     if paths.runtime_cache_dir.join("runtime.qemu.pid").exists() {
         cleanup_attempted = true;
-        if let Ok(pid_text) = fs::read_to_string(paths.runtime_cache_dir.join("runtime.qemu.pid")) {
-            if let Ok(pid) = pid_text.trim().parse::<i32>() {
-                let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
-            }
+        if let Ok(pid_text) = fs::read_to_string(paths.runtime_cache_dir.join("runtime.qemu.pid"))
+            && let Ok(pid) = pid_text.trim().parse::<i32>() {
+            let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
         }
         let _ = fs::remove_file(paths.runtime_cache_dir.join("runtime.qemu.pid"));
     }
@@ -194,7 +184,6 @@ fn cleanup_runtime_guest(paths: &Paths) -> Result<(), String> {
     if cleanup_attempted {
         thread::sleep(Duration::from_secs(1));
     }
-    Ok(())
 }
 
 struct RuntimeSession<'a> {
@@ -278,27 +267,27 @@ impl<'a> RuntimeSession<'a> {
     fn install_payloads(&self) -> Result<(), String> {
         println!("installing submission files into runtime VM...");
         run_ssh_as(
-            self.paths,
+            &self.paths.contest_key,
             self.ssh_port,
             "root",
             "mkdir -p /home/mcc/BenchKit/bin /home/mcc/BenchKit/INPUTS && chown -R mcc /home/mcc/BenchKit",
         )?;
         run_scp_as(
-            self.paths,
+            &self.paths.contest_key,
             self.ssh_port,
             "root",
-            &self.paths.runtime_benchkit_head,
+            &self.paths.benchkit_head,
             "/home/mcc/BenchKit/BenchKit_head.sh",
         )?;
         run_scp_as(
-            self.paths,
+            &self.paths.contest_key,
             self.ssh_port,
             "root",
-            &self.paths.built_binary,
+            &self.paths.petrivet_mcc_binary,
             "/home/mcc/BenchKit/bin/petrivet-mcc",
         )?;
         run_ssh_as(
-            self.paths,
+            &self.paths.contest_key,
             self.ssh_port,
             "root",
             "chmod +x /home/mcc/BenchKit/BenchKit_head.sh /home/mcc/BenchKit/bin/petrivet-mcc",
@@ -309,7 +298,7 @@ impl<'a> RuntimeSession<'a> {
     fn smoke_test(&self) -> Result<(), String> {
         println!("sanity-checking entrypoint in runtime VM...");
         run_ssh(
-            self.paths,
+            &self.paths.contest_key,
             self.ssh_port,
             "BK_TOOL=petrivet-mcc BK_EXAMINATION=StateSpace BIN_DIR=/home/mcc/BenchKit/bin /home/mcc/BenchKit/BenchKit_head.sh",
         )
@@ -317,7 +306,7 @@ impl<'a> RuntimeSession<'a> {
 
     fn shutdown(self) -> Result<(), String> {
         run_ssh_as(
-            self.paths,
+            &self.paths.contest_key,
             self.ssh_port,
             "root",
             r#"sh -lc 'if [ -x /usr/sbin/poweroff ]; then nohup /usr/sbin/poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; if [ -x /sbin/poweroff ]; then nohup /sbin/poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; if [ -x /bin/systemctl ]; then nohup /bin/systemctl poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; if [ -x /usr/bin/systemctl ]; then nohup /usr/bin/systemctl poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; exit 127'"#,
@@ -326,8 +315,8 @@ impl<'a> RuntimeSession<'a> {
     }
 }
 
-fn run_ssh(paths: &Paths, port: u16, command: &str) -> Result<(), String> {
-    run_ssh_as(paths, port, "mcc", command)
+fn run_ssh(key: &PathBuf, port: u16, command: &str) -> Result<(), String> {
+    run_ssh_as(key, port, "mcc", command)
 }
 
 fn run_ssh_probe(paths: &Paths, port: u16, user: &str) -> Result<(), String> {
@@ -357,7 +346,7 @@ fn run_ssh_probe(paths: &Paths, port: u16, user: &str) -> Result<(), String> {
     ensure_success(&format!("ssh probe as {user} on port {port}"), status)
 }
 
-fn run_ssh_as(paths: &Paths, port: u16, user: &str, command: &str) -> Result<(), String> {
+fn run_ssh_as(key: &PathBuf, port: u16, user: &str, command: &str) -> Result<(), String> {
     let status = Command::new("ssh")
         .arg("-o")
         .arg("LogLevel=ERROR")
@@ -368,7 +357,7 @@ fn run_ssh_as(paths: &Paths, port: u16, user: &str, command: &str) -> Result<(),
         .arg("-o")
         .arg("ConnectTimeout=3")
         .arg("-i")
-        .arg(&paths.contest_key)
+        .arg(key)
         .arg("-p")
         .arg(port.to_string())
         .arg(format!("{user}@localhost"))
@@ -379,7 +368,7 @@ fn run_ssh_as(paths: &Paths, port: u16, user: &str, command: &str) -> Result<(),
     ensure_success(&format!("ssh command as {user} on port {port}"), status)
 }
 
-fn run_scp_as(paths: &Paths, port: u16, user: &str, local: &Path, remote: &str) -> Result<(), String> {
+fn run_scp_as(key: &PathBuf, port: u16, user: &str, local: &Path, remote: &str) -> Result<(), String> {
     let status = Command::new("scp")
         .arg("-q")
         .arg("-o")
@@ -389,7 +378,7 @@ fn run_scp_as(paths: &Paths, port: u16, user: &str, local: &Path, remote: &str) 
         .arg("-o")
         .arg("StrictHostKeyChecking=no")
         .arg("-i")
-        .arg(&paths.contest_key)
+        .arg(key)
         .arg("-P")
         .arg(port.to_string())
         .arg(local)
@@ -446,12 +435,8 @@ fn flatten_runtime_overlay(paths: &Paths) -> Result<(), String> {
         .arg("-O")
         .arg("vmdk")
         .arg(&paths.runtime_work_image)
-        .arg(&paths.runtime_output_image);
+        .arg(&paths.submission_image);
     run_command(command, "flatten runtime overlay")
-}
-
-fn env_path(name: &str) -> Option<PathBuf> {
-    std::env::var_os(name).map(PathBuf::from)
 }
 
 fn run_command(mut command: Command, label: &str) -> Result<(), String> {
@@ -549,10 +534,8 @@ if [ ! -x "$TOOL_PATH" ]; then
   exit 0
 fi
 
-export BK_TOOL="$TOOL_NAME"
 export BK_EXAMINATION="$EXAMINATION"
 export BK_INPUT="$INPUT_DIR"
-export BIN_DIR="$TOOL_DIR"
 
 exec "$TOOL_PATH"
 "#;

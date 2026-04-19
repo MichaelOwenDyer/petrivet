@@ -1,8 +1,7 @@
 let
   pkgs = import <nixpkgs> { };
-  crossPkgs = pkgs.pkgsCross.musl64;
   src = pkgs.lib.cleanSourceWith {
-    src = ../.;
+    src = ../../.;
     filter = path: type:
       let
         name = builtins.baseNameOf path;
@@ -18,11 +17,11 @@ let
   };
 in
 {
-  petrivet-2026 = crossPkgs.rustPlatform.buildRustPackage {
-    pname = "petrivet-2026";
+  petrivet-mcc = pkgs.pkgsCross.musl64.rustPlatform.buildRustPackage {
+    pname = "petrivet-mcc";
     version = "0.1.0";
     inherit src;
-    cargoLock.lockFile = ../Cargo.lock;
+    cargoLock.lockFile = ../../Cargo.lock;
     cargoBuildFlags = [ "-p" "petrivet-mcc" ];
     RUSTFLAGS = "-C target-feature=+crt-static";
     installPhase = ''

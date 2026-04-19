@@ -6,6 +6,6 @@ petrivet-wasm/pkg
 node_modules
 petrivet-viz/dist
 literature
-mcc-orchestrator/SubmissionKit
-mcc-orchestrator/artifacts
-mcc-orchestrator/cache
+mcc-2026/mcc-orchestrator/SubmissionKit
+mcc-2026/mcc-orchestrator/artifacts
+mcc-2026/mcc-orchestrator/cache
