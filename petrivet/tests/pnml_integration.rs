@@ -8,8 +8,8 @@
 
 use petrivet::pnml::convert::PetriNetKind;
 use petrivet::pnml::PnmlDocument;
-use petrivet::system::System;
-use petrivet::net::labels::NetLabels;
+use petrivet::net::system::System;
+use petrivet::pnml::labels::NetLabels;
 use petrivet::net::Net;
 
 fn load(path: &str) -> PnmlDocument {

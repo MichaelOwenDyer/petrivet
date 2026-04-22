@@ -21,16 +21,15 @@ use petrivet::analysis::model::{
     BoundednessAnalysisMethod, CoverabilityResult, DeadlockAnalysisMethod, LivenessMethod,
     NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof,
 };
-use petrivet::marking::Omega;
+use petrivet::net::marking::Omega;
 use petrivet::net::builder::NetBuilder;
 use petrivet::net::class::NetClass;
-use petrivet::net::labels::NetLabels;
+use petrivet::pnml::labels::NetLabels;
 use petrivet::net::{Arc as PetriArc, Net, Place, Transition};
-use petrivet::pnml::convert::PnmlGraphics;
 use petrivet::pnml::PnmlDocument;
-use petrivet::system::System;
+use petrivet::net::system::System;
 use wasm_bindgen::prelude::*;
-use petrivet::ApiMarking;
+use petrivet::Marking;
 
 mod types;
 use types::*;
@@ -46,7 +45,7 @@ use types::*;
 #[wasm_bindgen]
 pub struct WasmSystem {
     system: System<Rc<Net>>,
-    initial_marking: ApiMarking,
+    initial_marking: Marking,
     labels: Option<NetLabels>,
     graphics: Option<PnmlGraphics>,
     place_keys: Vec<Place>,
@@ -283,8 +282,8 @@ impl WasmSystem {
 
         let net_class = match net.class() {
             NetClass::Circuit => WasmNetClass::Circuit,
-            NetClass::SNet => WasmNetClass::SNet,
-            NetClass::TNet => WasmNetClass::TNet,
+            NetClass::StateMachine => WasmNetClass::SNet,
+            NetClass::MarkedGraph => WasmNetClass::TNet,
             NetClass::FreeChoice => WasmNetClass::FreeChoice,
             NetClass::AsymmetricChoice => WasmNetClass::AsymmetricChoice,
             NetClass::General => WasmNetClass::General,
@@ -316,14 +315,13 @@ impl WasmSystem {
     /// Indices of transitions that are currently enabled.
     #[wasm_bindgen(js_name = enabledTransitions)]
     pub fn enabled_transitions(&self) -> Vec<u32> {
-        let enabled_keys = self.system.enabled_transitions();
         let tk_to_dense: HashMap<Transition, u32> = self.transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i as u32))
             .collect();
-        enabled_keys
-            .iter()
+        self.system
+            .enabled_transitions()
             .map(|tk| tk_to_dense[tk])
             .collect()
     }

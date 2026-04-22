@@ -1,7 +1,6 @@
-use std::collections::HashMap;
+use crate::{Arc, Place, Transition};
 use serde::{Deserialize, Serialize};
-use crate::labels::NetLabels;
-use crate::{Arc, Place, System, Transition};
+use std::collections::HashMap;
 
 /// Graphical layout data extracted from a PNML document.
 ///

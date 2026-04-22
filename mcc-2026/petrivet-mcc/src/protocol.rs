@@ -1,5 +1,4 @@
 use std::fmt;
-use std::path::PathBuf;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Examination {
@@ -66,30 +65,22 @@ pub enum ParticipationError {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunContext {
-    pub tool_name: String,
     pub examination: Examination,
     pub input_name: String,
-    pub bin_dir: PathBuf,
 }
 
 impl RunContext {
     pub fn from_env() -> Result<Self, String> {
-        let tool_name = std::env::var("BK_TOOL").unwrap_or_else(|_| "petrivet-mcc".to_string());
         let examination = std::env::var("BK_EXAMINATION")
             .ok()
             .and_then(|value| Examination::parse(&value))
             .ok_or_else(|| "missing or invalid BK_EXAMINATION".to_string())?;
-        let input_name = std::env::var("BK_INPUT").unwrap_or_else(|_| ".".to_string());
-        let bin_dir = std::env::var("BIN_DIR").map_or_else(
-            |_| PathBuf::from("/home/mcc/BenchKit/bin"),
-            PathBuf::from
-        );
+        let input_name = std::env::var("BK_INPUT")
+            .map_err(|_| "missing BK_INPUT".to_string())?;
 
         Ok(Self {
-            tool_name,
             examination,
             input_name,
-            bin_dir,
         })
     }
 }

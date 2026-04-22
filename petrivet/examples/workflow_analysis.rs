@@ -34,11 +34,10 @@
 //!
 //! Run: `cargo run --example workflow_analysis`
 
-use petrivet::analysis::structural;
 use petrivet::net::builder::NetBuilder;
+use petrivet::net::system::System;
 use petrivet::state_space::ExplorationOrder;
-use petrivet::system::System;
-use petrivet::{ReachabilityExplorer, ReachabilityGraph};
+use petrivet::ReachabilityGraph;
 
 fn main() {
     println!("=== PCB Assembly Line Analysis ===\n");
@@ -82,46 +81,11 @@ fn main() {
     b.add_arc((t_inspect_fail, failed));
 
     let net = b.build().expect("valid net");
-    let place_names = ["raw", "station", "soldered", "passed", "failed", "done"];
-    let trans_names = ["solder", "inspect_pass", "ship", "rework", "inspect_fail"];
 
     println!("Net: {} places, {} transitions", net.place_count(), net.transition_count());
     println!("Structural class: {}", net.class());
 
     println!("\n--- Structural Analysis ---\n");
-
-    let inv = structural::compute_invariants(&net);
-    println!(
-        "S-invariants (place conservation laws): {} basis vectors",
-        inv.s_invariants.len()
-    );
-    for (i, s) in inv.s_invariants.iter().enumerate() {
-        let terms: Vec<String> = s
-            .iter()
-            .enumerate()
-            .filter(|&(_, &v)| v != 0)
-            .map(|(j, v)| format!("{}·{}", v, place_names[j]))
-            .collect();
-        println!("  y{i} = [{}]", terms.join(" + "));
-    }
-    println!(
-        "  Covered by S-invariants (conservative): {}",
-        inv.is_covered_by_s_invariants(net.place_count() as usize)
-    );
-
-    println!(
-        "\nT-invariants (reproducible firing sequences): {} basis vectors",
-        inv.t_invariants.len()
-    );
-    for (i, t) in inv.t_invariants.iter().enumerate() {
-        let terms: Vec<String> = t
-            .iter()
-            .enumerate()
-            .filter(|&(_, &v)| v != 0)
-            .map(|(j, v)| format!("{}·{}", v, trans_names[j]))
-            .collect();
-        println!("  x{i} = [{}]", terms.join(" + "));
-    }
 
     println!(
         "\nStructurally bounded (bounded under all markings): {}",
@@ -175,7 +139,7 @@ fn main() {
     println!("\n--- Coverability Graph ---\n");
 
     let cg = sys.build_coverability_graph();
-    println!("Markings: {}, Edges: {}", cg.marking_count(), cg.edge_count());
+    println!("Markings: {}, Edges: {}", cg.marking_count(), cg.transition_count());
     println!("Bounded: {}", cg.is_bounded());
 
     let threshold = [(station, 1.into()), (done, 3.into())].into();
@@ -189,8 +153,8 @@ fn main() {
 
     println!("\n--- Reachability Graph ---\n");
 
-    let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-    println!("States: {}, Edges: {}", rg.state_count(), rg.edge_count());
+    let rg = ReachabilityGraph::build(&sys);
+    println!("States: {}, Edges: {}", rg.state_count(), rg.transition_count());
     println!("Deadlock-free: {}", rg.is_deadlock_free());
 
     if !rg.is_deadlock_free() {
@@ -200,31 +164,11 @@ fn main() {
         }
     }
 
-    // TODO: need public key-based API for path_to results
-    // ReachabilityGraph::path_to returns Box<[Transition]> where Transition is pub(crate)
-    // let target = Marking::from([0u32, 1, 0, 0, 0, 3]);
-    // if let Some(path) = rg.path_to(&target) {
-    //     println!(
-    //         "\nShortest path to all-done ({} steps):",
-    //         path.len()
-    //     );
-    //     for (i, t) in path.iter().enumerate() {
-    //         println!("  {}: {}", i + 1, trans_names[t as usize]);
-    //     }
-    // }
-
     println!("\nLiveness (from RG): {}", rg.is_live());
-
-    // TODO: need public key-based API for liveness_levels results
-    // ReachabilityGraph::liveness_levels returns TransitionMap<LivenessLevel> which is pub(crate)
-    // let levels = rg.liveness_levels();
-    // for (i, level) in levels.iter().enumerate() {
-    //     println!("  {}: {:?}", trans_names[i], level);
-    // }
 
     println!("\n--- Incremental Exploration ---\n");
 
-    let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
+    let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
     println!("Starting incremental exploration...");
 
     let mut new_states = 0;
@@ -251,20 +195,4 @@ fn main() {
     // Promote to ReachabilityGraph for analysis
     let rg2 = ReachabilityGraph::try_from(explorer).expect("fully explored");
     println!("Promoted to ReachabilityGraph: live: {}", rg2.is_live());
-
-    println!("\n--- Commoner's Theorem (Free-Choice Liveness) ---\n");
-
-    let m0 = [(raw, 3), (station, 1)].into();
-    if net.is_free_choice_net() {
-        let live = structural::commoner_hack_criterion(&net, m0).is_satisfied();
-        println!(
-            "Net is free-choice. Commoner criterion: every siphon contains a marked trap? {live}",
-        );
-        println!("Therefore the system is {}.", if live { "live" } else { "NOT live" });
-    } else {
-        println!("Net is not free-choice; Commoner's theorem does not apply.");
-        println!("Falling back to state-space liveness check: {}", sys.is_live());
-    }
-
-    println!("\n=== Analysis Complete ===");
 }

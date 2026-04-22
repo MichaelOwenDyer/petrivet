@@ -66,6 +66,7 @@ use serde::{Deserialize, Serialize};
 pub mod convert;
 pub mod graphics;
 pub mod net;
+pub mod labels;
 
 pub mod net_type {
     pub const PT_NET: &str = "http://www.pnml.org/version-2009/grammar/ptnet";

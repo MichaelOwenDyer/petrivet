@@ -166,8 +166,7 @@
 //! > A net is structurally bounded iff there exists y > 0 such that
 //! > yᵀ · N ≤ 0 (every place is covered by a positive place subvariant).
 //!
-//! Used in: [`find_positive_place_subvariant`](semi_decision::find_positive_place_subvariant),
-//! [`is_structurally_bounded`](semi_decision::is_structurally_bounded).
+//! Used in: [`find_positive_place_subvariant`](semi_decision::find_positive_place_subvariant).
 //!
 //! ## Definition 5.1 — Liveness levels L0–L4
 //!

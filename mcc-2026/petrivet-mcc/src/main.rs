@@ -2,6 +2,8 @@
 
 mod protocol;
 
+use std::path::PathBuf;
+use petrivet::pnml::PnmlDocument;
 use protocol::{Examination, ParticipationError, RunContext};
 
 const HELP: &str =
@@ -55,7 +57,29 @@ fn run(ctx: RunContext) -> Result<(), ParticipationError> {
     }
 }
 
-fn run_state_space(_ctx: &RunContext) -> Result<(), ParticipationError> {
-    Err(ParticipationError::CannotCompute)
+fn run_state_space(ctx: &RunContext) -> Result<(), ParticipationError> {
+    let pnml = std::fs::read_to_string(PathBuf::from(&ctx.input_name).join("model.pnml"))
+        .map_err(|_| ParticipationError::CannotCompute)?;
+    let system = PnmlDocument::from_xml(&pnml)
+        .inspect_err(|err| eprintln!("{err:?}"))
+        .map_err(|_| ParticipationError::CannotCompute)
+        .and_then(|pnml| {
+            pnml.nets[0]
+                .to_pt_system()
+                .inspect_err(|err| eprintln!("{err:?}"))
+                .map_err(|_| ParticipationError::CannotCompute)
+        })?;
+    match system.build_coverability_graph().into_reachability_graph() {
+        Ok(rg) => {
+            println!("STATE_SPACE STATES {}", rg.state_count());
+            println!("STATE_SPACE TRANSITIONS {}", rg.transition_count());
+            // println!("STATE_SPACE MAX_TOKEN_PER_MARKING {}", rg.place_bounds());
+            // println!("STATE_SPACE MAX_TOKEN_IN_PLACE {}", rg.place_bounds());
+        }
+        Err(_cg) => {
+            println!("unbounded");
+        }
+    }
+    Ok(())
 }
 

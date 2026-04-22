@@ -15,10 +15,15 @@
 /// net.postset_p(p1).is_subset_of(net.postset_p(p0))   // p1• ⊆ p0•
 /// net.preset_t(t).contains(&p)                         // p ∈ •t
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct SortedSet<T>(pub(crate) Box<[T]>);
 
 impl<T: Ord> SortedSet<T> {
+    pub(crate) fn new(mut data: Vec<T>) -> Self {
+        data.sort_unstable();
+        Self(data.into_boxed_slice())
+    }
+
     /// `self ⊆ other`. O(n + m) merge scan.
     #[must_use]
     pub fn is_subset_of(&self, other: &Self) -> bool {
@@ -80,4 +85,9 @@ impl<'a, T> IntoIterator for &'a SortedSet<T> {
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    // todo: write tests to assert sorting
 }

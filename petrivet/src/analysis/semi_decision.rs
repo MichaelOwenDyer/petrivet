@@ -18,8 +18,8 @@
 //!
 //! ```
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::marking::IdxMarking;
-//! use petrivet::system::System;
+//! use petrivet::net::marking::IdxMarking;
+//! use petrivet::net::system::System;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -38,14 +38,9 @@
 //! assert!(!result.is_reachable());
 //! ```
 
-use crate::marking::IdxMarking;
-use crate::net::{Net, PlaceIdx};
-use crate::Transition;
-use good_lp::{
-    constraint, variable, Expression, ProblemVariables, Solution,
-    SolverModel, Variable,
-};
-use std::collections::HashMap;
+use crate::net::marking::IdxMarking;
+use crate::net::idx::{DenseNet, PlaceIdx};
+use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel, Variable, VariableDefinition};
 
 /// Checks the marking equation M = M₀ + N · x for a non-negative rational solution x,
 /// where N: |P|×|T| is the incidence matrix of the net.
@@ -65,42 +60,17 @@ use std::collections::HashMap;
 ///   (state equation as necessary condition)
 #[must_use]
 pub(crate) fn find_marking_equation_rational_solution(
-    net: &Net,
+    net: &DenseNet,
     initial: &IdxMarking,
     target: &IdxMarking,
-) -> Option<Box<[(Transition, f64)]>> {
-    let incidence = net.incidence_matrix();
-
-    let mut variables = ProblemVariables::new();
-    let firing_counts: Box<[Variable]> = net
-        .transition_indices()
-        .map(|_| variables.add(variable().min(0.0)))
-        .collect();
-
-    let objective: Expression = firing_counts.iter().copied().sum();
-
-    let constraints = net
-        .place_indices()
-        .map(|p| {
-            let lhs: Expression = net
-                .transition_indices()
-                .map(|t| f64::from(incidence.get_dense(p, t)) * firing_counts[t])
-                .sum();
-            let rhs = f64::from(target[p]) - f64::from(initial[p]);
-            constraint!(lhs == rhs)
-        });
-
-    variables
-        .minimise(objective)
-        .using(good_lp::microlp)
-        .with_all(constraints)
-        .solve()
-        .ok()
-        .map(|solution| {
-            net.transitions()
-                .zip(firing_counts.into_iter().map(|v| solution.value(v)))
-                .collect()
-        })
+) -> Option<Box<[f64]>> {
+    find_marking_equation_solution(
+        net,
+        initial,
+        target,
+        variable().min(0.0),
+        |v| v,
+    )
 }
 
 /// Checks the marking equation using ILP (integer linear programming).
@@ -120,17 +90,36 @@ pub(crate) fn find_marking_equation_rational_solution(
 /// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation): the firing count vector must be a non-negative integer
 #[must_use]
 pub(crate) fn find_marking_equation_integer_solution(
-    net: &Net,
+    net: &DenseNet,
+    initial_marking: &IdxMarking,
+    target: &IdxMarking,
+) -> Option<Box<[u32]>> {
+    find_marking_equation_solution(
+        net,
+        initial_marking,
+        target,
+        variable().integer().min(0),
+        |v| v.round() as u32,
+    )
+}
+
+#[must_use]
+fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
+    net: &DenseNet,
     initial: &IdxMarking,
     target: &IdxMarking,
-) -> Option<Box<[(Transition, u32)]>> {
+    variable_def: VariableDefinition,
+    extract: F,
+) -> Option<Box<[T]>> {
+    if net.transition_count() == 0 {
+        return Some(Box::new([]));
+    }
+
     let mut variables = ProblemVariables::new();
     let firing_counts: Box<[Variable]> = net
         .transition_indices()
-        .map(|_| variables.add(variable().integer().min(0)))
+        .map(|_| variables.add(variable_def.clone()))
         .collect();
-
-    let objective: Expression = firing_counts.iter().copied().sum();
 
     let incidence = net.incidence_matrix();
     let constraints = net
@@ -138,12 +127,13 @@ pub(crate) fn find_marking_equation_integer_solution(
         .map(|p| {
             let lhs: Expression = net
                 .transition_indices()
-                .map(|t| f64::from(incidence.get_dense(p, t)) * firing_counts[t])
+                .map(|t| f64::from(incidence.get(p, t)) * firing_counts[t])
                 .sum();
             let rhs = f64::from(target[p]) - f64::from(initial[p]);
             constraint!(lhs == rhs)
         });
 
+    let objective: Expression = firing_counts.iter().copied().sum();
     variables
         .minimise(objective)
         .using(good_lp::microlp)
@@ -151,8 +141,10 @@ pub(crate) fn find_marking_equation_integer_solution(
         .solve()
         .ok()
         .map(|solution| {
-            net.transitions()
-                .zip(firing_counts.into_iter().map(|v| solution.value(v).round() as u32))
+            firing_counts
+                .into_iter()
+                .map(|v| solution.value(v))
+                .map(extract)
                 .collect()
         })
 }
@@ -170,14 +162,59 @@ pub(crate) fn find_marking_equation_integer_solution(
 /// Still a necessary condition only (LP relaxation of the marking equation).
 #[must_use]
 pub(crate) fn find_covering_equation_rational_solution(
-    net: &Net,
+    net: &DenseNet,
     initial: &IdxMarking,
     threshold: &IdxMarking,
-) -> Option<HashMap<Transition, f64>> {
+) -> Option<Box<[f64]>> {
+    find_covering_equation_solution(
+        net,
+        initial,
+        threshold,
+        variable().min(0.0),
+        |v| v,
+    )
+}
+
+/// Finds a non-negative integer solution to the covering equation:
+/// does there exist x ∈ ℕ^{|T|} such that `m₀ + N · x >= threshold`?
+///
+/// This is a broader necessary condition than [`find_covering_equation_rational_solution`].
+/// If no integer solution exists, the target is definitely not coverable.
+///
+/// References:
+/// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation) (state equation is a necessary condition)
+/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (firing count vector must be integer)
+#[must_use]
+pub(crate) fn find_covering_equation_integer_solution(
+    net: &DenseNet,
+    initial_marking: &IdxMarking,
+    target: &IdxMarking,
+) -> Option<Box<[u32]>> {
+    find_covering_equation_solution(
+        net,
+        initial_marking,
+        target,
+        variable().integer().min(0),
+        |v| v.round() as u32,
+    )
+}
+
+#[must_use]
+fn find_covering_equation_solution<T, F: Fn(f64) -> T>(
+    net: &DenseNet,
+    initial: &IdxMarking,
+    threshold: &IdxMarking,
+    variable_def: VariableDefinition,
+    extract: F,
+) -> Option<Box<[T]>> {
+    if net.transition_count() == 0 {
+        return Some(Box::new([]));
+    }
+
     let mut variables = ProblemVariables::new();
     let parikh_vector: Box<[Variable]> = net
         .transition_indices()
-        .map(|_| variables.add(variable().min(0.0)))
+        .map(|_| variables.add(variable_def.clone()))
         .collect();
 
     let incidence = net.incidence_matrix();
@@ -186,7 +223,7 @@ pub(crate) fn find_covering_equation_rational_solution(
         .map(|p| {
             let change: Expression = net
                 .transition_indices()
-                .map(|t| f64::from(incidence.get_dense(p, t)) * parikh_vector[t])
+                .map(|t| f64::from(incidence.get(p, t)) * parikh_vector[t])
                 .sum();
             let m0_p = f64::from(initial[p]);
             let thresh = f64::from(threshold[p]);
@@ -201,57 +238,10 @@ pub(crate) fn find_covering_equation_rational_solution(
         .solve()
         .ok()
         .map(|solution| {
-            net.transitions()
-                .zip(parikh_vector.into_iter().map(|v| solution.value(v)))
-                .collect()
-        })
-}
-
-/// Finds a non-negative integer solution to the covering equation:
-/// does there exist x ∈ ℕ^{|T|} such that `m₀ + N · x >= threshold`?
-///
-/// This is a stronger necessary condition than [`find_covering_equation_rational_solution`].
-/// If no integer solution exists, the target is definitely not coverable.
-///
-/// References:
-/// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation) (state equation is a necessary condition)
-/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (firing count vector must be integer)
-#[must_use]
-pub(crate) fn find_covering_equation_integer_solution(
-    net: &Net,
-    initial: &IdxMarking,
-    threshold: &IdxMarking,
-) -> Option<HashMap<Transition, u32>> {
-    let mut variables = ProblemVariables::new();
-    let parikh_vector: Box<[Variable]> = net
-        .transitions()
-        .map(|_| variables.add(variable().integer().min(0)))
-        .collect();
-
-    let incidence = net.incidence_matrix();
-    let constraints = net
-        .places()
-        .enumerate()
-        .map(|(p, _pk)| {
-            let change: Expression = net
-                .transition_indices()
-                .map(|t| f64::from(incidence.get_dense(p, t)) * parikh_vector[t])
-                .sum();
-            let m0_p = f64::from(initial[p]);
-            let thresh = f64::from(threshold[p]);
-            constraint!(change >= thresh - m0_p)
-        });
-
-    let objective: Expression = parikh_vector.iter().copied().sum();
-    variables
-        .minimise(objective)
-        .using(good_lp::microlp)
-        .with_all(constraints)
-        .solve()
-        .ok()
-        .map(|solution| {
-            net.transitions()
-                .zip(parikh_vector.into_iter().map(|v| solution.value(v).round() as u32))
+            parikh_vector
+                .into_iter()
+                .map(|v| solution.value(v))
+                .map(extract)
                 .collect()
         })
 }
@@ -281,46 +271,10 @@ pub(crate) fn find_covering_equation_integer_solution(
 /// returns the weight vector y. Given a specific initial marking M₀,
 /// per-place upper bounds can be derived: M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋.
 #[must_use]
-pub(crate) fn find_positive_place_subvariant(net: &Net) -> Option<Box<[f64]>> {
-    if net.place_count() == 0 {
-        return Some(Box::from([]));
-    }
-
-    let mut variables = ProblemVariables::new();
-    let place_weights: Box<[Variable]> = net
-        .places()
-        .map(|_| variables.add(variable().min(1.0)))
-        .collect();
-
-    let incidence = net.incidence_matrix();
-    let constraints = net
-        .transitions()
-        .enumerate()
-        .map(|(t, _tk)| {
-            let token_delta: Expression = net.places()
-                .enumerate()
-                .map(|(p, _pk)| f64::from(incidence.get_dense(p, t)) * place_weights[p])
-                .sum();
-            constraint!(token_delta <= 0.0)
-        });
-
-    variables
-        .minimise(Expression::from(0))
-        .using(good_lp::microlp)
-        .with_all(constraints)
-        .solve()
-        .ok()
-        .map(|solution| {
-            place_weights
-                .into_iter()
-                .map(|v| solution.value(v))
-                .collect()
-        })
-}
-
-#[must_use]
-pub fn is_structurally_bounded(net: &Net) -> bool {
-    find_positive_place_subvariant(net).is_some()
+pub(crate) fn find_positive_place_subvariant(
+    net: &DenseNet
+) -> Option<Box<[f64]>> {
+    find_semipositive_place_subvariant(net, |_| true)
 }
 
 /// Checks whether a single place is structurally bounded (bounded under
@@ -331,20 +285,23 @@ pub fn is_structurally_bounded(net: &Net) -> bool {
 /// token count of that place cannot increase no matter what transitions fire,
 /// thus guaranteeing its boundedness.
 ///
-/// For a stronger check of the entire net, see [`is_structurally_bounded`].
+/// For a stronger check of the entire net, see [`find_positive_place_subvariant`].
 ///
 /// Feasible → place is structurally bounded; Infeasible → structurally
 /// unbounded (there exists an initial marking under which it is unbounded).
 #[must_use]
-pub(crate) fn find_place_subvariant_covering(
-    net: &Net,
-    place: PlaceIdx
+pub(crate) fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
+    net: &DenseNet,
+    mut covering: F,
 ) -> Option<Box<[f64]>> {
+    if net.place_count() == 0 {
+        return Some(Box::from([]));
+    }
+
     let mut variables = ProblemVariables::new();
-    let place_weights: Box<[Variable]> = net.places()
-        .enumerate()
-        .map(|(p, _pk)| {
-            if p == place {
+    let place_weights: Box<[Variable]> = net.place_indices()
+        .map(|p| {
+            if covering(&p) {
                 variables.add(variable().min(1.0))
             } else {
                 variables.add(variable().min(0.0))
@@ -354,13 +311,11 @@ pub(crate) fn find_place_subvariant_covering(
 
     let incidence = net.incidence_matrix();
     let constraints = net
-        .transitions()
-        .enumerate()
-        .map(|(t, _tk)| {
+        .transition_indices()
+        .map(|t| {
             let token_delta: Expression = net
-                .places()
-                .enumerate()
-                .map(|(p, _pk)| f64::from(incidence.get_dense(p, t)) * place_weights[p])
+                .place_indices()
+                .map(|p| f64::from(incidence.get(p, t)) * place_weights[p])
                 .sum();
             constraint!(token_delta <= 0.0)
         });
@@ -379,80 +334,17 @@ pub(crate) fn find_place_subvariant_covering(
         })
 }
 
-/// Exact reachability decision for S-nets (every transition has exactly
-/// one input and one output place).
-///
-/// In an S-net, every transition moves exactly one token from its input
-/// place to its output place. The total token count is therefore invariant
-/// under all firings. More generally, each S-invariant is preserved.
-///
-/// For S-nets, the marking equation is both necessary and sufficient:
-/// `M'` is reachable from `M₀` if and only if every S-invariant is
-/// preserved (`y · M' = y · M₀` for all S-invariants `y`). This is
-/// equivalent to the LP marking equation being feasible.
-///
-/// This turns reachability, normally Ackermann-complete for general nets,
-/// into a polynomial-time check for S-nets.
-///
-/// # Panics
-///
-/// Debug-asserts that the net is actually an S-net.
-///
-/// References:
-/// - [Murata 1989, Theorem 21](crate::literature#theorem-21--reachability-in-s-nets): for S-nets, the marking equation is
-///   necessary and sufficient for reachability.
-/// - Lautenbach & Thiagarajan 1979 (original result)
-/// todo: reconsider whether methods like these belong here
-#[must_use]
-pub(crate) fn is_reachable_s_net(
-    net: &Net,
-    initial: &IdxMarking,
-    target: &IdxMarking
-) -> bool {
-    debug_assert!(net.is_s_net(), "is_reachable_s_net called on non-S-net");
-    find_marking_equation_rational_solution(net, initial, target).is_some()
-}
-
-/// Exact reachability decision for T-nets (every place has exactly one
-/// input and one output transition).
-///
-/// In a T-net, every non-negative integer solution to the marking equation
-/// `M' = M₀ + N · x` corresponds to a realizable firing sequence. This
-/// means the ILP marking equation is both necessary and sufficient for
-/// reachability.
-///
-/// This turns reachability into an ILP feasibility check, which is
-/// NP-complete in general but efficient for the small instances typical
-/// of Petri net analysis.
-///
-/// # Panics
-///
-/// Debug-asserts that the net is actually a T-net.
-///
-/// References:
-/// - [Murata 1989, Theorem 22](crate::literature#theorem-22--reachability-in-t-nets): for T-nets, a non-negative integer solution
-///   to the marking equation is necessary and sufficient for reachability.
-#[must_use]
-pub(crate) fn is_reachable_t_net(
-    net: &Net,
-    initial: &IdxMarking,
-    target: &IdxMarking
-) -> bool {
-    debug_assert!(net.is_t_net(), "is_reachable_t_net called on non-T-net");
-    find_marking_equation_integer_solution(net, initial, target).is_some()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::net::builder::NetBuilder;
 
-    fn two_place_cycle() -> Net {
+    fn two_place_cycle() -> DenseNet {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
         b.add_arcs((p0, t0, p1, t1, p0));
-        b.build().unwrap()
+        b.build().unwrap().core
     }
 
     #[test]
@@ -476,7 +368,7 @@ mod tests {
     #[test]
     fn cycle_structurally_bounded() {
         let net = two_place_cycle();
-        assert!(is_structurally_bounded(&net), "cycle should be structurally bounded");
+        assert!(find_positive_place_subvariant(&net).is_some(), "cycle should be structurally bounded");
     }
 
     #[test]
@@ -488,8 +380,8 @@ mod tests {
         b.add_arc((p0, t1));
         b.add_arc((t1, p1));
         b.add_arc((p1, t0));
-        let net = b.build().unwrap();
-        assert!(is_structurally_bounded(&net), "producer net should be proven bounded");
+        let net = b.build().unwrap().core;
+        assert!(find_positive_place_subvariant(&net).is_some(), "producer net should be proven bounded");
     }
 
     #[test]
@@ -499,9 +391,9 @@ mod tests {
         let t0 = b.add_transition();
         b.add_arc((t0, p0));
         let net = b.build().unwrap();
-        let p0 = net.place_index(p0).unwrap();
-        assert!(!is_structurally_bounded(&net));
-        assert!(find_place_subvariant_covering(&net, p0).is_none());
+        let p0 = net.place_to_index[&p0];
+        assert!(find_positive_place_subvariant(&net.core).is_none());
+        assert!(find_semipositive_place_subvariant(&net.core, |&idx| idx == p0).is_none());
     }
 
     #[test]
@@ -515,8 +407,8 @@ mod tests {
         b.add_arc((p1, t1));
         b.add_arc((p2, t1));
         b.add_arc((t1, p0));
-        let net = b.build().unwrap();
-        assert!(is_structurally_bounded(&net));
+        let net = b.build().unwrap().core;
+        assert!(find_positive_place_subvariant(&net).is_some());
     }
 
     #[test]
@@ -534,7 +426,7 @@ mod tests {
         let result = find_marking_equation_rational_solution(&net, &m0, &m0);
         assert!(result.is_some());
         if let Some(x) = &result {
-            assert!(x.iter().all(|&(_, v)| v >= -1e-9));
+            assert!(x.iter().all(|&v| v >= -1e-9));
         }
     }
 
@@ -586,12 +478,12 @@ mod tests {
     fn s_net_reachability_positive() {
         // Two-place cycle is an S-net (circuit, actually)
         let net = two_place_cycle();
-        assert!(net.is_s_net());
+        assert!(net.is_state_machine());
         let m0 = IdxMarking::from([1u32, 0]);
         // (0,1) is reachable: token moves from p0 to p1
-        assert!(is_reachable_s_net(&net, &m0, &IdxMarking::from([0u32, 1])));
+        assert!(find_marking_equation_rational_solution(&net, &m0, &IdxMarking::from([0u32, 1])).is_some());
         // Identity is always reachable
-        assert!(is_reachable_s_net(&net, &m0, &m0));
+        assert!(find_marking_equation_rational_solution(&net, &m0, &m0).is_some());
     }
 
     #[test]
@@ -599,9 +491,9 @@ mod tests {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
         // Token sum mismatch: 1 ≠ 2
-        assert!(!is_reachable_s_net(&net, &m0, &IdxMarking::from([2u32, 0])));
+        assert!(!find_marking_equation_rational_solution(&net, &m0, &IdxMarking::from([2u32, 0])).is_some());
         // Token sum mismatch: 1 ≠ 0
-        assert!(!is_reachable_s_net(&net, &m0, &IdxMarking::from([0u32, 0])));
+        assert!(!find_marking_equation_rational_solution(&net, &m0, &IdxMarking::from([0u32, 0])).is_some());
     }
 
     #[test]
@@ -612,39 +504,39 @@ mod tests {
         let [t0, t1] = b.add_transitions();
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p1, t1)); b.add_arc((t1, p2));
-        let net = b.build().unwrap();
-        assert!(net.is_s_net());
+        let net = b.build().unwrap().core;
+        assert!(net.is_state_machine());
 
         let m0 = IdxMarking::from([1u32, 0, 0]);
         // (0, 0, 1) reachable: token flows down the chain
-        assert!(is_reachable_s_net(&net, &m0, &IdxMarking::from([0u32, 0, 1])));
+        assert!(find_marking_equation_rational_solution(&net, &m0, &IdxMarking::from([0u32, 0, 1])).is_some());
         // (0, 1, 0) reachable: token stops at p1
-        assert!(is_reachable_s_net(&net, &m0, &IdxMarking::from([0u32, 1, 0])));
+        assert!(find_marking_equation_rational_solution(&net, &m0, &IdxMarking::from([0u32, 1, 0])).is_some());
         // (1, 1, 0) NOT reachable: token sum 1 ≠ 2
-        assert!(!is_reachable_s_net(&net, &m0, &IdxMarking::from([1u32, 1, 0])));
+        assert!(!find_marking_equation_rational_solution(&net, &m0, &IdxMarking::from([1u32, 1, 0])).is_some());
     }
 
-    fn t_net_sync() -> Net {
-        // T-net: two places feed into one transition, which feeds back
-        //   t0: {p0, p1} → p2
-        //   t1: p2 → {p0, p1}
+    fn t_net_sync() -> DenseNet {
         let mut b = NetBuilder::new();
         let [p0, p1, p2] = b.add_places();
         let [t0, t1] = b.add_transitions();
-        b.add_arc((p0, t0)); b.add_arc((p1, t0)); b.add_arc((t0, p2));
-        b.add_arc((p2, t1)); b.add_arc((t1, p0)); b.add_arc((t1, p1));
-        b.build().unwrap()
+        b.add_arc((p0, t0));
+        b.add_arc((p1, t0));
+        b.add_arcs((t0, p2, t1));
+        b.add_arc((t1, p0));
+        b.add_arc((t1, p1));
+        b.build().unwrap().core
     }
 
     #[test]
     fn t_net_reachability_positive() {
         let net = t_net_sync();
-        assert!(net.is_t_net());
+        assert!(net.is_marked_graph());
         let m0 = IdxMarking::from([1u32, 1, 0]);
         // Fire t0: (1,1,0) → (0,0,1)
-        assert!(is_reachable_t_net(&net, &m0, &IdxMarking::from([0u32, 0, 1])));
+        assert!(find_marking_equation_integer_solution(&net, &m0, &IdxMarking::from([0u32, 0, 1])).is_some());
         // Fire t0 then t1: back to (1,1,0)
-        assert!(is_reachable_t_net(&net, &m0, &m0));
+        assert!(find_marking_equation_integer_solution(&net, &m0, &m0).is_some());
     }
 
     #[test]
@@ -652,8 +544,8 @@ mod tests {
         let net = t_net_sync();
         let m0 = IdxMarking::from([1u32, 1, 0]);
         // (1,0,0): violates marking equation (no integer solution)
-        assert!(!is_reachable_t_net(&net, &m0, &IdxMarking::from([1u32, 0, 0])));
+        assert!(find_marking_equation_integer_solution(&net, &m0, &IdxMarking::from([1u32, 0, 0])).is_none());
         // (2,2,0): would need negative firings of t0
-        assert!(!is_reachable_t_net(&net, &m0, &IdxMarking::from([2u32, 2, 0])));
+        assert!(find_marking_equation_integer_solution(&net, &m0, &IdxMarking::from([2u32, 2, 0])).is_none());
     }
 }

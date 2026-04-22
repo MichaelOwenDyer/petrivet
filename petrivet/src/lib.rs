@@ -13,7 +13,7 @@
 //! ```
 //! use petrivet::{CoverabilityExplorer, ExplorationOrder};
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::system::System;
+//! use petrivet::net::system::System;
 //!
 //! let mut net = NetBuilder::new();
 //! let [p0, p1] = net.add_places();
@@ -39,8 +39,6 @@
 //! ```
 
 pub mod net;
-pub mod marking;
-pub mod system;
 pub mod state_space;
 pub mod analysis;
 pub mod literature;
@@ -48,9 +46,9 @@ pub mod literature;
 pub mod pnml;
 
 pub use analysis::model::LivenessLevel;
-pub use marking::*;
+pub use net::marking::*;
 pub use net::*;
 pub use state_space::coverability::*;
 pub use state_space::explorer::*;
 pub use state_space::reachability::*;
-pub use system::System;
+pub use net::system::System;

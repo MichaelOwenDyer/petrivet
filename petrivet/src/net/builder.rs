@@ -10,8 +10,9 @@
 //! handles remain usable across round-trips.
 
 use crate::class::NetClass;
+use crate::net::idx::DenseNet;
 use crate::net::nodes::{Place, Transition};
-use crate::net::{Net, PlaceIdx, SortedSet, TransitionIdx};
+use crate::net::{Net, Node, SortedSet};
 use crate::Arc;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
@@ -56,16 +57,7 @@ pub struct NetBuilder {
 
 impl Default for NetBuilder {
     fn default() -> Self {
-        Self {
-            next_place_id: 1,
-            next_transition_id: 1,
-            places: Vec::new(),
-            transitions: Vec::new(),
-            preset_t: HashMap::new(),
-            postset_t: HashMap::new(),
-            preset_p: HashMap::new(),
-            postset_p: HashMap::new(),
-        }
+        Self::new()
     }
 }
 
@@ -89,18 +81,39 @@ impl fmt::Display for NetError {
 
 impl Error for NetError {}
 
+impl From<(Place, Transition)> for Arc {
+    fn from((p, t): (Place, Transition)) -> Self {
+        Arc::PlaceToTransition(p, t)
+    }
+}
+
+impl From<(Transition, Place)> for Arc {
+    fn from((t, p): (Transition, Place)) -> Self {
+        Arc::TransitionToPlace(t, p)
+    }
+}
+
 impl NetBuilder {
     /// Creates a new, empty builder.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            next_place_id: 1,
+            next_transition_id: 1,
+            places: Vec::new(),
+            transitions: Vec::new(),
+            preset_t: HashMap::new(),
+            postset_t: HashMap::new(),
+            preset_p: HashMap::new(),
+            postset_p: HashMap::new(),
+        }
     }
 
     /// Adds one place and returns its stable key.
     ///
     /// # Panics
     ///
-    /// Panics if you try to add more than u32::MAX places.
+    /// Panics if you try to add more than `u32::MAX` places.
     pub fn add_place(&mut self) -> Place {
         let id = self.next_place_id;
         self.next_place_id = self
@@ -123,7 +136,7 @@ impl NetBuilder {
     ///
     /// # Panics
     ///
-    /// Panics if you try to add more than u32::MAX transitions.
+    /// Panics if you try to add more than `u32::MAX` transitions.
     pub fn add_transition(&mut self) -> Transition {
         let id = self.next_transition_id;
         self.next_transition_id = self
@@ -303,7 +316,7 @@ impl NetBuilder {
             compute_rcm_ordering(&self.places, &self.transitions, &self.preset_t, &self.postset_t);
 
         // Map public handles to dense, cache-optimized indices
-        let place_to_index: HashMap<Place, PlaceIdx> = ordered_places
+        let place_to_index = ordered_places
             .iter()
             .copied()
             .zip(0..)
@@ -323,12 +336,16 @@ impl NetBuilder {
         let index_to_place = ordered_places.into_boxed_slice();
         let index_to_transition = ordered_transitions.into_boxed_slice();
 
-        Ok(Net {
+        let dense_net = DenseNet {
             class,
             preset_t,
             postset_t,
             preset_p,
             postset_p,
+        };
+
+        Ok(Net {
+            core: dense_net,
             place_to_index,
             transition_to_index,
             index_to_place,
@@ -354,7 +371,7 @@ where
     ordered_nodes
         .iter()
         .map(|node| {
-            let mut indices: Vec<Idx> = sparse_adjacency
+            let indices: Vec<Idx> = sparse_adjacency
                 .get(node)
                 .map(|neighbors| {
                     neighbors
@@ -367,8 +384,7 @@ where
                         .collect()
                 })
                 .unwrap_or_default();
-            indices.sort_unstable();
-            SortedSet(indices.into_boxed_slice())
+            SortedSet::new(indices)
         })
         .collect()
 }
@@ -530,15 +546,13 @@ impl From<Net> for NetBuilder {
             .map(|p| (p, HashSet::new()))
             .collect::<HashMap<_, _>>();
 
-        for (t_idx, preset, postset) in net.transition_io() {
-            let t = net.index_to_transition[t_idx];
-            let mut insert = |p_idx: &PlaceIdx| {
-                let p = net.index_to_place[*p_idx];
+        for t in net.transitions() {
+            let mut insert = |p| {
                 preset_t.get_mut(&t).unwrap().insert(p);
                 postset_p.get_mut(&p).unwrap().insert(t);
             };
-            preset.iter().for_each(&mut insert);
-            postset.iter().for_each(&mut insert);
+            net.transition_preset(&t).for_each(&mut insert);
+            net.transition_postset(&t).for_each(&mut insert);
         }
 
         Self {
@@ -556,24 +570,6 @@ impl From<Net> for NetBuilder {
 
 pub trait IntoArcs {
     fn into_arcs(self) -> impl Iterator<Item = Arc>;
-}
-
-#[derive(Clone, Copy)]
-enum BuilderNode {
-    Place(Place),
-    Transition(Transition),
-}
-
-impl From<Place> for BuilderNode {
-    fn from(p: Place) -> Self {
-        BuilderNode::Place(p)
-    }
-}
-
-impl From<Transition> for BuilderNode {
-    fn from(t: Transition) -> Self {
-        BuilderNode::Transition(t)
-    }
 }
 
 /// Heterogeneous tuples of [`Place`] and [`Transition`] in alternating order become a chain
@@ -597,12 +593,12 @@ macro_rules! impl_into_arcs_for_tuples {
         impl IntoArcs for ($($ty),+) {
             fn into_arcs(self) -> impl Iterator<Item = Arc> {
                 let ($($name),+) = self;
-                let nodes = [$(BuilderNode::from($name)),+];
+                let nodes = [$(Node::from($name)),+];
                 (0..nodes.len() - 1).map(move |i| match (nodes[i], nodes[i + 1]) {
-                    (BuilderNode::Place(p), BuilderNode::Transition(t)) => {
+                    (Node::Place(p), Node::Transition(t)) => {
                         Arc::PlaceToTransition(p, t)
                     }
-                    (BuilderNode::Transition(t), BuilderNode::Place(p)) => {
+                    (Node::Transition(t), Node::Place(p)) => {
                         Arc::TransitionToPlace(t, p)
                     }
                     _ => unreachable!("IntoArcs tuple must alternate place and transition"),
@@ -695,7 +691,7 @@ mod tests {
         b.add_arc((t0, p1));
         b.add_arc((p1, t1));
         b.add_arc((t1, p2));
-        assert_eq!(b.build().unwrap().class(), NetClass::SNet);
+        assert_eq!(b.build().unwrap().class(), NetClass::StateMachine);
     }
 
     #[test]
@@ -709,7 +705,7 @@ mod tests {
         b.add_arc((p2, t1));
         b.add_arc((t1, p0));
         b.add_arc((t1, p1));
-        assert_eq!(b.build().unwrap().class(), NetClass::TNet);
+        assert_eq!(b.build().unwrap().class(), NetClass::MarkedGraph);
     }
 
     #[test]
@@ -767,7 +763,7 @@ mod tests {
         b.add_arc((p0, t0));
         b.add_arc((t0, p1));
         let net = b.build().expect("should accept duplicate arcs");
-        assert_eq!(net.input_places(t0).count(), 1);
+        assert_eq!(net.transition_preset(&t0).count(), 1);
     }
 
     #[test]
@@ -790,8 +786,8 @@ mod tests {
         let t = b.add_transition();
         b.add_arc((t, p));
         let net = b.build().expect("valid net");
-        assert_eq!(net.input_places(t).next(), None);
-        let mut output_places = net.output_places(t);
+        assert_eq!(net.transition_preset(&t).next(), None);
+        let mut output_places = net.transition_postset(&t);
         assert_eq!(output_places.next(), Some(p));
         assert_eq!(output_places.next(), None);
     }
@@ -803,8 +799,8 @@ mod tests {
         let t = b.add_transition();
         b.add_arc((p, t));
         let net = b.build().expect("valid net");
-        assert_eq!(net.output_places(t).next(), None);
-        let mut input_places = net.input_places(t);
+        assert_eq!(net.transition_postset(&t).next(), None);
+        let mut input_places = net.transition_preset(&t);
         assert_eq!(input_places.next(), Some(p));
         assert_eq!(input_places.next(), None);
     }
@@ -850,7 +846,7 @@ mod tests {
 
         assert_eq!(extended.place_count(), 3);
         assert_eq!(extended.transition_count(), 3);
-        assert!(extended.input_places(t0).find(|&p| p == p0).is_some());
+        assert!(extended.transition_preset(&t0).find(|&p| p == p0).is_some());
     }
 
     #[test]
@@ -950,7 +946,7 @@ mod tests {
         b.add_arc((p, t));
         b.add_arc((t, p));
         let net = b.build().unwrap();
-        let pd = net.place_index(p).unwrap();
-        assert_eq!(net.get_place(pd), p);
+        let p_idx = net.place_to_index[&p];
+        assert_eq!(net.index_to_place[p_idx], p);
     }
 }

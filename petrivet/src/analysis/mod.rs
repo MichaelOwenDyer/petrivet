@@ -21,14 +21,13 @@
 //! invariant vectors, siphon/trap sets, or marking equation
 //! results for custom analysis.
 
-use crate::analysis::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof};
-use crate::net::PlaceIdx;
-use crate::{ApiMarking, ExplorationOrder, IdxMarking, IdxOmegaMarking, Net, Omega, Place, System};
+use crate::analysis::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CommonerHackCriterionResult, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, Siphon, SiphonTrapPair, Trap, UnreachabilityProof};
+use crate::{ExplorationOrder, IdxOmegaMarking, Marking, Net, Omega, OmegaMarking, Place, System};
 
-pub mod structural;
 pub mod semi_decision;
-pub mod math;
 pub mod model;
+pub mod siphon_trap;
+pub mod incidence;
 
 impl<N: AsRef<Net>> System<N> {
     /// Analyzes boundedness and returns per-place bounds with evidence.
@@ -39,16 +38,21 @@ impl<N: AsRef<Net>> System<N> {
     /// 2. Coverability graph: always terminates. Gives exact per-place bounds.
     #[must_use]
     pub fn analyze_boundedness(&self) -> BoundednessAnalysis {
-        let net = self.net.as_ref();
+        let net = self.net();
 
-        if let Some(place_weights) = semi_decision::find_positive_place_subvariant(net) {
-            let weighted_sum: f64 = net.place_indices()
-                .map(|p| place_weights[p] * f64::from(self.marking[p]))
+        // todo: also consider checking for semi-positive subvariants for subsections of the net.
+        //  but how to decide which places to check?
+        if let Some(place_weights) = semi_decision::find_positive_place_subvariant(&net.core) {
+            // Esparza lecture notes proposition 4.3.8
+            let weighted_sum: f64 = place_weights.iter()
+                .zip(self.core.initial_marking.iter())
+                .map(|(&weight, &tokens)| weight * f64::from(tokens))
                 .sum();
-            let bounds: Box<[(Place, Omega)]> = net.place_indices()
-                .map(|p| {
-                    let bound = (weighted_sum / place_weights[p]).floor() as u32;
-                    (net.get_place(p), Omega::Finite(bound))
+            let bounds: Box<[(Place, Omega)]> = net.places()
+                .zip(place_weights.iter())
+                .map(|(place, &weight)| {
+                    let bound = (weighted_sum / weight).floor() as u32;
+                    (place, Omega::Finite(bound))
                 })
                 .collect();
 
@@ -58,17 +62,22 @@ impl<N: AsRef<Net>> System<N> {
             };
         }
 
-        let cg = self.build_coverability_graph();
-        let place_bounds = cg.place_bounds();
-
-        // todo: also return cg?
-        let bounds: Box<[(Place, Omega)]> = net.places()
-            .zip(place_bounds)
-            .collect();
         BoundednessAnalysis {
-            bounds,
+            bounds: self.build_coverability_graph().place_bounds(),
             method: BoundednessAnalysisMethod::CoverabilityGraph,
         }
+    }
+
+    pub fn commoner_hack_criterion(&self) -> CommonerHackCriterionResult {
+        let siphon_trap_pairs = siphon_trap::commoner_hack_criterion(
+            &self.core.net.as_ref().core,
+            &self.core.current_marking
+        ).map(|(siphon, trap, trap_is_marked)| {
+            let siphon = Siphon(siphon.into_iter().map(|p_idx| self.core.net.as_ref().index_to_place[p_idx]).collect());
+            let trap = Trap(trap.into_iter().map(|p_idx| self.core.net.as_ref().index_to_place[p_idx]).collect());
+            SiphonTrapPair { siphon, trap, trap_is_marked }
+        }).collect();
+        CommonerHackCriterionResult { siphon_trap_pairs }
     }
 
     /// Analyzes liveness and returns per-transition levels with evidence.
@@ -83,18 +92,13 @@ impl<N: AsRef<Net>> System<N> {
     /// 4. **General**: CG → RG → SCC analysis (exponential worst-case).
     #[must_use]
     pub fn analyze_liveness(&self) -> LivenessAnalysis {
-        let net = self.net.as_ref();
+        let net = self.net();
 
-        if net.is_s_net() {
-            return structural::analyze_liveness_s_net(net, &self.marking);
-        }
-
-        if net.is_t_net() {
-            return structural::analyze_liveness_t_net(net, &self.marking);
-        }
+        // TODO: Optimize for state machines and marked graphs
+        //  by analyzing SCCs of the appropriate graph
 
         if net.is_free_choice_net()
-            && let chc = structural::commoner_hack_criterion_inner(net, &self.marking)
+            && let chc = self.commoner_hack_criterion()
             && chc.is_satisfied() {
             return LivenessAnalysis {
                 levels: net.transitions().zip(std::iter::repeat(LivenessLevel::L4)).collect(),
@@ -130,10 +134,8 @@ impl<N: AsRef<Net>> System<N> {
     ///    firing sequences.
     #[must_use]
     pub fn analyze_deadlock_freedom(&self) -> DeadlockAnalysis {
-        let net = self.net.as_ref();
-
-        let chc = structural::commoner_hack_criterion_inner(net, &self.marking);
-        if chc.is_satisfied() {
+        if let chc = self.commoner_hack_criterion()
+            && chc.is_satisfied() {
             return DeadlockAnalysis {
                 deadlocks: Box::new([]),
                 evidence: DeadlockAnalysisMethod::CommonerTheorem(chc),
@@ -172,47 +174,56 @@ impl<N: AsRef<Net>> System<N> {
     /// For unbounded general nets where LP/ILP filters pass, returns
     /// `Inconclusive` rather than attempting infinite exploration.
     #[must_use]
-    pub fn analyze_reachability(&self, target: ApiMarking) -> ReachabilityResult {
-        let net = self.net.as_ref();
-        let target = net.convert_api_marking(target);
+    pub fn analyze_reachability(&self, target: Marking) -> ReachabilityResult {
+        let net = self.net();
+        let target = net.to_idx_marking(target);
 
-        if self.marking == target {
+        if self.core.current_marking == target {
             return ReachabilityProof::FiringSequence(Box::new([])).into();
         }
 
-        if net.is_s_net() {
+        if net.is_state_machine() {
             if net.is_strongly_connected() {
-                let initial_marking_sum = self.marking.iter().sum::<u32>();
+                let initial_marking_sum = self.core.current_marking.iter().sum::<u32>();
                 let target_marking_sum = target.iter().sum::<u32>();
                 return if initial_marking_sum == target_marking_sum {
                     ReachabilityProof::StronglyConnectedSNetTokenConservation {
                         marking_sum: initial_marking_sum,
                     }.into()
                 } else {
-                    UnreachabilityProof::SNetTokenConservationViolation {
-                        initial_marking_sum,
-                        target_marking_sum,
-                    }.into()
+                    UnreachabilityProof::SNetTokenConservationViolation.into()
                 };
             }
-            return semi_decision::find_marking_equation_rational_solution(net, &self.marking, &target)
-                .map_or_else(
-                    || UnreachabilityProof::MarkingEquationNoRationalSolution.into(),
-                    |s| ReachabilityProof::SNetMarkingEquationRationalSolution(s).into()
-                )
+            return semi_decision::find_marking_equation_rational_solution(
+                &net.core,
+                &self.core.current_marking,
+                &target
+            ).map_or_else(
+                || UnreachabilityProof::MarkingEquationNoRationalSolution.into(),
+                |solution| {
+                    let solution = net.transitions().zip(solution).collect();
+                    ReachabilityProof::SNetMarkingEquationRationalSolution(solution).into()
+                }
+            )
         }
 
-        if net.is_t_net() {
-            return semi_decision::find_marking_equation_integer_solution(net, &self.marking, &target)
-                .map_or_else(
-                    || UnreachabilityProof::MarkingEquationNoIntegerSolution.into(),
-                    |s| ReachabilityProof::TNetMarkingEquationIntegerSolution(s).into()
-                )
+        if net.is_marked_graph() {
+            return semi_decision::find_marking_equation_integer_solution(
+                &net.core,
+                &self.core.current_marking,
+                &target
+            ).map_or_else(
+                || UnreachabilityProof::MarkingEquationNoIntegerSolution.into(),
+                |solution| {
+                    let solution = net.transitions().zip(solution).collect();
+                    ReachabilityProof::TNetMarkingEquationIntegerSolution(solution).into()
+                }
+            )
         }
 
         if semi_decision::find_marking_equation_rational_solution(
-            net,
-            &self.marking,
+            &net.core,
+            &self.core.current_marking,
             &target,
         ).is_none() {
             return UnreachabilityProof::MarkingEquationNoRationalSolution.into();
@@ -220,8 +231,8 @@ impl<N: AsRef<Net>> System<N> {
 
         // todo: only test ILP if the rational solution is already an integer solution
         if semi_decision::find_marking_equation_integer_solution(
-            net,
-            &self.marking,
+            &net.core,
+            &self.core.current_marking,
             &target,
         ).is_none() {
             return UnreachabilityProof::MarkingEquationNoIntegerSolution.into();
@@ -260,36 +271,36 @@ impl<N: AsRef<Net>> System<N> {
     /// - [Esparza Lecture Notes, Theorem 3.2.5](crate::literature#theorem-325--coverability-graph-terminates) (termination, supplementary)
     /// - [Esparza Lecture Notes, Theorem 3.2.8](crate::literature#theorem-328--coverability-characterization) (correctness, supplementary)
     #[must_use]
-    pub fn analyze_coverability(&self, target: ApiMarking) -> CoverabilityResult {
-        let net = self.net.as_ref();
-        let target = net.convert_api_marking(target);
+    pub fn analyze_coverability(&self, target: Marking) -> CoverabilityResult {
+        let net = self.net();
+        let target_idx_marking = net.to_idx_marking(target.clone());
 
-        if self.marking >= target {
+        if self.core.current_marking >= target_idx_marking {
             return CoverabilityProof {
                 firing_sequence: Box::new([]),
-                covering_marking: net.convert_marking(IdxOmegaMarking::from(self.marking.clone())),
+                covering_marking: net.to_marking(IdxOmegaMarking::from(self.core.current_marking.clone())),
             }.into();
         }
 
         if semi_decision::find_covering_equation_rational_solution(
-            net,
-            &self.marking,
-            &target
+            &net.core,
+            &self.core.current_marking,
+            &target_idx_marking
         ).is_none() {
             return NonCoverabilityProof::MarkingEquationNoRationalSolution.into();
         }
 
         // todo: only test ILP if the rational solution is not already an integer solution
         if semi_decision::find_covering_equation_integer_solution(
-            net,
-            &self.marking,
-            &target
+            &net.core,
+            &self.core.current_marking,
+            &target_idx_marking
         ).is_none() {
             return NonCoverabilityProof::MarkingEquationNoIntegerSolution.into();
         }
 
         self.explore_coverability(ExplorationOrder::BreadthFirst)
-            .find_cover_inner(&IdxOmegaMarking::from(target))
+            .find_cover(OmegaMarking::from(target))
             .map_or_else(
                 || NonCoverabilityProof::ExhaustiveSearch.into(),
                 CoverabilityResult::Coverable
@@ -331,82 +342,16 @@ impl<N: AsRef<Net>> System<N> {
     /// Delegates to [`analyze_reachability`](Self::analyze_reachability).
     /// Returns `false` for inconclusive results.
     #[must_use]
-    pub fn is_reachable(&self, target: ApiMarking) -> bool {
+    pub fn is_reachable(&self, target: Marking) -> bool {
         self.analyze_reachability(target).is_reachable()
     }
 
     /// Whether `target` is coverable from the initial marking.
     ///
     /// Delegates to [`analyze_coverability`](Self::analyze_coverability).
-    pub fn is_coverable(&self, target: ApiMarking) -> bool {
+    pub fn is_coverable(&self, target: Marking) -> bool {
         self.analyze_coverability(target).is_coverable()
     }
-}
-
-/// Checks whether there exists a directed cycle of zero-token internal places
-/// within a single SCC of a T-net's transition graph.
-///
-/// If such a cycle exists, it is an unmarked circuit, meaning not all circuits
-/// in the SCC are marked.
-fn has_zero_token_cycle(
-    net: &Net,
-    marking: &IdxMarking,
-    internal_places: &[PlaceIdx],
-    trans_to_scc: &[usize],
-    scc_idx: usize,
-) -> bool {
-    use std::collections::HashSet;
-
-    let zero_places: HashSet<PlaceIdx> = internal_places.iter()
-        .copied()
-        .filter(|&p| marking[p] == 0)
-        .collect();
-
-    if zero_places.is_empty() {
-        return false;
-    }
-
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum DfsState { Unvisited, InStack, Done }
-    let mut state = vec![DfsState::Unvisited; net.place_count() as usize];
-
-    for &start in &zero_places {
-        if state[start] != DfsState::Unvisited {
-            continue;
-        }
-        // Iterative DFS with explicit stack.
-        let mut stack: Vec<(PlaceIdx, usize)> = vec![(start, 0)];
-        state[start] = DfsState::InStack;
-
-        while let Some((place, child_idx)) = stack.last_mut() {
-            let t_out = net.postset_p(*place)[0];
-            let successors: Vec<PlaceIdx> = net.postset_t(t_out).iter()
-                .copied()
-                .filter(|&p2| {
-                    zero_places.contains(&p2)
-                        && trans_to_scc[net.postset_p(p2)[0]] == scc_idx
-                })
-                .collect();
-
-            if *child_idx < successors.len() {
-                let next = successors[*child_idx];
-                *child_idx += 1;
-                match state[next] {
-                    DfsState::InStack => return true, // found a cycle
-                    DfsState::Unvisited => {
-                        state[next] = DfsState::InStack;
-                        stack.push((next, 0));
-                    }
-                    DfsState::Done => {}
-                }
-            } else {
-                state[*place] = DfsState::Done;
-                stack.pop();
-            }
-        }
-    }
-
-    false
 }
 
 #[cfg(test)]
@@ -445,12 +390,6 @@ mod tests {
         assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
     }
 
-    /// Non-SC S-net: sink SCC marked → L4; non-sink SCC marked → L3;
-    /// inter-SCC transition → L1.
-    ///
-    ///   p0 ←→ p1 (SCC_A, non-sink, 1 token)
-    ///       ↓ (t2, inter-SCC)
-    ///   p2 ←→ p3 (SCC_B, sink, 0 tokens initially)
     #[test]
     fn s_net_non_sc_mixed_levels() {
         let mut b = NetBuilder::new();
@@ -461,7 +400,7 @@ mod tests {
         b.add_arcs((p0, t2, p2, t3, p3, t4, p2));
 
         let net = b.build().unwrap();
-        assert!(net.is_s_net());
+        assert!(net.is_state_machine());
         let sys = System::new(net, [(p0, 1), (p1, 0), (p2, 0), (p3, 0)]);
         let analysis = sys.analyze_liveness();
 
@@ -491,7 +430,7 @@ mod tests {
         b.add_arc((p3, t3)); b.add_arc((t3, p1));
 
         let net = b.build().unwrap();
-        assert!(net.is_s_net());
+        assert!(net.is_state_machine());
 
         let sys = System::new(net, [(p0, 0), (p1, 0), (p2, 0), (p3, 0)]);
         let analysis = sys.analyze_liveness();
@@ -511,7 +450,7 @@ mod tests {
         b.add_arc((t1, p1)); b.add_arc((p1, t0));
         b.add_arc((t0, p2)); b.add_arc((p2, t1)); // second path
         let net = b.build().unwrap();
-        assert!(net.is_t_net());
+        assert!(net.is_marked_graph());
 
         let sys = System::new(net, [(p0, 1), (p1, 1), (p2, 1)]);
         let analysis = sys.analyze_liveness();
@@ -529,7 +468,7 @@ mod tests {
         b.add_arc((t0, p0)); b.add_arc((p0, t1));
         b.add_arc((t1, p1)); b.add_arc((p1, t0));
         let net = b.build().unwrap();
-        assert!(net.is_t_net());
+        assert!(net.is_marked_graph());
 
         let sys = System::new(net, [(p0, 0), (p1, 0)]);
         let analysis = sys.analyze_liveness();
@@ -553,7 +492,7 @@ mod tests {
         b.add_arc((t0, p0)); b.add_arc((p0, t1));
         b.add_arc((t1, p1)); b.add_arc((p1, t0));
         let net = b.build().unwrap();
-        assert!(net.is_t_net());
+        assert!(net.is_marked_graph());
 
         // Cycle {p0, p1} has 1 token → marked
         let sys = System::new(net, [(p_src, 0), (p0, 1), (p1, 0)]);
@@ -581,7 +520,7 @@ mod tests {
         b.add_arc((t3, p3)); b.add_arc((p3, t2));
 
         let net = b.build().unwrap();
-        assert!(net.is_t_net());
+        assert!(net.is_marked_graph());
 
         // SCC_A unmarked, SCC_B marked but predecessor dead
         let sys = System::new(net, [(p0, 0), (p1, 0), (p_link, 0), (p2, 1), (p3, 0)]);
@@ -619,8 +558,8 @@ mod tests {
 
         let net = b.build().unwrap();
         assert_eq!(net.class(), crate::class::NetClass::FreeChoice);
-        assert!(!net.is_s_net());
-        assert!(!net.is_t_net());
+        assert!(!net.is_state_machine());
+        assert!(!net.is_marked_graph());
 
         let sys = System::new(net, [
             (s1, 1),

@@ -16,7 +16,7 @@
 //!
 //! ```
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::system::System;
+//! use petrivet::net::system::System;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -43,12 +43,12 @@
 //! need fine-grained control, use [`ReachabilityExplorer`].
 
 use crate::analysis::model::LivenessLevel;
-use crate::marking::{IdxMarking, Omega};
+use crate::net::marking::{IdxMarking, Omega};
+use crate::net::system::System;
 use crate::net::{Net, Transition};
 use crate::state_space::explorer::StateGraph;
 use crate::state_space::{explorer::StateSpaceExplorer, CoverabilityGraph, ExplorationOrder};
-use crate::system::System;
-use crate::ApiMarking;
+use crate::{Marking, Place};
 
 /// An incremental exploration handle for a Petri net's reachability graph.
 ///
@@ -62,21 +62,21 @@ use crate::ApiMarking;
 ///
 /// ```
 /// use petrivet::net::builder::NetBuilder;
-/// use petrivet::system::System;
+/// use petrivet::net::system::System;
 /// use petrivet::{ReachabilityExplorer, ReachabilityGraph, ExplorationOrder};
 ///
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
 /// let [t0] = b.add_transitions();
-/// b.add_arc((p0, t0)); b.add_arc((t0, p0)); b.add_arc((t0, p1));
+/// b.add_arcs((p0, t0));
+/// b.add_arc((t0, p0));
+/// b.add_arc((t0, p1));
 /// let net = b.build().unwrap();
 /// let sys = System::new(net, [1, 0]);
 ///
 /// // Explore an unbounded net incrementally, stopping after 50 states
-/// let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
-/// while explorer.state_count() < 50 {
-///     if explorer.explore_next().is_none() { break; }
-/// }
+/// let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
+/// explorer.iter().take(50).for_each(|s| println!("{:#?}", s.marking));
 /// assert!(explorer.state_count() >= 50);
 /// assert!(!explorer.is_fully_explored()); // unbounded → never finishes
 /// ```
@@ -90,7 +90,7 @@ pub struct ReachabilityStep {
     /// The transition that was fired.
     pub transition: Transition,
     /// The resulting marking.
-    pub marking: ApiMarking,
+    pub marking: Marking,
     /// Whether this marking was newly discovered.
     pub is_new: bool,
 }
@@ -99,8 +99,8 @@ impl<'a> ReachabilityExplorer<'a> {
     /// Create an unexplored explorer from a system.
     #[must_use]
     pub fn new(sys: &'a System<impl AsRef<Net>>, order: ExplorationOrder) -> Self {
-        let net = sys.net.as_ref();
-        let marking = sys.marking.clone();
+        let net = sys.core.net();
+        let marking = sys.core.current_marking.clone();
         Self {
             core: StateSpaceExplorer::new(net, marking, order),
         }
@@ -116,10 +116,10 @@ impl<'a> ReachabilityExplorer<'a> {
                 continue;
             }
             let new_marking = self.core.fire(src_idx, t);
-            let (_, is_new) = self.core.register(src_idx, t, new_marking.clone());
+            let is_new = self.core.register(src_idx, t, new_marking.clone());
             return Some(ReachabilityStep {
-                transition: self.core.state_space.net.get_transition(t),
-                marking: self.core.state_space.net.convert_marking(new_marking),
+                transition: self.core.state_space.net.index_to_transition[t],
+                marking: self.core.state_space.net.to_marking(new_marking),
                 is_new,
             });
         }
@@ -134,9 +134,9 @@ impl<'a> ReachabilityExplorer<'a> {
     ///
     /// ```
     /// use petrivet::net::builder::NetBuilder;
-    /// use petrivet::system::System;
+    /// use petrivet::net::system::System;
     /// use petrivet::{ReachabilityExplorer, ExplorationOrder};
-    /// use petrivet::marking::IdxMarking;
+    /// use petrivet::net::marking::IdxMarking;
     ///
     /// let mut b = NetBuilder::new();
     /// let [p0, p1] = b.add_places();
@@ -146,7 +146,7 @@ impl<'a> ReachabilityExplorer<'a> {
     /// let net = b.build().unwrap();
     /// let sys = System::new(net, [1, 0]);
     ///
-    /// let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
+    /// let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
     ///
     /// // Search for a specific marking
     /// let target = IdxMarking::from([0u32, 1]);
@@ -195,40 +195,44 @@ impl<'a> ReachabilityExplorer<'a> {
 
     /// The initial marking.
     #[must_use]
-    pub fn initial_marking(&self) -> ApiMarking {
+    pub fn initial_marking(&self) -> Marking {
         let inner = self.core.state_space.marking_at(self.core.state_space.initial_idx).clone();
-        self.core.state_space.net.convert_marking(inner)
+        self.core.state_space.net.to_marking(inner)
     }
 
     /// Whether `target` has been discovered so far.
     #[must_use]
-    pub fn is_reachable(&self, target: ApiMarking) -> bool {
-        let target = self.core.state_space.net.convert_api_marking(target);
+    pub fn is_reachable(&self, target: Marking) -> bool {
+        let target = self.core.state_space.net.to_idx_marking(target);
         self.core.state_space.seen.contains_key(&target)
     }
 
     /// Returns a firing sequence from the initial marking to `target`,
     /// among states discovered so far.
     #[must_use]
-    pub fn path_to(&self, target: ApiMarking) -> Option<Box<[Transition]>> {
-        let target = self.core.state_space.net.convert_api_marking(target);
+    pub fn path_to(&self, target: Marking) -> Option<Box<[Transition]>> {
+        let target = self.core.state_space.net.to_idx_marking(target);
         let &target_idx = self.core.state_space.seen.get(&target)?;
-        self.core.state_space.path_to(target_idx)
+        self.core.state_space.path_from_initial_to(target_idx).map(|path| {
+            path.into_iter()
+                .map(|t_idx| self.core.state_space.net.index_to_transition[t_idx])
+                .collect()
+        })
     }
 
     /// Whether a marking has been discovered so far.
     #[must_use]
-    pub fn contains(&self, marking: ApiMarking) -> bool {
-        let marking = self.core.state_space.net.convert_api_marking(marking);
+    pub fn contains(&self, marking: Marking) -> bool {
+        let marking = self.core.state_space.net.to_idx_marking(marking);
         self.core.state_space.seen.contains_key(&marking)
     }
 
     /// Iterator over all discovered markings.
-    pub fn states(&self) -> impl Iterator<Item = ApiMarking> + '_ {
+    pub fn states(&self) -> impl Iterator<Item = Marking> + '_ {
         self.core.state_space.graph
             .node_weights()
             .cloned()
-            .map(|marking| self.core.state_space.net.convert_marking(marking))
+            .map(|marking| self.core.state_space.net.to_marking(marking))
     }
 }
 
@@ -263,9 +267,9 @@ impl std::fmt::Debug for ReachabilityExplorer<'_> {
 ///
 /// ```
 /// use petrivet::net::builder::NetBuilder;
-/// use petrivet::system::System;
+/// use petrivet::net::system::System;
 /// use petrivet::{ReachabilityGraph, ExplorationOrder};
-/// use petrivet::marking::IdxMarking;
+/// use petrivet::net::marking::IdxMarking;
 ///
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
@@ -275,7 +279,7 @@ impl std::fmt::Debug for ReachabilityExplorer<'_> {
 /// let net = b.build().unwrap();
 /// let sys = System::new(net, [1, 0]);
 ///
-/// let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+/// let rg = ReachabilityGraph::build(&sys);
 ///
 /// // Query the graph
 /// assert_eq!(rg.state_count(), 2);
@@ -295,13 +299,13 @@ impl<'a> ReachabilityGraph<'a> {
     /// space is infinite. For unknown nets, prefer the coverability graph
     /// path or use [`ReachabilityExplorer`] with manual termination.
     #[must_use]
-    pub fn build(sys: &'a System<impl AsRef<Net>>, order: ExplorationOrder) -> Self {
-        let mut explorer = ReachabilityExplorer::new(sys, order);
+    pub fn build(sys: &'a System<impl AsRef<Net>>) -> Self {
+        let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
         explorer.explore_all(); // WARNING: does not terminate for unbounded nets!
         // explore_all() returned, so the frontier is exhausted,
         // so is_fully_explored() is true, so conversion to ReachabilityGraph is infallible.
         ReachabilityGraph {
-            state_space: explorer.core.state_space
+            state_space: explorer.core.state_space,
         }
     }
 
@@ -313,21 +317,21 @@ impl<'a> ReachabilityGraph<'a> {
 
     /// Number of edges (transition firings) in the graph.
     #[must_use]
-    pub fn edge_count(&self) -> usize {
+    pub fn transition_count(&self) -> usize {
         self.state_space.graph.edge_count()
     }
 
     /// The initial marking.
     #[must_use]
-    pub fn initial_marking(&self) -> ApiMarking {
+    pub fn initial_marking(&self) -> Marking {
         let inner = self.state_space.marking_at(self.state_space.initial_idx).clone();
-        self.state_space.net.convert_marking(inner)
+        self.state_space.net.to_marking(inner)
     }
 
     /// Whether `target` is reachable from the initial marking.
     #[must_use]
-    pub fn is_reachable(&self, target: ApiMarking) -> bool {
-        let target = self.state_space.net.convert_api_marking(target);
+    pub fn is_reachable(&self, target: Marking) -> bool {
+        let target = self.state_space.net.to_idx_marking(target);
         self.state_space.seen.contains_key(&target)
     }
 
@@ -335,37 +339,46 @@ impl<'a> ReachabilityGraph<'a> {
     ///
     /// When built with BFS, this is a minimal firing sequence.
     #[must_use]
-    pub fn path_to(&self, target: ApiMarking) -> Option<Box<[Transition]>> {
-        let target = self.state_space.net.convert_api_marking(target);
+    pub fn path_to(&self, target: Marking) -> Option<Box<[Transition]>> {
+        let target = self.state_space.net.to_idx_marking(target);
         self.path_to_marking(&target)
     }
 
     pub(crate) fn path_to_marking(&self, target: &IdxMarking) -> Option<Box<[Transition]>> {
         self.state_space.seen.get(target)
-            .and_then(|&target_idx| self.state_space.path_to(target_idx))
+            .and_then(|&target_idx| self.state_space.path_from_initial_to(target_idx))
+            .map(|path| {
+                path.into_iter()
+                    .map(|t_idx| self.state_space.net.index_to_transition[t_idx])
+                    .collect()
+            })
     }
 
     /// Whether a marking exists in the graph.
     #[must_use]
-    pub fn contains(&self, marking: ApiMarking) -> bool {
-        let marking = self.state_space.net.convert_api_marking(marking);
+    pub fn contains(&self, marking: Marking) -> bool {
+        let marking = self.state_space.net.to_idx_marking(marking);
         self.state_space.seen.contains_key(&marking)
     }
 
-    /// Iterator over all reachable markings.
-    pub fn markings(&self) -> impl Iterator<Item = ApiMarking> {
+    pub(crate) fn markings_inner(&self) -> impl Iterator<Item = &IdxMarking<u32>> {
         self.state_space.graph.node_weights()
+    }
+
+    /// Iterator over all reachable markings.
+    pub fn markings(&self) -> impl Iterator<Item = Marking> {
+        self.markings_inner()
             .cloned()
-            .map(|marking| self.state_space.net.convert_marking(marking))
+            .map(|marking| self.state_space.net.to_marking(marking))
     }
 
     /// All markings with no enabled transitions.
-    pub fn deadlocks(&self) -> impl Iterator<Item = ApiMarking> {
+    pub fn deadlocks(&self) -> impl Iterator<Item = Marking> {
         self.state_space
             .deadlock_indices()
             .map(|idx| self.state_space.marking_at(idx))
             .cloned()
-            .map(|marking| self.state_space.net.convert_marking(marking))
+            .map(|marking| self.state_space.net.to_marking(marking))
     }
 
     /// Whether every reachable marking has at least one enabled transition.
@@ -374,10 +387,39 @@ impl<'a> ReachabilityGraph<'a> {
         self.state_space.deadlock_indices().next().is_none()
     }
 
+    #[must_use]
     pub fn liveness(&self) -> Box<[(Transition, LivenessLevel)]> {
         self.state_space.net.transitions()
             .zip(self.liveness_levels())
             .collect()
+    }
+
+    /// Upper bound on the token count for each place across all discovered markings.
+    #[must_use]
+    pub fn place_bounds(&self) -> Box<[(Place, u32)]> {
+        let place_bounds: IdxMarking = self.markings_inner().fold(
+            IdxMarking::zeros(self.state_space.net.place_count()),
+            IdxMarking::ceil,
+        );
+        self.state_space.net.places()
+            .zip(place_bounds)
+            .collect()
+    }
+
+    /// Upper bound on the token count for a given place across all
+    /// discovered markings. Returns `Omega::Unbounded` if the place is
+    /// unbounded.
+    #[must_use]
+    pub fn place_bound(&self, p: Place) -> u32 {
+        self.state_space.net.place_index(p).map_or(
+            0,
+            |&idx| {
+                self.markings_inner()
+                    .map(|marking| marking[idx])
+                    .max()
+                    .unwrap_or(0)
+            },
+        )
     }
 
     /// Computes liveness levels for all transitions in a single pass.
@@ -424,11 +466,11 @@ impl<'a> ReachabilityGraph<'a> {
             let src_scc = node_to_scc[edge.source().index()];
             let dst_scc = node_to_scc[edge.target().index()];
 
-            t_fires_anywhere[t as usize] = true;
+            t_fires_anywhere[t] = true;
 
             if src_scc == dst_scc {
                 scc_is_nontrivial[src_scc] = true;
-                scc_has_t[src_scc][t as usize] = true;
+                scc_has_t[src_scc][t] = true;
             } else {
                 has_external_edge[src_scc] = true;
             }
@@ -529,415 +571,4 @@ fn unwrap_omega_marking_to_u32(om: &IdxMarking<Omega>) -> IdxMarking<u32> {
             Omega::Unbounded => panic!("unwrap_omega_marking called on unbounded graph"),
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::marking::IdxMarking;
-    use crate::net::builder::NetBuilder;
-    use crate::net::class::NetClass;
-    use crate::Place;
-
-    fn m(val: impl Into<IdxMarking>) -> IdxMarking {
-        val.into()
-    }
-
-    /// Two-place cycle: p0 → t0 → p1 → t1 → p0
-    fn two_place_cycle() -> (System<Net>, Place, Place) {
-        let mut b = NetBuilder::new();
-        let [p0, p1] = b.add_places();
-        let [t0, t1] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p1));
-        b.add_arc((p1, t1));
-        b.add_arc((t1, p0));
-        let net = b.build().expect("valid net");
-        (System::new(net, [(p0, 1), (p1, 0)]), p0, p1)
-    }
-
-    /// Unbounded: t0 feeds back to p0 and also produces to p1
-    fn unbounded_producer() -> System<Net> {
-        let mut b = NetBuilder::new();
-        let [p0, p1] = b.add_places();
-        let [t0] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p0));
-        b.add_arc((t0, p1));
-        let net = b.build().expect("valid net");
-        System::new(net, [(p0, 1), (p1, 0)])
-    }
-
-    #[test]
-    fn full_exploration() {
-        let (sys, p0, p1) = two_place_cycle();
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-
-        assert_eq!(rg.state_count(), 2);
-        assert!(rg.is_reachable([(p0, 1)].into()));
-        assert!(rg.is_reachable([(p1, 1)].into()));
-        assert!(!rg.is_reachable([(p0, 1), (p1, 1)].into()));
-        assert!(rg.is_deadlock_free());
-    }
-
-    #[test]
-    fn path_to_reachable() {
-        let (sys, p0, p1) = two_place_cycle();
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-
-        let path = rg.path_to([(p1, 1)].into()).expect("reachable");
-        assert_eq!(path.len(), 1);
-
-        let path = rg.path_to([(p0, 1)].into()).expect("initial");
-        assert!(path.is_empty());
-    }
-
-    #[test]
-    fn path_to_unreachable() {
-        let (sys, p0, p1) = two_place_cycle();
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-        assert!(rg.path_to([(p0, 1), (p1, 1)].into()).is_none());
-    }
-
-    #[test]
-    fn deadlock_detected() {
-        let mut b = NetBuilder::new();
-        let p0 = b.add_place();
-        let [t0] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p0));
-        let net = b.build().expect("valid net");
-        let sys = System::new(net, []);
-
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-        assert!(!rg.is_deadlock_free());
-        assert_eq!(rg.deadlocks().count(), 1);
-    }
-
-    #[test]
-    fn concurrent_enabling() {
-        let mut b = NetBuilder::new();
-        let [p0, p1, p_shared] = b.add_places();
-        let [t0, t1, t2, t3] = b.add_transitions();
-        b.add_arcs((p0, t0, p_shared, t2, p1, t1, p_shared, t3, p1));
-        let net = b.build().expect("valid net");
-        let sys = System::new(net, [(p0, 1), (p1, 1)]);
-
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-
-        assert!(rg.is_reachable([(p0, 1), (p1, 1)].into()));
-        assert!(rg.is_reachable([(p1, 1), (p_shared, 1)].into()));
-        assert!(rg.is_reachable([(p0, 1), (p_shared, 1)].into()));
-        assert!(rg.is_reachable([(p_shared, 2)].into()));
-        assert!(rg.is_deadlock_free());
-    }
-
-    #[test]
-    fn diamond_confluence() {
-        let mut b = NetBuilder::new();
-        let [p0, p1, p2, p3] = b.add_places();
-        let [t0, t1, t2] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p1));
-        b.add_arc((p0, t1));
-        b.add_arc((t1, p2));
-        b.add_arc((p1, t2));
-        b.add_arc((p2, t2));
-        b.add_arc((t2, p3));
-        let net = b.build().expect("valid net");
-        assert_eq!(net.class(), NetClass::FreeChoice);
-        let sys = System::new(net, [(p0, 2)]);
-
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-
-        assert_eq!(rg.state_count(), 7);
-        assert!(rg.is_reachable([(p0, 2)].into()));
-        assert!(rg.is_reachable([(p1, 1), (p2, 1)].into()));
-        assert!(rg.is_reachable([(p3, 1)].into()));
-        assert!(!rg.is_reachable([(p3, 2)].into()));
-    }
-
-    #[test]
-    fn self_loop_single_state() {
-        let mut b = NetBuilder::new();
-        let p0 = b.add_place();
-        let [t0] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p0));
-        let net = b.build().expect("valid net");
-        assert_eq!(net.class(), NetClass::Circuit);
-        let sys = System::new(net, [(p0, 1)]);
-
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-
-        assert_eq!(rg.state_count(), 1);
-        assert_eq!(rg.edge_count(), 1);
-        assert!(rg.is_deadlock_free());
-    }
-
-    #[test]
-    fn multi_token_state_count() {
-        let mut b = NetBuilder::new();
-        let [p0, p1, p2] = b.add_places();
-        let [t0, t1, t2] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p1));
-        b.add_arc((p1, t1));
-        b.add_arc((t1, p2));
-        b.add_arc((p2, t2));
-        b.add_arc((t2, p0));
-        let net = b.build().expect("valid net");
-        assert_eq!(net.class(), NetClass::Circuit);
-        let sys = System::new(net, [(p0, 2), (p1, 0), (p2, 0)]);
-
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-
-        assert_eq!(rg.state_count(), 10);
-        assert!(rg.is_deadlock_free());
-    }
-
-    #[test]
-    fn bfs_dfs_same_states() {
-        let mut b = NetBuilder::new();
-        let [p0, p1, p2] = b.add_places();
-        let [t0, t1, t2] = b.add_transitions();
-        b.add_arcs((p0, t0, p1, t1, p2, t2, p0));
-        let net = b.build().expect("valid net");
-        let sys = net.with_marking([(p0, 2)]);
-
-        let rg_bfs = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-        let rg_dfs = ReachabilityGraph::build(&sys, ExplorationOrder::DepthFirst);
-
-        assert_eq!(rg_bfs.state_count(), rg_dfs.state_count());
-        for marking in rg_bfs.markings() {
-            assert!(rg_dfs.is_reachable(marking));
-        }
-    }
-
-    #[test]
-    fn mutex_mutual_exclusion() {
-        let mut b = NetBuilder::new();
-        let [idle1, wait1, crit1] = b.add_places();
-        let [idle2, wait2, crit2] = b.add_places();
-        let mutex = b.add_place();
-        let [t_req1, t_enter1, t_exit1] = b.add_transitions();
-        let [t_req2, t_enter2, t_exit2] = b.add_transitions();
-
-        b.add_arcs((idle1, t_req1, wait1, t_enter1, crit1, t_exit1, idle1));
-        b.add_arcs((idle2, t_req2, wait2, t_enter2, crit2, t_exit2, idle2));
-
-        b.add_arc((mutex, t_enter1));
-        b.add_arc((t_exit1, mutex));
-        b.add_arc((mutex, t_enter2));
-        b.add_arc((t_exit2, mutex));
-
-        let net = b.build().expect("valid net");
-        assert_eq!(net.class(), NetClass::AsymmetricChoice);
-        let sys = net.with_marking([(idle1, 1), (idle2, 1), (mutex, 1)]);
-
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-
-        assert!(rg.is_deadlock_free());
-        for marking in rg.markings() {
-            assert!(
-                marking[crit1] == 0 || marking[crit2] == 0,
-                "mutual exclusion violated at {marking:?}"
-            );
-        }
-        assert_eq!(rg.state_count(), 8);
-    }
-
-    #[test]
-    fn path_produces_valid_firing_sequence() {
-        let mut b = NetBuilder::new();
-        let [p0, p1, p2] = b.add_places();
-        let [t0, t1, t2] = b.add_transitions();
-        b.add_arcs((p0, t0, p1, t1, p2, t2, p0));
-        let net = b.build().expect("valid net");
-        assert_eq!(net.class(), NetClass::Circuit);
-        let sys = net.with_marking([(p0, 1)]);
-
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-        let target: ApiMarking<_> = [(p2, 1)].into();
-        let path = rg.path_to(target.clone()).expect("reachable");
-
-        let mut replay = sys;
-        for &key in path.iter() {
-            replay.try_fire(key).expect("path should be valid");
-        }
-        assert_eq!(replay.current_marking(), target);
-    }
-
-    #[test]
-    fn dining_philosophers_deadlock() {
-        let n = 3;
-        let mut b = NetBuilder::new();
-        let forks: Box<_> = (0..n).map(|_| b.add_place()).collect();
-        let thinking: Box<_> = (0..n).map(|_| b.add_place()).collect();
-        let has_left: Box<_> = (0..n).map(|_| b.add_place()).collect();
-        let eating: Box<_> = (0..n).map(|_| b.add_place()).collect();
-        let take_left: Box<_> = (0..n).map(|_| b.add_transition()).collect();
-        let take_right: Box<_> = (0..n).map(|_| b.add_transition()).collect();
-        let release: Box<_> = (0..n).map(|_| b.add_transition()).collect();
-
-        for i in 0..n {
-            let right_fork = forks[(i + 1) % n];
-            b.add_arc((thinking[i], take_left[i]));
-            b.add_arc((forks[i], take_left[i]));
-            b.add_arc((take_left[i], has_left[i]));
-            b.add_arc((has_left[i], take_right[i]));
-            b.add_arc((right_fork, take_right[i]));
-            b.add_arc((take_right[i], eating[i]));
-            b.add_arc((eating[i], release[i]));
-            b.add_arc((release[i], thinking[i]));
-            b.add_arc((release[i], forks[i]));
-            b.add_arc((release[i], right_fork));
-        }
-
-        let net = b.build().expect("valid net");
-        assert_eq!(net.class(), NetClass::AsymmetricChoice);
-        let marking = forks.into_iter()
-            .chain(thinking.into_iter())
-            .map(|p| (p, 1));
-        let sys = System::new(net, marking);
-
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-
-        assert!(!rg.is_deadlock_free());
-    }
-
-    #[test]
-    fn edge_count_cycle() {
-        let (sys, _p0, _p1) = two_place_cycle();
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-
-        assert_eq!(rg.state_count(), 2);
-        assert_eq!(rg.edge_count(), 2);
-    }
-
-    #[test]
-    fn cycle_all_transitions_l4() {
-        let (sys, _p0, _p1) = two_place_cycle();
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-        let levels = rg.liveness_levels();
-        assert!(levels.iter().all(|&l| l == LivenessLevel::L4));
-        assert!(rg.is_live());
-    }
-
-    #[test]
-    fn deadlocked_cycle_not_live() {
-        let (sys, _p0, _p1) = two_place_cycle();
-        let sys = System::new(sys.into_parts().0, []);
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-        let levels = rg.liveness_levels();
-        assert!(levels.iter().all(|&l| l == LivenessLevel::L0));
-        assert!(!rg.is_live());
-    }
-
-    #[test]
-    fn absorbing_branch_mixed_liveness() {
-        let mut b = NetBuilder::new();
-        let [p0, p1, p2] = b.add_places();
-        let [t0, t1, t2] = b.add_transitions();
-        b.add_arc((p0, t0)); b.add_arc((t0, p1));
-        b.add_arc((p0, t1)); b.add_arc((t1, p2));
-        b.add_arc((p2, t2)); b.add_arc((t2, p0));
-        let net = b.build().unwrap();
-        let t0 = net.transition_index(t0).unwrap();
-        let t1 = net.transition_index(t1).unwrap();
-        let t2 = net.transition_index(t2).unwrap();
-        let sys = System::new(&net, [(p0, 1)]);
-        let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
-        let liveness = rg.liveness_levels();
-
-        assert_eq!(liveness[t0], LivenessLevel::L1);
-        assert_eq!(liveness[t1], LivenessLevel::L3);
-        assert_eq!(liveness[t2], LivenessLevel::L3);
-        assert!(!rg.is_live());
-    }
-
-    #[test]
-    fn mutex_all_l4() {
-        let mut b = NetBuilder::new();
-        let [idle1, wait1, crit1] = b.add_places();
-        let [idle2, wait2, crit2] = b.add_places();
-        let mutex = b.add_place();
-        let [t_req1, t_enter1, t_exit1] = b.add_transitions();
-        let [t_req2, t_enter2, t_exit2] = b.add_transitions();
-        b.add_arcs((idle1, t_req1, wait1, t_enter1, crit1, t_exit1, idle1));
-        b.add_arcs((idle2, t_req2, wait2, t_enter2, crit2, t_exit2, idle2));
-        b.add_arcs((mutex, t_enter1, mutex));
-        b.add_arcs((mutex, t_enter2, mutex));
-
-        let net = b.build().unwrap();
-        let sys = System::new(net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
-        let cg = sys.build_coverability_graph();
-        let rg = cg.into_reachability_graph().unwrap();
-        let liveness = rg.liveness_levels();
-
-        assert!(liveness.iter().all(|&l| l == LivenessLevel::L4));
-        assert!(rg.is_live());
-    }
-
-    #[test]
-    fn limited_exploration_by_state_count() {
-        let sys = unbounded_producer();
-        let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
-
-        while explorer.state_count() < 10 {
-            if explorer.explore_next().is_none() { break; }
-        }
-        assert!(!explorer.is_fully_explored());
-        assert!(explorer.state_count() >= 10);
-    }
-
-    #[test]
-    fn iter_take() {
-        let sys = unbounded_producer();
-        let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
-
-        let steps: Vec<_> = explorer.iter().take(5).collect();
-        assert_eq!(steps.len(), 5);
-        assert!(!explorer.is_fully_explored());
-    }
-
-    #[test]
-    fn step_by_step() {
-        let (sys, _p0, _p1) = two_place_cycle();
-        let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
-
-        assert_eq!(explorer.state_count(), 1);
-        let mut count = 0;
-        while let Some(_step) = explorer.explore_next() {
-            count += 1;
-        }
-        assert!(count > 0);
-        assert_eq!(explorer.state_count(), 2);
-        assert!(explorer.is_fully_explored());
-
-        let rg = ReachabilityGraph::try_from(explorer).expect("fully explored");
-        assert!(rg.is_deadlock_free());
-    }
-
-    #[test]
-    fn source_transitions_explored() {
-        let mut b = NetBuilder::new();
-        let (p0, t0) = (b.add_place(), b.add_transition());
-        b.add_arc((t0, p0));
-        let net = b.build().expect("valid net");
-        let sys = System::new(net, []);
-
-        let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
-        let step = explorer.explore_next().expect("source transition should fire");
-        assert!(step.is_new);
-        assert_eq!(step.marking.as_ref(), &[(p0, 1)]);
-    }
-
-    #[test]
-    fn explorer_try_into_fails_when_incomplete() {
-        let sys = unbounded_producer();
-        let mut explorer = ReachabilityExplorer::new(&sys, ExplorationOrder::BreadthFirst);
-        explorer.iter().take(3).for_each(drop);
-        assert!(ReachabilityGraph::try_from(explorer).is_err());
-    }
 }

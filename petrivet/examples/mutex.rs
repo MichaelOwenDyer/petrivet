@@ -31,7 +31,7 @@
 use std::collections::HashMap;
 use petrivet::net::builder::NetBuilder;
 use petrivet::net::{Place, Transition};
-use petrivet::system::System;
+use petrivet::net::system::System;
 use petrivet::Net;
 
 fn main() {

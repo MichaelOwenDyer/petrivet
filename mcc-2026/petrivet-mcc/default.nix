@@ -18,7 +18,7 @@ let
 in
 {
   petrivet-mcc = pkgs.pkgsCross.musl64.rustPlatform.buildRustPackage {
-    pname = "petrivet-mcc";
+    pname = "petrivet";
     version = "0.1.0";
     inherit src;
     cargoLock.lockFile = ../../Cargo.lock;
@@ -26,7 +26,7 @@ in
     RUSTFLAGS = "-C target-feature=+crt-static";
     installPhase = ''
       runHook preInstall
-      install -Dm755 target/x86_64-unknown-linux-musl/release/petrivet-mcc $out/bin/petrivet-mcc
+      install -Dm755 target/x86_64-unknown-linux-musl/release/petrivet-mcc $out/bin/petrivet
       runHook postInstall
     '';
   };

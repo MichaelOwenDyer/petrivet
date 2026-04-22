@@ -19,7 +19,7 @@
 //! authoritative identifiers. Dense internal indices are implementation details.
 
 use crate::net::{Place, Transition};
-use crate::{ApiMarking, ApiOmegaMarking, Omega};
+use crate::{Marking, Omega, OmegaMarking};
 use std::collections::HashSet;
 
 /// Result of the Commoner/Hack criterion check.
@@ -50,15 +50,29 @@ impl CommonerHackCriterionResult {
     }
 }
 
+/// A siphon is a set of places D such that •D ⊆ D•,
+/// in other words every transition that produces to D also consumes from D.
+/// This is significant because it means once a siphon is unmarked,
+/// it can never be marked again (all transitions which could mark it are dead).
+#[derive(Debug, Clone)]
+pub struct Siphon(pub HashSet<Place>);
+
+/// A trap is a set of places Q such that Q• ⊆ •Q,
+/// in other words every transition that consumes from Q also produces to Q.
+/// This is significant because it means once a trap is marked, it can never be unmarked again.
+#[derive(Debug, Clone)]
+pub struct Trap(pub HashSet<Place>);
+
+
 /// A minimal siphon and the maximal trap found within it,
 /// and whether that trap is marked.
 #[derive(Debug, Clone)]
 pub struct SiphonTrapPair {
     /// The minimal siphon (a set of places D with •D ⊆ D•), identified by stable handles.
-    pub siphon: HashSet<Place>,
+    pub siphon: Siphon,
     /// The maximal trap contained in this siphon (a set of places Q with Q• ⊆ •Q),
     /// identified by stable handles. Empty if no trap was found.
-    pub trap: HashSet<Place>,
+    pub trap: Trap,
     /// Whether at least one place in the trap is marked in the reference marking.
     pub trap_is_marked: bool,
 }
@@ -300,7 +314,7 @@ pub enum LivenessMethod {
 }
 
 /// A reachable marking which does not enable any transition in the net.
-pub type Deadlock = ApiMarking;
+pub type Deadlock = Marking;
 
 /// Evidence for a deadlock-freedom result.
 #[derive(Debug, Clone)]
@@ -417,10 +431,7 @@ impl ReachabilityProof {
 pub enum UnreachabilityProof {
     /// The net is an S-net and the target marking has a different
     /// token sum than the initial marking.
-    SNetTokenConservationViolation {
-        initial_marking_sum: u32,
-        target_marking_sum: u32,
-    },
+    SNetTokenConservationViolation,
     /// The LP marking equation (rational relaxation) is infeasible.
     /// Some S-invariant is violated.
     MarkingEquationNoRationalSolution,
@@ -486,7 +497,7 @@ pub struct CoverabilityProof {
     /// marking covers the target.
     pub firing_sequence: Box<[Transition]>,
     /// The node marking M″ with M″ ≥ target (may contain ω).
-    pub covering_marking: ApiOmegaMarking,
+    pub covering_marking: OmegaMarking,
 }
 
 /// Various methods to demonstrate that a marking is not coverable

@@ -1,5 +1,5 @@
 use crate::pnml::graphics::{EdgeGraphics, NodeGraphics};
-use crate::pnml::{net_type, ArcType, Name, NaturalNumberLabel, Page, PositiveIntegerLabel, ToolSpecific};
+use crate::pnml::{ArcType, Name, NaturalNumberLabel, Page, PositiveIntegerLabel, ToolSpecific};
 use serde::{Deserialize, Serialize};
 
 /// A single Petri net model. The `type` URI selects the net type and therefore

@@ -4,13 +4,13 @@
 //! [`CoverabilityGraph`](crate::CoverabilityExplorer) and
 //! [`ReachabilityGraph`](crate::ReachabilityGraph) instead.
 
-use crate::analysis::model::FiringSequence;
-use crate::marking::{IdxMarking, Omega};
-use crate::net::{Net, TransitionIdx};
+use crate::net::marking::{IdxMarking, Omega};
+use crate::net::Net;
 use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
+use crate::net::idx::TransitionIdx;
 
 /// Operations on a token count needed for state space exploration.
 ///
@@ -83,18 +83,22 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     /// Seeds the frontier with source transitions (empty preset, always
     /// enabled) plus transitions whose presets overlap with the support
     /// of the initial marking.
-    pub fn new(net: &'a Net, initial_marking: IdxMarking<T>, order: ExplorationOrder) -> Self {
+    pub fn new(
+        net: &'a Net,
+        initial_marking: IdxMarking<T>,
+        order: ExplorationOrder
+    ) -> Self {
         let mut graph = Graph::new();
         let initial_idx = graph.add_node(initial_marking.clone());
 
-        let source_transitions: Box<[TransitionIdx]> = net
+        let source_transitions: Box<[TransitionIdx]> = net.core
             .transition_indices()
-            .filter(|&t| net.preset_t(t).is_empty())
+            .filter(|&t| net.core.preset_t[t].is_empty())
             .collect();
 
-        let frontier: VecDeque<_> = net.place_indices()
-            .filter(|&p| initial_marking[p].at_least_one())
-            .flat_map(|p| net.postset_p(p).iter().copied())
+        let frontier: VecDeque<_> = initial_marking
+            .support()
+            .flat_map(|p| net.core.postset_p[p].iter().copied())
             .chain(source_transitions.iter().copied())
             .collect::<HashSet<TransitionIdx>>()
             .into_iter()
@@ -128,20 +132,20 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     }
 
     /// Whether a transition is enabled at the marking stored in `node`.
-    pub fn is_enabled(&self, node: NodeIndex, t: TransitionIdx) -> bool {
+    pub(crate) fn is_enabled(&self, node: NodeIndex, t: TransitionIdx) -> bool {
         let marking = &self.state_space.graph[node];
-        self.state_space.net.preset_t(t).iter().all(|&p| marking[p].at_least_one())
+        self.state_space.net.core.preset_t[t].iter().all(|&p| marking[p].at_least_one())
     }
 
     /// Compute the marking that results from firing `t` at `node`.
     ///
     /// Caller must ensure the transition is enabled.
-    pub fn fire(&self, node: NodeIndex, t: TransitionIdx) -> IdxMarking<T> {
+    pub(crate) fn fire(&self, node: NodeIndex, t: TransitionIdx) -> IdxMarking<T> {
         let mut result = self.state_space.graph[node].clone();
-        for &p in self.state_space.net.preset_t(t) {
+        for &p in self.state_space.net.core.preset_t[t].iter() {
             result[p].decrement();
         }
-        for &p in self.state_space.net.postset_t(t) {
+        for &p in self.state_space.net.core.postset_t[t].iter() {
             result[p].increment();
         }
         result
@@ -152,33 +156,32 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     /// If already seen, adds an edge and returns `(existing_index, false)`.
     /// If new, adds the node, seeds the frontier with all potentially enabled
     /// transitions, adds the edge, and returns `(new_index, true)`.
-    pub fn register(
+    pub(crate) fn register(
         &mut self,
         from: NodeIndex,
         over: TransitionIdx,
         marking: IdxMarking<T>,
-    ) -> (NodeIndex, bool) {
+    ) -> bool {
         if let Some(&idx) = self.state_space.seen.get(&marking) {
             self.state_space.graph.add_edge(from, idx, over);
-            return (idx, false);
+            return false;
         }
 
         let idx = self.state_space.graph.add_node(marking.clone());
         self.state_space.graph.add_edge(from, idx, over);
 
         // seed frontier with all transitions that could possibly be enabled at this marking
-        self.state_space.net
-            .place_indices()
-            .filter(|&p| marking[p].at_least_one())
-            .flat_map(|p| self.state_space.net.postset_p(p).iter().copied())
+        marking
+            .support()
+            .flat_map(|p| self.state_space.net.core.postset_p[p].iter().copied())
             .chain(self.source_transitions.iter().copied())
-            .collect::<HashSet<TransitionIdx>>()
+            .collect::<HashSet<TransitionIdx>>() // dedup
             .into_iter()
             .for_each(|t| self.frontier.push_back((idx, t)));
 
         self.state_space.seen.insert(marking, idx);
 
-        (idx, true)
+        true
     }
 }
 
@@ -198,34 +201,36 @@ pub(super) struct StateGraph<'a, T: TokenOps> {
 /// A fully explored state space.
 impl<T: TokenOps> StateGraph<'_, T> {
     /// Reference to the marking at a given node.
-    pub fn marking_at(&self, idx: NodeIndex) -> &IdxMarking<T> {
+    pub(crate) fn marking_at(&self, idx: NodeIndex) -> &IdxMarking<T> {
         &self.graph[idx]
     }
 
     /// Find a path from initial to target using A*.
-    pub fn path_to(&self, target: NodeIndex) -> Option<FiringSequence> {
+    pub(crate) fn path_from_initial_to(&self, target: NodeIndex) -> Option<Box<[TransitionIdx]>> {
         if target == self.initial_idx {
             return Some(Box::new([]));
         }
-        let (_, node_path) = petgraph::algo::astar(
+
+        let (_len, node_path) = petgraph::algo::astar(
             &self.graph,
             self.initial_idx,
             |n| n == target,
             |_| 1u32,
             |_| 0u32,
         )?;
+
         let transition_path = node_path
             .array_windows()
             .map(|&[m1_idx, m2_idx]| {
                 self.graph.find_edge(m1_idx, m2_idx).expect("edge must exist")
             })
-            .map(|edge_idx| self.net.get_transition(self.graph[edge_idx]))
+            .map(|edge_idx| self.graph[edge_idx])
             .collect();
         Some(transition_path)
     }
 
     /// Node indices with no outgoing edges (deadlocked states).
-    pub fn deadlock_indices(&self) -> impl Iterator<Item = NodeIndex> {
+    pub(crate) fn deadlock_indices(&self) -> impl Iterator<Item = NodeIndex> {
         self.graph
             .node_indices()
             .filter(|&idx| {

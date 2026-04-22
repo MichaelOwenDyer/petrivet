@@ -53,8 +53,8 @@ pub enum NetClass {
     /// let net = b.build().unwrap();
     /// assert!(net.class() == NetClass::Circuit);
     /// assert!(net.is_circuit());
-    /// assert!(net.is_s_net());
-    /// assert!(net.is_t_net());
+    /// assert!(net.is_state_machine());
+    /// assert!(net.is_marked_graph());
     /// assert!(net.is_free_choice_net());
     /// assert!(net.is_asymmetric_choice_net());
     /// ```
@@ -83,7 +83,15 @@ pub enum NetClass {
     ///   Let (N, M<sub>0</sub>) be a live S-system with N = (S, T, F)
     ///   and let M be a marking of N. M is reachable from M<sub>0</sub>
     ///   iff M(S) = M<sub>0</sub>(S).
-    /// - S-invariants of S-nets: // todo: apply optimization
+    ///
+    ///   For S-nets, the marking equation is both necessary and sufficient:
+    ///   `M'` is reachable from `M₀` if and only if every S-invariant is
+    ///   preserved (`y · M' = y · M₀` for all S-invariants `y`). This is
+    ///   equivalent to the LP marking equation being feasible.
+    ///
+    ///   This turns reachability, normally Ackermann-complete for general nets,
+    ///   into a polynomial-time check for S-nets.
+    /// - S-invariants of S-nets: // todo: implement this
     ///   Let N = (S, T, F) be an S-net. A vector I: S → Q is an S-invariant of N
     ///   iff I = (x, ..., x) for some x ∈ Q.
     ///
@@ -117,14 +125,18 @@ pub enum NetClass {
     /// b.add_arcs((bal_20, get_candy_for_20, bal_0));
     /// b.add_arcs((bal_20, get_candy_for_15, bal_5));
     /// let net = b.build().unwrap();
-    /// assert!(net.class() == NetClass::SNet);
+    /// assert!(net.class() == NetClass::StateMachine);
     /// assert!(!net.is_circuit());
-    /// assert!(net.is_s_net());
-    /// assert!(!net.is_t_net());
+    /// assert!(net.is_state_machine());
+    /// assert!(!net.is_marked_graph());
     /// assert!(net.is_free_choice_net());
     /// assert!(net.is_asymmetric_choice_net());
     /// ```
-    SNet,
+    ///
+    /// References:
+    /// - [Murata 1989, Theorem 21](crate::literature#theorem-21--reachability-in-s-nets)
+    /// - Lautenbach & Thiagarajan 1979 (original result)
+    StateMachine,
 
     /// A net `N = (S, T, F)` is a **T-net** (or **Marked Graph**) if
     /// `|•s| = |s•| = 1` for every place `s ∈ S`.
@@ -164,8 +176,13 @@ pub enum NetClass {
     ///   A marking M is reachable from M0 iff M<sub>0</sub> ∼ M.
     ///   For ordinary nets, reachability implies M<sub>0</sub> ∼ M,
     ///   but the converse is not true in general.
-    ///   This is a very powerful result, as it allows to decide reachability by solving a system of
-    ///   linear equations, as opposed to only disproving reachability when no solution exists.
+    ///
+    ///   In a T-net, every non-negative integer solution to the marking equation
+    ///   `M' = M₀ + N · x` corresponds to a realizable firing sequence.
+    ///
+    ///   This turns reachability into an ILP feasibility check, which is
+    ///   NP-complete but in practice hugely more efficient than the
+    ///   Ackermann-complete reachability problem for general nets.
     ///
     /// - T-invariants of T-nets:
     ///   Let N = (S, T, F) be a T-net. A vector J: T → Q is a T-invariant of N
@@ -200,14 +217,17 @@ pub enum NetClass {
     /// b.add_arcs((t1, p2, t3, p4, t4));
     /// b.add_arcs((t4, p5, t1));
     /// let net = b.build().unwrap();
-    /// assert!(net.class() == NetClass::TNet);
+    /// assert!(net.class() == NetClass::MarkedGraph);
     /// assert!(!net.is_circuit());
-    /// assert!(!net.is_s_net());
-    /// assert!(net.is_t_net());
+    /// assert!(!net.is_state_machine());
+    /// assert!(net.is_marked_graph());
     /// assert!(net.is_free_choice_net());
     /// assert!(net.is_asymmetric_choice_net());
     /// ```
-    TNet,
+    ///
+    /// References:
+    /// - [Murata 1989, Theorem 22](crate::literature#theorem-22--reachability-in-t-nets)
+    MarkedGraph,
 
     /// TODO: Cite Prof. Esparza
     /// A net `N = (S, T, F)` is an (extended) **Free-Choice Net**
@@ -361,16 +381,16 @@ impl NetClass {
 
     /// Returns true if this class is `SNet` or `Circuit` (since circuits are a subclass of S-nets).
     #[must_use]
-    pub fn is_s_net(&self) -> bool {
+    pub fn is_state_machine(&self) -> bool {
         use NetClass::*;
-        matches!(self, SNet | Circuit)
+        matches!(self, StateMachine | Circuit)
     }
 
     /// Returns true if this class is `TNet` or `Circuit` (since circuits are a subclass of T-nets).
     #[must_use]
-    pub fn is_t_net(&self) -> bool {
+    pub fn is_marked_graph(&self) -> bool {
         use NetClass::*;
-        matches!(self, TNet | Circuit)
+        matches!(self, MarkedGraph | Circuit)
     }
 
     /// Returns true if this class is `FreeChoice` or any of its subclasses
@@ -378,7 +398,7 @@ impl NetClass {
     #[must_use]
     pub fn is_free_choice(&self) -> bool {
         use NetClass::*;
-        matches!(self, FreeChoice | SNet | TNet | Circuit)
+        matches!(self, FreeChoice | StateMachine | MarkedGraph | Circuit)
     }
 
     /// Returns true if this class is `AsymmetricChoice` or any of its subclasses
@@ -386,7 +406,7 @@ impl NetClass {
     #[must_use]
     pub fn is_asymmetric_choice(&self) -> bool {
         use NetClass::*;
-        matches!(self, AsymmetricChoice | FreeChoice | SNet | TNet | Circuit)
+        matches!(self, AsymmetricChoice | FreeChoice | StateMachine | MarkedGraph | Circuit)
     }
 }
 
@@ -394,8 +414,8 @@ impl fmt::Display for NetClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             NetClass::Circuit => write!(f, "Circuit"),
-            NetClass::SNet => write!(f, "S-net"),
-            NetClass::TNet => write!(f, "T-net"),
+            NetClass::StateMachine => write!(f, "S-net"),
+            NetClass::MarkedGraph => write!(f, "T-net"),
             NetClass::FreeChoice => write!(f, "Free-choice net"),
             NetClass::AsymmetricChoice => write!(f, "Asymmetric-choice net"),
             NetClass::General => write!(f, "General net"),
@@ -472,8 +492,8 @@ pub(crate) fn classify<S: std::hash::BuildHasher>(
     let is_t_net = is_t_net(preset_p, postset_p);
     let class = match (is_s_net, is_t_net) {
         (true, true) => NetClass::Circuit,
-        (true, false) => NetClass::SNet,
-        (false, true) => NetClass::TNet,
+        (true, false) => NetClass::StateMachine,
+        (false, true) => NetClass::MarkedGraph,
         (false, false) if is_free_choice_net(postset_p, preset_t) => NetClass::FreeChoice,
         (false, false) if is_asymmetric_choice_net(postset_p) => NetClass::AsymmetricChoice,
         _ => NetClass::General,

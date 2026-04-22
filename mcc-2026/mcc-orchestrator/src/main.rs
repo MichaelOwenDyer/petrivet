@@ -309,7 +309,7 @@ impl<'a> RuntimeSession<'a> {
             &self.paths.contest_key,
             self.ssh_port,
             "root",
-            r#"sh -lc 'if [ -x /usr/sbin/poweroff ]; then nohup /usr/sbin/poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; if [ -x /sbin/poweroff ]; then nohup /sbin/poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; if [ -x /bin/systemctl ]; then nohup /bin/systemctl poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; if [ -x /usr/bin/systemctl ]; then nohup /usr/bin/systemctl poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; exit 127'"#,
+            r"sh -lc 'if [ -x /usr/sbin/poweroff ]; then nohup /usr/sbin/poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; if [ -x /sbin/poweroff ]; then nohup /sbin/poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; if [ -x /bin/systemctl ]; then nohup /bin/systemctl poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; if [ -x /usr/bin/systemctl ]; then nohup /usr/bin/systemctl poweroff >/dev/null 2>&1 </dev/null & exit 0; fi; exit 127'",
         )?;
         wait_for_pid_to_exit(&self.pid_file, 120)
     }

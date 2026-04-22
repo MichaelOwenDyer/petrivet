@@ -1,5 +1,5 @@
 use petrivet::net::Net;
-use petrivet::system::System;
+use petrivet::net::system::System;
 use petrivet::ExplorationOrder::BreadthFirst;
 
 fn main() {

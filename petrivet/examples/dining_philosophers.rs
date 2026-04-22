@@ -18,11 +18,10 @@
 //!
 //! Run: `cargo run --example dining_philosophers`
 
-use petrivet::analysis::structural;
 use petrivet::net::builder::NetBuilder;
-use petrivet::state_space::ExplorationOrder;
 use petrivet::state_space::ReachabilityGraph;
-use petrivet::system::System;
+use petrivet::net::system::System;
+use petrivet::Marking;
 
 const N: usize = 4;
 
@@ -65,9 +64,10 @@ fn main() {
     let net = net.build().expect("valid net");
     println!("Structural class: {}\n", net.class());
 
-    let initial = thinking.into_iter()
+    let initial: Marking = thinking.into_iter()
         .chain(forks)
-        .map(|p| (p, 1));
+        .map(|p| (p, 1))
+        .collect();
 
     let mut sys = System::new(&net, initial.clone());
 
@@ -92,49 +92,13 @@ fn main() {
 
 
     let sys = System::new(&net, initial.clone());
-    let rg = ReachabilityGraph::build(&sys, ExplorationOrder::BreadthFirst);
+    let rg = ReachabilityGraph::build(&sys);
     println!("Reachable states: {}", rg.state_count());
-    println!("Edges: {}", rg.edge_count());
+    println!("Edges: {}", rg.transition_count());
     println!("Deadlock-free: {}", rg.is_deadlock_free());
 
     println!("Deadlock states:");
     for (i, dl) in rg.deadlocks().enumerate() {
         println!("  {}: {:?}", i + 1, dl);
     }
-
-    // TODO: path_to() returns Box<[Transition]> where Transition is pub(crate).
-    // Cannot use from outside the crate. Need a public path_to variant that returns
-    // Transition, or a public method on Net to convert TransitionIdx → Transition.
-
-    println!("\n--- Liveness ---\n");
-
-    // TODO: liveness_levels() returns TransitionMap<LivenessLevel> where TransitionMap
-    // is pub(crate). Cannot bind or iterate it from outside the crate. Need a public
-    // return type (e.g., Vec<(Transition, LivenessLevel)> or a key-indexed map).
-    println!("System live: {}", rg.is_live());
-
-    println!("\n--- Structural Analysis ---\n");
-
-    let inv = structural::compute_invariants(&net);
-    println!("S-invariants: {} basis vectors", inv.s_invariants.len());
-    println!(
-        "Conservative (covered by S-invariants): {}",
-        inv.is_covered_by_s_invariants(net.place_count() as usize)
-    );
-    println!("T-invariants: {} basis vectors", inv.t_invariants.len());
-    println!(
-        "Structurally bounded: {}",
-        net.is_structurally_bounded()
-    );
-
-    // TODO: minimal_siphons() returns Box<[HashSet<Place>]> where Place is pub(crate).
-    // Cannot use from outside the crate. Need a public variant returning Place sets.
-
-    // let chc = structural::commoner_hack_criterion(&net, &m0);
-    // println!("Every siphon contains a marked trap: {}", chc.is_satisfied());
-    // if !chc.is_satisfied() {
-    //     println!("→ Commoner criterion violated: system is not live (confirmed).");
-    // }
-    //
-    // println!("\n=== Done ===");
 }

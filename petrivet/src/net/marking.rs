@@ -2,14 +2,9 @@
 //!
 //! A marking assigns a token count to each place. The default token type is
 //! `u32`. For coverability analysis, [`Omega`] extends token counts with an
-//! unbounded symbol ω, and [`IdxOmegaMarking`] is a type alias for `Marking<Omega>`.
-//!
-//! ```
-//! use petrivet::marking::IdxMarking;
-//! let m: IdxMarking = [1, 0, 3].into();
-//! ```
+//! unbounded symbol ω, and [`OmegaMarking`] is a type alias for `Marking<Omega>`.
 
-use crate::net::PlaceIdx;
+use crate::net::idx::PlaceIdx;
 use crate::Place;
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -23,16 +18,16 @@ use std::{iter, vec};
 /// A place does not appear in the list iff it has `T::default()` tokens.
 /// Places are sorted ascending by place ID.
 #[derive(Debug, Clone)]
-pub struct ApiMarking<T = u32>(Box<[(Place, T)]>);
-pub type ApiOmegaMarking = ApiMarking<Omega>;
+pub struct Marking<T = u32>(Box<[(Place, T)]>);
+pub type OmegaMarking = Marking<Omega>;
 
-impl<T> AsRef<[(Place, T)]> for ApiMarking<T> {
+impl<T> AsRef<[(Place, T)]> for Marking<T> {
     fn as_ref(&self) -> &[(Place, T)] {
         &self.0
     }
 }
 
-impl<T: Default + Eq + Hash> FromIterator<(Place, T)> for ApiMarking<T> {
+impl<T: Default + Eq + Hash> FromIterator<(Place, T)> for Marking<T> {
     fn from_iter<I: IntoIterator<Item = (Place, T)>>(iter: I) -> Self {
         let mut x = iter
             .into_iter()
@@ -41,17 +36,17 @@ impl<T: Default + Eq + Hash> FromIterator<(Place, T)> for ApiMarking<T> {
             .into_iter()
             .collect::<Box<_>>();
         x.sort_unstable_by_key(|(p, _)| p.into_raw());
-        ApiMarking(x)
+        Marking(x)
     }
 }
 
-impl<T: Default + Eq + Hash, const N: usize> From<[(Place, T); N]> for ApiMarking<T> {
+impl<T: Default + Eq + Hash, const N: usize> From<[(Place, T); N]> for Marking<T> {
     fn from(array: [(Place, T); N]) -> Self {
-        ApiMarking::from_iter(array)
+        Marking::from_iter(array)
     }
 }
 
-impl<T> IntoIterator for ApiMarking<T> {
+impl<T> IntoIterator for Marking<T> {
     type Item = (Place, T);
     type IntoIter = vec::IntoIter<(Place, T)>;
     fn into_iter(self) -> Self::IntoIter {
@@ -59,7 +54,27 @@ impl<T> IntoIterator for ApiMarking<T> {
     }
 }
 
-impl<T: Clone + Sum> ApiMarking<T> {
+impl From<Marking<u32>> for OmegaMarking {
+    fn from(value: Marking<u32>) -> Self {
+        value.0.into_iter().map(|(p, t)| (p, Omega::from(t))).collect()
+    }
+}
+
+impl<T> Marking<T> {
+    #[must_use]
+    pub fn get(&self, place: Place) -> Option<&T> {
+        self.0.iter().find(|(p, _)| *p == place).map(|(_, t)| t)
+    }
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&mut Place, &mut T)> {
+        self.0.iter_mut().map(|(p, t)| (p, t))
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (&Place, &T)> {
+        self.0.iter().map(|(p, t)| (p, t))
+    }
+}
+
+impl<T: Clone + Sum> Marking<T> {
+    #[must_use]
     pub fn total_tokens(&self) -> T {
         self.0.iter().map(|(_, t)| t.clone()).sum()
     }
@@ -68,23 +83,17 @@ impl<T: Clone + Sum> ApiMarking<T> {
     }
 }
 
-impl<T> Index<Place> for ApiMarking<T> {
+impl<T> Index<Place> for Marking<T> {
     type Output = T;
     fn index(&self, place: Place) -> &Self::Output {
         self.get(place).unwrap()
     }
 }
 
-impl<T: PartialEq> PartialEq for ApiMarking<T> {
+impl<T: PartialEq> PartialEq for Marking<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.len() == other.0.len() && iter::zip(self.0.iter(), other.0.iter())
             .all(|((p1, t1), (p2, t2))| p1 == p2 && t1 == t2)
-    }
-}
-
-impl<T> ApiMarking<T> {
-    pub fn get(&self, place: Place) -> Option<&T> {
-        self.0.iter().find(|(p, _)| *p == place).map(|(_, t)| t)
     }
 }
 
@@ -95,7 +104,7 @@ impl<T> ApiMarking<T> {
 ///
 /// Create from arrays or vectors:
 /// ```
-/// use petrivet::marking::IdxMarking;
+/// use petrivet::net::marking::IdxMarking;
 /// let m: IdxMarking = [1, 0, 3].into();
 /// let m = IdxMarking::from([1, 0, 3]);
 /// let m: IdxMarking = vec![1, 0, 3].into();
@@ -129,6 +138,26 @@ impl<T> IdxMarking<T> {
     /// Mutable iterator over token counts in place-index order.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.0.iter_mut()
+    }
+}
+
+impl<T: Default + PartialEq> IdxMarking<T> {
+    pub fn support(&self) -> impl Iterator<Item = PlaceIdx> {
+        self.iter()
+            .enumerate()
+            .filter(|&(_, tokens)| tokens != &T::default())
+            .map(|(idx, _)| idx)
+    }
+}
+
+impl<T: Ord + Clone> IdxMarking<T> {
+    pub(crate) fn ceil(mut acc: Self, other: &Self) -> Self {
+        for (bound, tokens) in acc.0.iter_mut().zip(other.0.iter()) {
+            if *bound < *tokens {
+                *bound = tokens.clone();
+            }
+        }
+        acc
     }
 }
 
