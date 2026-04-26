@@ -1,8 +1,10 @@
 //! Integration tests: parse official PNML example files into petrivet systems
 //! and assert known structural and behavioral properties.
 //!
-//! Fixture files are the official PNML 2009 example models downloaded from
-//! <https://www.pnml.org/version-2009/version-2009.php>.
+//! Fixture files include official PNML 2009 examples from
+//! <https://www.pnml.org/version-2009/version-2009.php> and **Model Checking
+//! Contest** benchmark PNML (with NUPN metadata inside `<toolspecific>`), which
+//! exercise the same parser paths as the archives used in competition runs.
 
 #![cfg(feature = "pnml")]
 
@@ -194,4 +196,42 @@ fn to_petri_nets_batch() {
     let results = doc.to_petri_nets();
     assert_eq!(results.len(), 1);
     assert!(matches!(results[0], Ok(PetriNetKind::PtNet(..))));
+}
+
+// ── Model Checking Contest (MCC) PNML ─────────────────────────────────────────
+//
+// MCC model archives embed a NUPN summary (`<size/>`, `<structure>`, …) inside
+// `<toolspecific tool="nupn" version="1.1">`. The parser must accept that
+// markup without treating it as part of the core P/T graph.
+
+#[test]
+fn mcc_champagne_h04_t1u_parses() {
+    let doc = load("tests/fixtures/Champagne/PT/champagne_H04_T1U.pnml");
+    let (sys, labels) = first_pt_net(&doc);
+    assert_eq!(labels.net_name(), Some("champagne_H04_T1U"));
+    assert_eq!(sys.net().place_count(), 285);
+    assert_eq!(sys.net().transition_count(), 351);
+    assert_eq!(sys.net().arc_count(), 820);
+    let total_tokens: u32 = sys.initial_marking().iter().map(|(_, w)| *w).sum();
+    assert_eq!(total_tokens, 1);
+    let nupn = labels.nupn().expect("MCC Champagne carries NUPN");
+    assert_eq!(nupn.size.places, 285);
+    assert_eq!(nupn.size.transitions, 351);
+    assert_eq!(nupn.size.arcs, 820);
+    assert!(nupn.unit_safe_declared());
+    assert_eq!(nupn.structure.root_unit_id, "u0");
+    assert_eq!(nupn.structure.units.len() as u64, nupn.structure.unit_count);
+}
+
+#[test]
+fn mcc_cops_and_robers_circular_small_parses() {
+    let doc = load("tests/fixtures/CopsAndRobbers/PT/CopsAndRobbers-PT-Circular-Random-L005X001.pnml");
+    let (sys, labels) = first_pt_net(&doc);
+    assert_eq!(
+        labels.net_name(),
+        Some("CopsAndRobbers_Circular_Random_L005X001")
+    );
+    assert!(sys.net().place_count() >= 8);
+    assert!(sys.net().transition_count() >= 1);
+    assert!(labels.nupn().is_none(), "this fixture has no NUPN block");
 }

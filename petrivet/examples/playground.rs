@@ -1,18 +1,18 @@
-use petrivet::net::Net;
-use petrivet::net::system::System;
-use petrivet::ExplorationOrder::BreadthFirst;
+use petrivet::System;
 
 fn main() {
-    let mut b = Net::builder();
-    let [p1, p2, p3, p4, p5] = b.add_places();
-    let [t1, t2, t3, t4] = b.add_transitions();
-    b.add_arcs((t1, p1, t2, p3, t4));
-    b.add_arcs((t1, p2, t3, p4, t4));
-    b.add_arcs((t4, p5, t1));
-    let net = b.build().unwrap();
-    let system = System::new(net, [(p5, 1)]);
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/Champagne/PT/champagne_H04_T1U.pnml"
+    );
+    let champagne = std::fs::read_to_string(path).unwrap();
+    // println!("PNML content:\n{}", champagne);
 
-    for s in system.explore_reachability(BreadthFirst).iter() {
-        println!("{s:#?}");
-    }
+    let system = System::from_pnml(&champagne).unwrap();
+    println!("{:?}", system.initial_marking());
+    let enabled = system.enabled_transitions().collect::<Box<_>>();
+    println!("{enabled:?}");
+
+    let cg = system.analyze_boundedness();
+    println!("{cg:?}");
 }

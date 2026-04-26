@@ -49,13 +49,15 @@ pub(crate) mod idx {
         TransitionToPlace(TransitionIdx, PlaceIdx),
     }
 
+    /// The structure of a Net compressed into a packed format optimized for analysis.
     #[derive(Debug, Clone)]
     pub(crate) struct DenseNet {
         /// Structural class of the net, cached at build time for efficient queries.
         pub(crate) class: NetClass,
-        /// Transition presets: for each transition t, the sorted set of places in •t.
+        /// Transition presets: for each transition t, the places in •t,
+        /// sorted by their internal dense index for efficient set operations.
         pub(crate) preset_t: Box<[SortedSet<PlaceIdx>]>,
-        /// Transition postsets: for each transition t, the sorted set of places in t•.
+        /// Transition postsets: for each transition t, the of places in t•.
         pub(crate) postset_t: Box<[SortedSet<PlaceIdx>]>,
         /// Place presets: for each place p, the sorted set of transitions in •p.
         pub(crate) preset_p: Box<[SortedSet<TransitionIdx>]>,
@@ -104,13 +106,13 @@ pub(crate) mod idx {
         /// Number of places in the net.
         #[must_use]
         pub(crate) fn place_count(&self) -> u32 {
-            self.preset_p.len() as u32
+            u32::try_from(self.preset_p.len()).expect("cannot be built with more than u32::MAX places")
         }
 
         /// Number of transitions in the net.
         #[must_use]
         pub(crate) fn transition_count(&self) -> u32 {
-            self.preset_t.len() as u32
+            u32::try_from(self.preset_t.len()).expect("cannot be built with more than u32::MAX transitions")
         }
 
         /// Iterator over all internal transitions.
@@ -517,8 +519,7 @@ impl Net {
     pub fn is_place_structurally_bounded(&self, place: &Place) -> bool {
         self.place_to_index
             .get(place)
-            .map(|p_idx| self.core.is_place_structurally_bounded(p_idx))
-            .unwrap_or(false)
+            .is_some_and(|p_idx| self.core.is_place_structurally_bounded(p_idx))
     }
 }
 

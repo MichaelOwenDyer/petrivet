@@ -108,7 +108,7 @@ pub struct Arc {
     /// flow arc.
     ///
     /// TODO(inhibitor-reset-nets): When adding support for inhibitor/reset nets,
-    ///  use this field to distinguish normal, inhibitor, read, and reset arcs.
+    ///  use this field to distinguish normal, inhibitor, and reset arcs.
     #[serde(rename = "arctype", skip_serializing_if = "Option::is_none")]
     pub arc_type: Option<ArcType>,
 

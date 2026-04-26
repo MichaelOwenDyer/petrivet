@@ -67,6 +67,9 @@ pub mod convert;
 pub mod graphics;
 pub mod net;
 pub mod labels;
+pub mod nupn;
+
+pub use nupn::{NupnIdList, NupnMetadata, NupnSize, NupnStructure, NupnUnit};
 
 pub mod net_type {
     pub const PT_NET: &str = "http://www.pnml.org/version-2009/grammar/ptnet";
@@ -253,17 +256,13 @@ pub enum ArcType {
     Reset,
 }
 
-/// An opaque tool-specific annotation block.
+/// Tool-specific annotation block (`<toolspecific tool="…" version="…">`).
 ///
-/// Any PNML element may carry zero or more of these. The content inside the
-/// element is completely unconstrained XML; it is captured here as a raw string
-/// for lossless round-tripping.
-///
-/// ```xml
-/// <toolspecific tool="MyTool" version="1.0">
-///   <foo bar="baz"/>
-/// </toolspecific>
-/// ```
+/// For [`tool = "nupn"` and `version = "1.1"`](https://mcc.lip6.fr/2026/nupn.php)
+/// (MCC nested-unit metadata), [`Self::nupn_size`] and [`Self::nupn_structure`]
+/// are populated. Other tools may use arbitrary XML: unknown **element** tags
+/// are ignored by `quick-xml` as long as this struct does not use [`$value`](https://github.com/tafia/quick-xml/issues/596);
+/// direct text nodes are captured in [`Self::content`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolSpecific {
     #[serde(rename = "@tool")]
@@ -272,9 +271,16 @@ pub struct ToolSpecific {
     #[serde(rename = "@version")]
     pub version: String,
 
-    /// Raw inner XML content. `quick-xml` maps any unrecognised children to
-    /// `$value` as a string when using the `serde` feature with text fallback.
-    #[serde(rename = "$value", skip_serializing_if = "Option::is_none")]
+    /// MCC NUPN: `<size places="…" transitions="…" arcs="…"/>`.
+    #[serde(rename = "size", default, skip_serializing_if = "Option::is_none")]
+    pub nupn_size: Option<nupn::NupnSize>,
+
+    /// MCC NUPN: `<structure …>…</structure>`.
+    #[serde(rename = "structure", default, skip_serializing_if = "Option::is_none")]
+    pub nupn_structure: Option<nupn::NupnStructure>,
+
+    /// Direct text inside `<toolspecific>` (non-NUPN tools).
+    #[serde(rename = "$text", default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
 }
 
@@ -463,6 +469,49 @@ mod tests {
             if let PageObject::Arc(a) = o { Some(a) } else { None }
         }).expect("arc");
         assert_eq!(arc.arc_type, Some(ArcType::Inhibitor));
+    }
+
+    /// NUPN `<toolspecific>` blocks (MCC benchmark archives) contain nested
+    /// elements; they must not break deserialization.
+    #[test]
+    fn parse_toolspecific_nupn_inner_elements() {
+        let xml = r#"
+            <pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">
+              <net id="n1" type="http://www.pnml.org/version-2009/grammar/ptnet">
+                <page id="page">
+                  <place id="p0"><initialMarking><text>1</text></initialMarking></place>
+                  <toolspecific tool="nupn" version="1.1">
+                    <size places="1" transitions="0" arcs="0"/>
+                    <structure units="1" root="u0" safe="true">
+                      <unit id="u0"><places>p0</places><subunits/></unit>
+                    </structure>
+                  </toolspecific>
+                </page>
+              </net>
+            </pnml>
+        "#;
+        let doc = PnmlDocument::from_xml(xml).expect("parse failed");
+        let page = &doc.nets[0].pages[0];
+        let ts = page.tool_specific.iter().find(|t| t.tool == "nupn").expect("nupn");
+        assert_eq!(ts.version, "1.1");
+        assert!(ts.content.is_none());
+        let sz = ts.nupn_size.as_ref().expect("nupn size");
+        assert_eq!(sz.places, 1);
+        assert_eq!(sz.transitions, 0);
+        assert_eq!(sz.arcs, 0);
+        let st = ts.nupn_structure.as_ref().expect("nupn structure");
+        assert!(st.unit_safe);
+        assert_eq!(st.root_unit_id, "u0");
+        assert_eq!(st.units.len(), 1);
+        assert_eq!(st.units[0].id, "u0");
+        assert_eq!(st.units[0].places.id_vec(), vec!["p0"]);
+        assert!(st.units[0].subunits.is_empty());
+        let meta = nupn::NupnMetadata::extract_from_pnml_net(&doc.nets[0]).expect("metadata");
+        assert!(meta.unit_safe_declared());
+        let p0 = page.objects.iter().find_map(|o| {
+            if let PageObject::Place(p) = o { Some(p) } else { None }
+        }).expect("place");
+        assert_eq!(p0.initial_marking.as_ref().and_then(|m| m.text), Some(1));
     }
 
     /// Multiple nets in a single document.

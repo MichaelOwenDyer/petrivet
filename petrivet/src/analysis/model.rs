@@ -54,14 +54,12 @@ impl CommonerHackCriterionResult {
 /// in other words every transition that produces to D also consumes from D.
 /// This is significant because it means once a siphon is unmarked,
 /// it can never be marked again (all transitions which could mark it are dead).
-#[derive(Debug, Clone)]
-pub struct Siphon(pub HashSet<Place>);
+pub type Siphon = HashSet<Place>;
 
 /// A trap is a set of places Q such that Q• ⊆ •Q,
 /// in other words every transition that consumes from Q also produces to Q.
 /// This is significant because it means once a trap is marked, it can never be unmarked again.
-#[derive(Debug, Clone)]
-pub struct Trap(pub HashSet<Place>);
+pub type Trap = HashSet<Place>;
 
 
 /// A minimal siphon and the maximal trap found within it,
@@ -70,8 +68,8 @@ pub struct Trap(pub HashSet<Place>);
 pub struct SiphonTrapPair {
     /// The minimal siphon (a set of places D with •D ⊆ D•), identified by stable handles.
     pub siphon: Siphon,
-    /// The maximal trap contained in this siphon (a set of places Q with Q• ⊆ •Q),
-    /// identified by stable handles. Empty if no trap was found.
+    /// The maximal trap contained in this siphon (a set of places Q with Q• ⊆ •Q).
+    /// Empty if no trap was found.
     pub trap: Trap,
     /// Whether at least one place in the trap is marked in the reference marking.
     pub trap_is_marked: bool,

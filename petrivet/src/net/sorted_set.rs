@@ -1,4 +1,7 @@
-/// An owned, sorted, set backed by a vec.
+use std::collections::HashSet;
+use std::hash::Hash;
+
+/// A deduplicated, sorted boxed slice.
 ///
 /// Constructed once from a `Vec<T>`: the constructor sorts and deduplicates
 /// in place, then freezes the result into a `Box<[T]>`. The invariant
@@ -19,7 +22,12 @@
 pub struct SortedSet<T>(pub(crate) Box<[T]>);
 
 impl<T: Ord> SortedSet<T> {
-    pub(crate) fn new(mut data: Vec<T>) -> Self {
+    pub(crate) fn new(data: Vec<T>) -> Self where T: Hash {
+        let mut data = data
+            .into_iter()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
         data.sort_unstable();
         Self(data.into_boxed_slice())
     }

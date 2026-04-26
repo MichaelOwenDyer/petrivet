@@ -277,8 +277,8 @@ pub(crate) fn find_positive_place_subvariant(
     find_semipositive_place_subvariant(net, |_| true)
 }
 
-/// Checks whether a single place is structurally bounded (bounded under
-/// every possible initial marking).
+/// Checks whether a set of places is structurally bounded
+/// (bounded under every possible initial marking).
 ///
 /// Tries to find a semi-positive weighting with `place` in its support
 /// (`y[place] ≥ 1`) and `yᵀ · N ≤ 0`, demonstrating that the weighted

@@ -10,7 +10,7 @@
 //! handles remain usable across round-trips.
 
 use crate::class::NetClass;
-use crate::net::idx::DenseNet;
+use crate::net::idx::{DenseNet, PlaceIdx, TransitionIdx};
 use crate::net::nodes::{Place, Transition};
 use crate::net::{Net, Node, SortedSet};
 use crate::Arc;
@@ -328,13 +328,10 @@ impl NetBuilder {
             .zip(0..)
             .collect();
 
-        let preset_t = map_adjacency(&self.transitions, &self.preset_t, &place_to_index);
-        let postset_t = map_adjacency(&self.transitions, &self.postset_t, &place_to_index);
-        let preset_p = map_adjacency(&self.places, &self.preset_p, &transition_to_index);
-        let postset_p = map_adjacency(&self.places, &self.postset_p, &transition_to_index);
-
-        let index_to_place = ordered_places.into_boxed_slice();
-        let index_to_transition = ordered_transitions.into_boxed_slice();
+        let preset_t = map_neighbors(&ordered_transitions, &self.preset_t, &place_to_index);
+        let postset_t = map_neighbors(&ordered_transitions, &self.postset_t, &place_to_index);
+        let preset_p = map_neighbors(&ordered_places, &self.preset_p, &transition_to_index);
+        let postset_p = map_neighbors(&ordered_places, &self.postset_p, &transition_to_index);
 
         let dense_net = DenseNet {
             class,
@@ -348,8 +345,8 @@ impl NetBuilder {
             core: dense_net,
             place_to_index,
             transition_to_index,
-            index_to_place,
-            index_to_transition,
+            index_to_place: ordered_places,
+            index_to_transition: ordered_transitions,
             labels: None, // todo: add labels builder
             graphics: None, // todo: add graphics builder
         })
@@ -358,7 +355,10 @@ impl NetBuilder {
 
 /// Converts a sparse adjacency map (from builder) to a dense
 /// adjacency list (for Net) using the provided index map.
-fn map_adjacency<N, M, Idx>(
+/// The `ordered_nodes` slice defines the order of nodes in the dense net,
+/// and the `sparse_adjacency` map provides the original adjacency using builder keys.
+/// The `dense_index_map` translates builder keys to their corresponding dense indices.
+fn map_neighbors<N, M, Idx>(
     ordered_nodes: &[N],
     sparse_adjacency: &HashMap<N, HashSet<M>>,
     dense_index_map: &HashMap<M, Idx>,
@@ -366,24 +366,21 @@ fn map_adjacency<N, M, Idx>(
 where
     N: Eq + Hash,
     M: Eq + Hash,
-    Idx: Ord + Copy,
+    Idx: Ord + Copy + Hash,
 {
     ordered_nodes
         .iter()
         .map(|node| {
             let indices: Vec<Idx> = sparse_adjacency
                 .get(node)
-                .map(|neighbors| {
-                    neighbors
-                        .iter()
-                        .map(|neighbor| {
-                            *dense_index_map
-                                .get(neighbor)
-                                .expect("Neighbor key must exist in dense index map")
-                        })
-                        .collect()
+                .expect("Node key must exist in sparse adjacency map")
+                .iter()
+                .map(|neighbor| {
+                    *dense_index_map
+                        .get(neighbor)
+                        .expect("Neighbor key must exist in dense index map")
                 })
-                .unwrap_or_default();
+                .collect();
             SortedSet::new(indices)
         })
         .collect()
@@ -396,15 +393,21 @@ fn compute_rcm_ordering(
     transitions: &[Transition],
     preset_t: &HashMap<Transition, HashSet<Place>>,
     postset_t: &HashMap<Transition, HashSet<Place>>,
-) -> (Vec<Place>, Vec<Transition>) {
+) -> (Box<[Place]>, Box<[Transition]>) {
     let p_count = places.len();
     let t_count = transitions.len();
     let total_nodes = p_count + t_count;
 
     // 1. Establish dense temporary indices mapping
     // Places -> [0 .. P), Transitions -> [P .. P + T)
-    let p_map: HashMap<Place, usize> = places.iter().enumerate().map(|(i, &p)| (p, i)).collect();
-    let t_map: HashMap<Transition, usize> = transitions.iter().enumerate().map(|(i, &t)| (t, i + p_count)).collect();
+    let p_map: HashMap<Place, PlaceIdx> = places.iter()
+        .copied()
+        .zip(0..)
+        .collect();
+    let t_map: HashMap<Transition, TransitionIdx> = transitions.iter()
+        .copied()
+        .zip(0..)
+        .collect();
 
     // 2. Build the unified undirected adjacency list
     let mut adj = vec![Vec::new(); total_nodes];
@@ -510,7 +513,7 @@ fn compute_rcm_ordering(
         }
     }
 
-    (ordered_places, ordered_transitions)
+    (ordered_places.into_boxed_slice(), ordered_transitions.into_boxed_slice())
 }
 
 /// Convert a built `Net` back into a `NetBuilder` for editing.

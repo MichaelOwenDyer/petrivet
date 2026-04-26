@@ -61,6 +61,7 @@ use crate::{CoverabilityExplorer, CoverabilityGraph, ExplorationOrder, Marking, 
 use std::fmt;
 use std::marker::PhantomData;
 
+///
 #[derive(Debug, Clone)]
 pub(crate) struct DenseSystem<N: AsRef<Net>> {
     pub(crate) net: N,
@@ -138,6 +139,66 @@ pub struct System<N: AsRef<Net>> {
     pub(crate) core: DenseSystem<N>,
 }
 
+
+#[cfg(feature = "pnml")]
+mod pnml {
+    use crate::pnml::convert::PnmlConversionError;
+    use crate::pnml::PnmlDocument;
+    use crate::{Net, System};
+    use std::error::Error;
+    use std::fmt;
+    use std::fmt::{Display, Formatter};
+
+    #[derive(Debug, Clone)]
+    pub enum FromPnmlError {
+        Syntax(quick_xml::DeError),
+        Empty,
+        Conversion(PnmlConversionError),
+    }
+
+    impl Display for FromPnmlError {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            match self {
+                FromPnmlError::Syntax(e) => write!(f, "PNML syntax error: {e}"),
+                FromPnmlError::Empty => write!(f, "PNML document contains no nets"),
+                FromPnmlError::Conversion(e) => write!(f, "PNML conversion error: {e}"),
+            }
+        }
+    }
+
+    impl Error for FromPnmlError {}
+
+    impl System<Net> {
+        /// Parses the first Petri Net (including initial marking) out of a PNML document.
+        /// Accepts the PNML content as a string slice.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if the XML failed to parse, if there were no nets in the file,
+        /// or if the first petri net in the file is not a PT net, as specified by `net_type`.
+        pub fn from_pnml(pnml: &str) -> Result<Self, FromPnmlError> {
+            PnmlDocument::from_xml(pnml).map_err(FromPnmlError::Syntax)
+                .and_then(|doc| doc.nets.into_iter().next().ok_or(FromPnmlError::Empty))
+                .and_then(|net| net.to_pt_system().map_err(FromPnmlError::Conversion))
+        }
+    }
+
+    impl Net {
+        /// Parses the first Net (not including initial marking) out of a PNML document.
+        /// Accepts the PNML content as a string slice.
+        ///
+        /// # Errors
+        ///
+        /// Returns an error if the XML failed to parse, if there were no nets in the file,
+        /// or if the first net in the file is not a PT net, as specified by `net_type`.
+        ///
+        /// TODO: Allow parsing just the net structure out of any type of PNML
+        pub fn from_pnml(pnml: &str) -> Result<Self, FromPnmlError> {
+            System::from_pnml(pnml).map(|system| system.into_parts().0)
+        }
+    }
+}
+
 impl<N: AsRef<Net>> System<N> {
     /// Creates a new system from a net and initial marking.
     ///
@@ -147,15 +208,12 @@ impl<N: AsRef<Net>> System<N> {
     ///
     /// Panics in debug mode if the marking length doesn't match the number of
     /// places in the net.
-    /// todo: how to ensure the marking has the same length as the number of places
-    ///  at compile time?
     #[must_use]
     pub fn new(net: N, initial_marking: impl Into<Marking>) -> Self {
         let initial_marking = initial_marking.into();
         let initial_marking = net.as_ref().to_idx_marking(initial_marking);
         let current_marking = initial_marking.clone();
-        let inner = DenseSystem { net, initial_marking, current_marking };
-        Self { core: inner }
+        Self { core: DenseSystem { net, initial_marking, current_marking } }
     }
 
     /// Returns a reference to the underlying net.

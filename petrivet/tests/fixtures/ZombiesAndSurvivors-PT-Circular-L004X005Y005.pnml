@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">
+  <net type="http://www.pnml.org/version-2009/grammar/ptnet" id="ZombiesAndSurvivors_Circular_L004X005Y005">
+    <name>
+      <text>ZombiesAndSurvivors_Circular_L004X005Y005</text>
+    </name>
+    <page id="page">
+      <place id="pl_survivor_n1">
+        <name>
+          <text>pl_survivor_n1</text>
+        </name>
+      </place>
+      <place id="pl_undead_n1">
+        <name>
+          <text>pl_undead_n1</text>
+        </name>
+        <initialMarking>
+          <text>5</text>
+        </initialMarking>
+      </place>
+      <place id="pl_survivor_n2">
+        <name>
+          <text>pl_survivor_n2</text>
+        </name>
+      </place>
+      <place id="pl_undead_n2">
+        <name>
+          <text>pl_undead_n2</text>
+        </name>
+      </place>
+      <place id="pl_survivor_n3">
+        <name>
+          <text>pl_survivor_n3</text>
+        </name>
+        <initialMarking>
+          <text>5</text>
+        </initialMarking>
+      </place>
+      <place id="pl_undead_n3">
+        <name>
+          <text>pl_undead_n3</text>
+        </name>
+      </place>
+      <place id="pl_survivor_n4">
+        <name>
+          <text>pl_survivor_n4</text>
+        </name>
+      </place>
+      <place id="pl_undead_n4">
+        <name>
+          <text>pl_undead_n4</text>
+        </name>
+      </place>
+      <transition id="tr_kill_n1">
+        <name>
+          <text>tr_kill_n1</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n1-kill_n1" source="pl_survivor_n1" target="tr_kill_n1"></arc>
+      <arc id="p2t-undead_n1-kill_n1" source="pl_undead_n1" target="tr_kill_n1"></arc>
+      <arc id="t2p-kill_n1-survivor_n1" source="tr_kill_n1" target="pl_survivor_n1"></arc>
+      <transition id="tr_bite_n1">
+        <name>
+          <text>tr_bite_n1</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n1-bite_n1" source="pl_survivor_n1" target="tr_bite_n1"></arc>
+      <arc id="p2t-undead_n1-bite_n1" source="pl_undead_n1" target="tr_bite_n1"></arc>
+      <arc id="t2p-bite_n1-undead_n1" source="tr_bite_n1" target="pl_undead_n1">
+        <inscription>
+          <text>2</text>
+        </inscription>
+      </arc>
+      <transition id="tr_kill_n2">
+        <name>
+          <text>tr_kill_n2</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n2-kill_n2" source="pl_survivor_n2" target="tr_kill_n2"></arc>
+      <arc id="p2t-undead_n2-kill_n2" source="pl_undead_n2" target="tr_kill_n2"></arc>
+      <arc id="t2p-kill_n2-survivor_n2" source="tr_kill_n2" target="pl_survivor_n2"></arc>
+      <transition id="tr_bite_n2">
+        <name>
+          <text>tr_bite_n2</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n2-bite_n2" source="pl_survivor_n2" target="tr_bite_n2"></arc>
+      <arc id="p2t-undead_n2-bite_n2" source="pl_undead_n2" target="tr_bite_n2"></arc>
+      <arc id="t2p-bite_n2-undead_n2" source="tr_bite_n2" target="pl_undead_n2">
+        <inscription>
+          <text>2</text>
+        </inscription>
+      </arc>
+      <transition id="tr_kill_n3">
+        <name>
+          <text>tr_kill_n3</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n3-kill_n3" source="pl_survivor_n3" target="tr_kill_n3"></arc>
+      <arc id="p2t-undead_n3-kill_n3" source="pl_undead_n3" target="tr_kill_n3"></arc>
+      <arc id="t2p-kill_n3-survivor_n3" source="tr_kill_n3" target="pl_survivor_n3"></arc>
+      <transition id="tr_bite_n3">
+        <name>
+          <text>tr_bite_n3</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n3-bite_n3" source="pl_survivor_n3" target="tr_bite_n3"></arc>
+      <arc id="p2t-undead_n3-bite_n3" source="pl_undead_n3" target="tr_bite_n3"></arc>
+      <arc id="t2p-bite_n3-undead_n3" source="tr_bite_n3" target="pl_undead_n3">
+        <inscription>
+          <text>2</text>
+        </inscription>
+      </arc>
+      <transition id="tr_kill_n4">
+        <name>
+          <text>tr_kill_n4</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n4-kill_n4" source="pl_survivor_n4" target="tr_kill_n4"></arc>
+      <arc id="p2t-undead_n4-kill_n4" source="pl_undead_n4" target="tr_kill_n4"></arc>
+      <arc id="t2p-kill_n4-survivor_n4" source="tr_kill_n4" target="pl_survivor_n4"></arc>
+      <transition id="tr_bite_n4">
+        <name>
+          <text>tr_bite_n4</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n4-bite_n4" source="pl_survivor_n4" target="tr_bite_n4"></arc>
+      <arc id="p2t-undead_n4-bite_n4" source="pl_undead_n4" target="tr_bite_n4"></arc>
+      <arc id="t2p-bite_n4-undead_n4" source="tr_bite_n4" target="pl_undead_n4">
+        <inscription>
+          <text>2</text>
+        </inscription>
+      </arc>
+      <transition id="tr_undead_move_n1_n2">
+        <name>
+          <text>tr_undead_move_n1_n2</text>
+        </name>
+      </transition>
+      <arc id="p2t-undead_n1-undead_move_n1_n2" source="pl_undead_n1" target="tr_undead_move_n1_n2"></arc>
+      <arc id="t2p-undead_move_n1_n2-undead_n2" source="tr_undead_move_n1_n2" target="pl_undead_n2"></arc>
+      <transition id="tr_survivor_move_n1_n2">
+        <name>
+          <text>tr_survivor_move_n1_n2</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n1-survivor_move_n1_n2" source="pl_survivor_n1" target="tr_survivor_move_n1_n2"></arc>
+      <arc id="t2p-survivor_move_n1_n2-survivor_n2" source="tr_survivor_move_n1_n2" target="pl_survivor_n2"></arc>
+      <transition id="tr_undead_move_n2_n1">
+        <name>
+          <text>tr_undead_move_n2_n1</text>
+        </name>
+      </transition>
+      <arc id="p2t-undead_n2-undead_move_n2_n1" source="pl_undead_n2" target="tr_undead_move_n2_n1"></arc>
+      <arc id="t2p-undead_move_n2_n1-undead_n1" source="tr_undead_move_n2_n1" target="pl_undead_n1"></arc>
+      <transition id="tr_survivor_move_n2_n1">
+        <name>
+          <text>tr_survivor_move_n2_n1</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n2-survivor_move_n2_n1" source="pl_survivor_n2" target="tr_survivor_move_n2_n1"></arc>
+      <arc id="t2p-survivor_move_n2_n1-survivor_n1" source="tr_survivor_move_n2_n1" target="pl_survivor_n1"></arc>
+      <transition id="tr_undead_move_n2_n3">
+        <name>
+          <text>tr_undead_move_n2_n3</text>
+        </name>
+      </transition>
+      <arc id="p2t-undead_n2-undead_move_n2_n3" source="pl_undead_n2" target="tr_undead_move_n2_n3"></arc>
+      <arc id="t2p-undead_move_n2_n3-undead_n3" source="tr_undead_move_n2_n3" target="pl_undead_n3"></arc>
+      <transition id="tr_survivor_move_n2_n3">
+        <name>
+          <text>tr_survivor_move_n2_n3</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n2-survivor_move_n2_n3" source="pl_survivor_n2" target="tr_survivor_move_n2_n3"></arc>
+      <arc id="t2p-survivor_move_n2_n3-survivor_n3" source="tr_survivor_move_n2_n3" target="pl_survivor_n3"></arc>
+      <transition id="tr_undead_move_n3_n2">
+        <name>
+          <text>tr_undead_move_n3_n2</text>
+        </name>
+      </transition>
+      <arc id="p2t-undead_n3-undead_move_n3_n2" source="pl_undead_n3" target="tr_undead_move_n3_n2"></arc>
+      <arc id="t2p-undead_move_n3_n2-undead_n2" source="tr_undead_move_n3_n2" target="pl_undead_n2"></arc>
+      <transition id="tr_survivor_move_n3_n2">
+        <name>
+          <text>tr_survivor_move_n3_n2</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n3-survivor_move_n3_n2" source="pl_survivor_n3" target="tr_survivor_move_n3_n2"></arc>
+      <arc id="t2p-survivor_move_n3_n2-survivor_n2" source="tr_survivor_move_n3_n2" target="pl_survivor_n2"></arc>
+      <transition id="tr_undead_move_n3_n4">
+        <name>
+          <text>tr_undead_move_n3_n4</text>
+        </name>
+      </transition>
+      <arc id="p2t-undead_n3-undead_move_n3_n4" source="pl_undead_n3" target="tr_undead_move_n3_n4"></arc>
+      <arc id="t2p-undead_move_n3_n4-undead_n4" source="tr_undead_move_n3_n4" target="pl_undead_n4"></arc>
+      <transition id="tr_survivor_move_n3_n4">
+        <name>
+          <text>tr_survivor_move_n3_n4</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n3-survivor_move_n3_n4" source="pl_survivor_n3" target="tr_survivor_move_n3_n4"></arc>
+      <arc id="t2p-survivor_move_n3_n4-survivor_n4" source="tr_survivor_move_n3_n4" target="pl_survivor_n4"></arc>
+      <transition id="tr_undead_move_n4_n3">
+        <name>
+          <text>tr_undead_move_n4_n3</text>
+        </name>
+      </transition>
+      <arc id="p2t-undead_n4-undead_move_n4_n3" source="pl_undead_n4" target="tr_undead_move_n4_n3"></arc>
+      <arc id="t2p-undead_move_n4_n3-undead_n3" source="tr_undead_move_n4_n3" target="pl_undead_n3"></arc>
+      <transition id="tr_survivor_move_n4_n3">
+        <name>
+          <text>tr_survivor_move_n4_n3</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n4-survivor_move_n4_n3" source="pl_survivor_n4" target="tr_survivor_move_n4_n3"></arc>
+      <arc id="t2p-survivor_move_n4_n3-survivor_n3" source="tr_survivor_move_n4_n3" target="pl_survivor_n3"></arc>
+      <transition id="tr_undead_move_n4_n1">
+        <name>
+          <text>tr_undead_move_n4_n1</text>
+        </name>
+      </transition>
+      <arc id="p2t-undead_n4-undead_move_n4_n1" source="pl_undead_n4" target="tr_undead_move_n4_n1"></arc>
+      <arc id="t2p-undead_move_n4_n1-undead_n1" source="tr_undead_move_n4_n1" target="pl_undead_n1"></arc>
+      <transition id="tr_survivor_move_n4_n1">
+        <name>
+          <text>tr_survivor_move_n4_n1</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n4-survivor_move_n4_n1" source="pl_survivor_n4" target="tr_survivor_move_n4_n1"></arc>
+      <arc id="t2p-survivor_move_n4_n1-survivor_n1" source="tr_survivor_move_n4_n1" target="pl_survivor_n1"></arc>
+      <transition id="tr_undead_move_n1_n4">
+        <name>
+          <text>tr_undead_move_n1_n4</text>
+        </name>
+      </transition>
+      <arc id="p2t-undead_n1-undead_move_n1_n4" source="pl_undead_n1" target="tr_undead_move_n1_n4"></arc>
+      <arc id="t2p-undead_move_n1_n4-undead_n4" source="tr_undead_move_n1_n4" target="pl_undead_n4"></arc>
+      <transition id="tr_survivor_move_n1_n4">
+        <name>
+          <text>tr_survivor_move_n1_n4</text>
+        </name>
+      </transition>
+      <arc id="p2t-survivor_n1-survivor_move_n1_n4" source="pl_survivor_n1" target="tr_survivor_move_n1_n4"></arc>
+      <arc id="t2p-survivor_move_n1_n4-survivor_n4" source="tr_survivor_move_n1_n4" target="pl_survivor_n4"></arc>
+    </page>
+  </net>
+</pnml>

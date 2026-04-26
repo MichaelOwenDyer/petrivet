@@ -31,6 +31,7 @@
 //! ```
 
 use crate::net::{Arc, Place, Transition};
+use crate::pnml::nupn::NupnMetadata;
 use std::collections::HashMap;
 
 /// Human-readable labels and metadata for the elements of a single Petri net.
@@ -64,6 +65,9 @@ pub struct NetLabels {
     net_id: Option<String>,
     /// Optional free-text description of the net.
     net_description: Option<String>,
+
+    /// [NUPN](https://mcc.lip6.fr/2026/nupn.php) nested-unit Petri net metadata.
+    nupn: Option<NupnMetadata>,
 }
 
 impl NetLabels {
@@ -208,6 +212,19 @@ impl NetLabels {
         self
     }
 
+    /// Nested-unit (NUPN) metadata from PNML, when the source file contained a
+    /// `<toolspecific tool="nupn" version="1.1">` block.
+    #[must_use]
+    pub fn nupn(&self) -> Option<&NupnMetadata> {
+        self.nupn.as_ref()
+    }
+
+    /// Attach or clear NUPN metadata (mainly for tests and custom importers).
+    pub fn set_nupn(&mut self, nupn: Option<NupnMetadata>) -> &mut Self {
+        self.nupn = nupn;
+        self
+    }
+
     /// Iterates over `(Place, name)` pairs for all places that have a name set.
     pub fn named_places(&self) -> impl Iterator<Item = (Place, &str)> {
         self.place_names
@@ -230,7 +247,6 @@ impl NetLabels {
     ///
     /// Key-to-dense maps must be attached separately via `with_net` if
     /// key-based public accessors are needed.
-    #[cfg(feature = "pnml")]
     #[expect(clippy::too_many_arguments)]
     #[expect(clippy::missing_const_for_fn)]
     pub(crate) fn from_raw(
@@ -242,6 +258,7 @@ impl NetLabels {
         arc_ids: HashMap<Arc, String>,
         net_name: Option<String>,
         net_id: Option<String>,
+        nupn: Option<NupnMetadata>,
     ) -> Self {
         Self {
             place_names,
@@ -253,6 +270,7 @@ impl NetLabels {
             net_name,
             net_id,
             net_description: None,
+            nupn,
         }
     }
 }

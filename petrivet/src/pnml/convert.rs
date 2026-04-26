@@ -37,7 +37,7 @@
 //! are not yet implemented. This is intentional: silently ignoring high-level
 //! inscriptions or color declarations would produce structurally wrong nets.
 
-use super::{net, net_type, PageObject, PnmlDocument};
+use super::{net, net_type, nupn::NupnMetadata, PageObject, PnmlDocument};
 use crate::net::builder::{NetBuilder, NetError};
 use crate::pnml::labels::NetLabels;
 use crate::net::{Arc, Net, Place, Transition};
@@ -329,6 +329,8 @@ fn convert_pt_net(
         }
     }
 
+    let nupn = NupnMetadata::extract_from_pnml_net(pnml_net);
+
     let labels = NetLabels::from_raw(
         place_names,
         place_ids_map,
@@ -338,6 +340,7 @@ fn convert_pt_net(
         arc_ids,
         pnml_net.name.as_ref().and_then(|n| n.text.clone()),
         Some(pnml_net.id.clone()),
+        nupn,
     );
 
     // Graphics

@@ -76,7 +76,7 @@ impl<'a> CoverabilityExplorer<'a> {
     /// Create a new coverability explorer for a system and exploration order.
     #[must_use]
     pub fn new<N: AsRef<Net>>(sys: &'a System<N>, order: ExplorationOrder) -> Self {
-        let net = sys.net().as_ref();
+        let net = sys.net();
         let omega_marking = IdxOmegaMarking::from(sys.core.current_marking.clone());
         Self {
             explorer: StateSpaceExplorer::new(net, omega_marking, order),
