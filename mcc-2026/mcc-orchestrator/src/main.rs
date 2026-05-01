@@ -5,6 +5,10 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::Duration;
 
+/// Name of the canned smoke test input. Must match the directory inside the
+/// `.tgz` and the `BK_INPUT` we set when invoking BenchKit_head.sh.
+const SMOKE_INPUT_NAME: &str = "petrivet-smoke";
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("error: {error}");
@@ -31,6 +35,7 @@ struct Paths {
     base_vm_image: PathBuf,
     input_vm_image: PathBuf,
     contest_key: PathBuf,
+    smoke_input_archive: PathBuf,
 }
 
 impl Paths {
@@ -56,6 +61,7 @@ impl Paths {
             runtime_cache_dir: runtime_cache_dir.clone(),
             runtime_work_image: runtime_cache_dir.join("petrivet-2026-runtime.vmdk"),
             benchkit_head: runtime_cache_dir.join("BenchKit_head.sh"),
+            smoke_input_archive: runtime_cache_dir.join(SMOKE_INPUT_NAME).with_extension("tgz"),
             artifacts_dir: artifacts_dir.clone(),
             submission_image: artifacts_dir.join("petrivet-2026.vmdk"),
         })
@@ -71,6 +77,38 @@ impl Paths {
         fs::create_dir_all(&self.artifacts_dir)
             .map_err(|error| format!("failed to create artifacts directory: {error}"))?;
         self.write_runtime_benchkit_head()?;
+        self.build_smoke_input_archive()?;
+        Ok(())
+    }
+
+    /// Pack a tiny PNML fixture as `<NAME>.tgz` containing `<NAME>/model.pnml`,
+    /// matching the layout that BenchKit unpacks at runtime.
+    fn build_smoke_input_archive(&self) -> Result<(), String> {
+        let orchestrator_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let pnml_source = orchestrator_dir
+            .join("..")
+            .join("..")
+            .join("petrivet/tests/fixtures/producer_consumer.pnml");
+        let pnml_source = pnml_source
+            .canonicalize()
+            .map_err(|err| format!("failed to locate smoke PNML at {}: {err}", pnml_source.display()))?;
+
+        let stage_dir = self.runtime_cache_dir.join(SMOKE_INPUT_NAME);
+        if stage_dir.exists() {
+            fs::remove_dir_all(&stage_dir)
+                .map_err(|err| format!("failed to clear smoke staging dir: {err}"))?;
+        }
+        fs::create_dir_all(&stage_dir)
+            .map_err(|err| format!("failed to create smoke staging dir: {err}"))?;
+        fs::copy(&pnml_source, stage_dir.join("model.pnml"))
+            .map_err(|err| format!("failed to stage smoke PNML: {err}"))?;
+
+        let mut tar = Command::new("tar");
+        tar.current_dir(&self.runtime_cache_dir)
+            .arg("czf")
+            .arg(&self.smoke_input_archive)
+            .arg(SMOKE_INPUT_NAME);
+        run_command(tar, "build smoke input archive")?;
         Ok(())
     }
 
@@ -286,22 +324,55 @@ impl<'a> RuntimeSession<'a> {
             &self.paths.petrivet_mcc_binary,
             "/home/mcc/BenchKit/bin/petrivet-mcc",
         )?;
+        run_scp_as(
+            &self.paths.contest_key,
+            self.ssh_port,
+            "root",
+            &self.paths.smoke_input_archive,
+            &format!("/home/mcc/BenchKit/INPUTS/{SMOKE_INPUT_NAME}.tgz"),
+        )?;
         run_ssh_as(
             &self.paths.contest_key,
             self.ssh_port,
             "root",
-            "chmod +x /home/mcc/BenchKit/BenchKit_head.sh /home/mcc/BenchKit/bin/petrivet-mcc",
+            "chmod +x /home/mcc/BenchKit/BenchKit_head.sh /home/mcc/BenchKit/bin/petrivet-mcc && chown -R mcc /home/mcc/BenchKit",
         )?;
         Ok(())
     }
 
+    /// Re-creates the contest's runtime layout: untar the input under /tmp/<NAME>,
+    /// cd in, then run BenchKit_head.sh with the same env vars BenchKit sets. We
+    /// also assert that StateSpace produces the four required output lines so
+    /// future regressions in the protocol layer fail loudly here instead of
+    /// silently submitting a broken VM.
+    ///
+    /// After asserting, we delete `INPUTS/<name>.tgz` and `/tmp/<name>` so the
+    /// flattened submission image does not carry our smoke fixture. The
+    /// contest mounts its own read-only `INPUTS` partition at runtime, so any
+    /// fixture we left there would be shadowed but still bloat the VMDK.
     fn smoke_test(&self) -> Result<(), String> {
         println!("sanity-checking entrypoint in runtime VM...");
-        run_ssh(
-            &self.paths.contest_key,
-            self.ssh_port,
-            "BK_TOOL=petrivet-mcc BK_EXAMINATION=StateSpace BIN_DIR=/home/mcc/BenchKit/bin /home/mcc/BenchKit/BenchKit_head.sh",
-        )
+        let script = format!(
+            "set -e
+            cd /tmp
+            rm -rf {name}
+            tar xzf /home/mcc/BenchKit/INPUTS/{name}.tgz
+            cd {name}
+            export BK_TOOL=petrivet-mcc
+            export BK_EXAMINATION=StateSpace
+            export BK_INPUT={name}
+            export BIN_DIR=/home/mcc/BenchKit/bin
+            output=$(/home/mcc/BenchKit/BenchKit_head.sh)
+            echo \"$output\"
+            echo \"$output\" | grep -q '^STATE_SPACE STATES ' || {{ echo 'smoke test: missing STATES line' >&2; exit 1; }}
+            echo \"$output\" | grep -q '^STATE_SPACE TRANSITIONS ' || {{ echo 'smoke test: missing TRANSITIONS line' >&2; exit 1; }}
+            echo \"$output\" | grep -q '^STATE_SPACE MAX_TOKEN_PER_MARKING ' || {{ echo 'smoke test: missing MAX_TOKEN_PER_MARKING line' >&2; exit 1; }}
+            echo \"$output\" | grep -q '^STATE_SPACE MAX_TOKEN_IN_PLACE ' || {{ echo 'smoke test: missing MAX_TOKEN_IN_PLACE line' >&2; exit 1; }}
+            cd /tmp
+            rm -rf /tmp/{name} /home/mcc/BenchKit/INPUTS/{name}.tgz",
+            name = SMOKE_INPUT_NAME,
+        );
+        run_ssh(&self.paths.contest_key, self.ssh_port, &script)
     }
 
     fn shutdown(self) -> Result<(), String> {

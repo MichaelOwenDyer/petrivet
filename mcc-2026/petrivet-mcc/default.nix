@@ -26,7 +26,7 @@ in
     RUSTFLAGS = "-C target-feature=+crt-static";
     installPhase = ''
       runHook preInstall
-      install -Dm755 target/x86_64-unknown-linux-musl/release/petrivet-mcc $out/bin/petrivet
+      install -Dm755 target/x86_64-unknown-linux-musl/release/petrivet-mcc $out/bin/petrivet-mcc
       runHook postInstall
     '';
   };

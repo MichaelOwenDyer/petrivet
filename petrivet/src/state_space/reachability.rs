@@ -234,6 +234,42 @@ impl<'a> ReachabilityExplorer<'a> {
             .cloned()
             .map(|marking| self.core.state_space.net.to_marking(marking))
     }
+
+    /// Drive exploration until either:
+    ///
+    /// - `predicate` returns `true` for some reachable marking — in which
+    ///   case `true` is returned immediately, or
+    /// - the frontier is exhausted (the entire reachability graph has been
+    ///   explored without the predicate ever firing) — in which case
+    ///   `false` is returned.
+    ///
+    /// **Does not terminate on unbounded nets.** Callers must rule that
+    /// out before calling — typically via
+    /// [`Net::is_structurally_bounded`](crate::Net::is_structurally_bounded)
+    /// or by going through the coverability path first.
+    ///
+    /// This is the kernel for short-circuiting global-property questions
+    /// of the form "is there a reachable marking such that …". On nets
+    /// where the witness is shallow it is dramatically cheaper than
+    /// building the full reachability graph and querying it afterwards;
+    /// on nets where the answer is "no" the cost is identical (a full
+    /// exploration).
+    pub fn any_marking_satisfies(
+        &mut self,
+        mut predicate: impl FnMut(&Marking) -> bool,
+    ) -> bool {
+        let initial = self.initial_marking();
+        if predicate(&initial) {
+            return true;
+        }
+        while let Some(step) = self.explore_next() {
+            if step.is_new && predicate(&step.marking) {
+                return true;
+            }
+        }
+        false
+    }
+
 }
 
 impl std::fmt::Debug for ReachabilityExplorer<'_> {
@@ -422,6 +458,32 @@ impl<'a> ReachabilityGraph<'a> {
         )
     }
 
+    /// The largest single-place bound across the entire net.
+    ///
+    /// Equal to the maximum number of tokens that any *one* place can hold
+    /// in any reachable marking. This is the value the Model Checking Contest
+    /// reports as `STATE_SPACE MAX_TOKEN_IN_PLACE`.
+    #[must_use]
+    pub fn max_token_in_any_place(&self) -> u32 {
+        self.markings_inner()
+            .flat_map(|m| m.iter().copied())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// The largest total token count across all reachable markings.
+    ///
+    /// For each reachable marking, sum the tokens over all places, then
+    /// take the maximum over all markings. This is the value the Model
+    /// Checking Contest reports as `STATE_SPACE MAX_TOKEN_PER_MARKING`.
+    #[must_use]
+    pub fn max_token_per_marking(&self) -> u32 {
+        self.markings_inner()
+            .map(|m| m.iter().copied().sum::<u32>())
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Computes liveness levels for all transitions in a single pass.
     ///
     /// SCC-based decision procedure for bounded nets ([Murata 1989 §V-C](crate::literature#v-c--liveness-via-reachability-graph-sccs)):
@@ -508,6 +570,66 @@ impl<'a> ReachabilityGraph<'a> {
     #[must_use]
     pub fn is_live(&self) -> bool {
         self.liveness_levels().iter().all(|&l| l == LivenessLevel::L4)
+    }
+
+    /// Whether some reachable marking has no enabled transitions.
+    ///
+    /// This is the answer to `EF deadlock`, used by the MCC
+    /// `ReachabilityDeadlock` examination: TRUE iff a deadlock is reachable.
+    /// Equivalent to `!is_deadlock_free()`, exposed under this name to
+    /// match the formula it answers.
+    #[must_use]
+    pub fn has_reachable_deadlock(&self) -> bool {
+        !self.is_deadlock_free()
+    }
+
+    /// Whether every transition appears on some edge of the reachability graph.
+    ///
+    /// This answers `∀t EF is-fireable(t)`, used by the MCC `QuasiLiveness`
+    /// examination. A transition that never fires (L0) is the only obstacle.
+    #[must_use]
+    pub fn is_quasi_live(&self) -> bool {
+        self.liveness_levels().iter().all(|&l| l != LivenessLevel::L0)
+    }
+
+    /// Whether every reachable marking puts at most one token in every place.
+    ///
+    /// This answers `∀p AG tokens-count(p) ≤ 1`, used by the MCC `OneSafe`
+    /// examination. Equivalent to `max_token_in_any_place() <= 1`, exposed
+    /// under this name to match the formula it answers.
+    #[must_use]
+    pub fn is_one_safe(&self) -> bool {
+        self.max_token_in_any_place() <= 1
+    }
+
+    /// Whether some place holds the same token count in every reachable marking.
+    ///
+    /// This answers `∃p ∃x AG tokens-count(p) = x`, used by the MCC
+    /// `StableMarking` examination. Note: the constant `x` is allowed to be
+    /// zero, so a place that's never marked still counts as "stable".
+    #[must_use]
+    pub fn has_stable_place(&self) -> bool {
+        let n_places = self.state_space.net.place_count() as usize;
+        if n_places == 0 {
+            return true;
+        }
+
+        let mut markings = self.markings_inner();
+        let Some(first) = markings.next() else {
+            // No reachable markings at all: every place is vacuously stable.
+            return true;
+        };
+        let baseline: Vec<u32> = first.iter().copied().collect();
+        // Per-place flag: is the count still equal to its first-observed value?
+        let mut still_stable: Vec<bool> = vec![true; n_places];
+        for marking in markings {
+            for (p_idx, token_count) in marking.iter().copied().enumerate() {
+                if still_stable[p_idx] && token_count != baseline[p_idx] {
+                    still_stable[p_idx] = false;
+                }
+            }
+        }
+        still_stable.into_iter().any(|b| b)
     }
 }
 

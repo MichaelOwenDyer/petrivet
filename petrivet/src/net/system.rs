@@ -307,6 +307,61 @@ impl<N: AsRef<Net>> System<N> {
         ReachabilityGraph::build(self)
     }
 
+    /// Drive Karp–Miller exploration, returning a reachability graph if the
+    /// system is bounded, or a partially-explored coverability explorer as
+    /// soon as the first ω is introduced.
+    ///
+    /// This is the right entry point when you want the speed of exploring
+    /// the reachability graph directly but cannot rule out unboundedness
+    /// upfront. For unbounded nets you avoid the cost of completing the
+    /// full coverability graph; for bounded nets the cost is identical to
+    /// `build_reachability_graph` (no ω is ever introduced, no extra work).
+    ///
+    /// # Errors
+    /// Returns `Err(partial_explorer)` as soon as any explored marking
+    /// contains ω. The frontier is preserved, so callers may resume.
+    #[allow(clippy::result_large_err)]
+    pub fn build_reachability_or_coverability(&self) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
+        CoverabilityExplorer::new(self, ExplorationOrder::BreadthFirst)
+            .build_reachability_or_coverability()
+    }
+
+    /// Whether some reachable marking puts more than one token in any place
+    /// (a FALSE witness for the MCC `OneSafe` examination), short-circuiting
+    /// on the first witness.
+    ///
+    /// **Termination is the caller's responsibility.** On unbounded nets
+    /// this does not terminate; rule out unboundedness first via
+    /// [`Net::is_structurally_bounded`] or
+    /// [`Self::build_reachability_or_coverability`].
+    ///
+    /// [`Net::is_structurally_bounded`]: crate::Net::is_structurally_bounded
+    pub fn has_reachable_unsafe_marking(&self) -> bool {
+        self.explore_reachability(ExplorationOrder::BreadthFirst)
+            .any_marking_satisfies(|m| m.iter().any(|(_, &t)| t > 1))
+    }
+
+    /// True iff structural analysis alone proves the net 1-safe under the
+    /// initial marking. Uses [`find_positive_place_subvariant`] to derive
+    /// per-place upper bounds in polynomial time; if every place is bounded
+    /// by 1, the answer is TRUE without any state-space exploration.
+    /// Returns `false` when the bound is loose or the LP is infeasible —
+    /// it is a one-sided check, not a decision procedure.
+    ///
+    /// [`find_positive_place_subvariant`]: crate::analysis::semi_decision::find_positive_place_subvariant
+    pub fn is_structurally_one_safe(&self) -> bool {
+        use crate::analysis::semi_decision::find_positive_place_subvariant;
+        let net = self.core.net();
+        let Some(weights) = find_positive_place_subvariant(&net.core) else {
+            return false;
+        };
+        let weighted_sum: f64 = weights.iter()
+            .zip(self.core.initial_marking.iter())
+            .map(|(&w, &m)| w * f64::from(m))
+            .sum();
+        weights.iter().all(|&w| (weighted_sum / w).floor() as u32 <= 1)
+    }
+
     /// Whether a transition is enabled under the current marking.
     ///
     /// A transition t is enabled if every input place p in its preset has
@@ -567,13 +622,13 @@ mod tests {
 
     #[test]
     fn choose_and_fire_specific() {
-        let (net, _p0, _t0, p1, t1) = two_place_cycle();
+        let (net, p0, _t0, p1, t1) = two_place_cycle();
         let mut sys = net.with_marking([(p1, 1)]);
         let fired = sys.choose_and_fire(|enabled| {
             enabled.iter().find(|et| *et == t1)
         });
         assert_eq!(fired, Some(t1));
-        assert_eq!(sys.current_marking(), [(p1, 1)].into());
+        assert_eq!(sys.current_marking(), [(p0, 1)].into());
     }
 
     #[test]
@@ -586,11 +641,11 @@ mod tests {
 
     #[test]
     fn choose_and_fire_user_declines() {
-        let (net, p0, _t0, p1, _t1) = two_place_cycle();
+        let (net, p0, _t0, _p1, _t1) = two_place_cycle();
         let mut sys = net.with_marking([(p0, 1)]);
         let fired = sys.choose_and_fire(|_enabled| None);
         assert_eq!(fired, None);
-        assert_eq!(sys.current_marking(), [(p1, 1)].into());
+        assert_eq!(sys.current_marking(), [(p0, 1)].into());
     }
 
     #[test]
@@ -604,11 +659,11 @@ mod tests {
 
     #[test]
     fn into_parts() {
-        let (net, p0, t0, _p1, _t1) = two_place_cycle();
+        let (net, p0, t0, p1, _t1) = two_place_cycle();
         let mut sys = net.with_marking([(p0, 1)]);
         sys.try_fire(t0).unwrap();
         let (_, _, current) = sys.into_parts();
-        assert_eq!(current.as_ref(), &[(p0, 1)]);
+        assert_eq!(current.as_ref(), &[(p1, 1)]);
     }
 
     #[test]

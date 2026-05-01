@@ -39,6 +39,8 @@ use crate::state_space::{explorer::StateSpaceExplorer, ExplorationOrder};
 use crate::net::system::System;
 use crate::{OmegaMarking, Place, Transition};
 use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
+use std::collections::HashSet;
 use std::fmt;
 use crate::net::idx::TransitionIdx;
 
@@ -138,6 +140,33 @@ impl<'a> CoverabilityExplorer<'a> {
         }
     }
 
+    /// Drive exploration looking for a reachability graph, bailing out as
+    /// soon as ω-acceleration introduces an unbounded component.
+    ///
+    /// On success the system is bounded, and we return the fully explored
+    /// reachability graph. On failure the system is unbounded; we return
+    /// the partially explored coverability explorer so the caller can
+    /// inspect what was discovered before the first ω.
+    ///
+    /// # Errors
+    /// Returns `Err(self_partial)` as soon as any explored marking contains ω.
+    /// The returned explorer has its frontier preserved, so exploration can be
+    /// resumed if desired.
+    #[allow(clippy::result_large_err)]
+    pub fn build_reachability_or_coverability(mut self) -> Result<ReachabilityGraph<'a>, Self> {
+        while let Some(step) = self.explore_next_inner() {
+            if !step.marking.is_finite() {
+                return Err(self);
+            }
+        }
+        let cg = CoverabilityGraph {
+            state_space: self.explorer.state_space,
+        };
+        cg.into_reachability_graph().map_err(|_| {
+            unreachable!("ω-free CG must promote successfully; ω is detected per-step above")
+        })
+    }
+
     /// Returns an iterator that drives exploration step by step.
     ///
     /// Each call to `next()` fires one transition (with ω-acceleration)
@@ -165,19 +194,33 @@ impl<'a> CoverabilityExplorer<'a> {
         self.explorer.state_space.graph.edge_count()
     }
 
-    /// Karp-Miller acceleration: if any previously seen marking is strictly
-    /// smaller than `new_marking` AND lies on a path to `src`, replace the
-    /// components where `new_marking` is strictly greater with ω.
+    /// Karp–Miller acceleration: if any ancestor of `src` (including `src`
+    /// itself) carries a marking strictly smaller than `new_marking`,
+    /// promote each strictly-greater component of `new_marking` to ω.
+    ///
+    /// This follows the predecessor-on-a-path formulation of [Primer,
+    /// Algorithm 3.18](crate::literature) (the lecture notes give a
+    /// strictly weaker condition that quantifies over all paths to `src`,
+    /// but Proposition 3.23 shows both formulations yield valid
+    /// coverability graphs).
     fn omega_accelerate(&self, new_marking: &mut IdxOmegaMarking, src: NodeIndex) {
-        for (seen_marking, &seen_idx) in &self.explorer.state_space.seen {
-            if seen_marking < new_marking
-                && petgraph::algo::has_path_connecting(&self.explorer.state_space.graph, seen_idx, src, None)
-            {
-                for (component, prev) in new_marking.iter_mut().zip(seen_marking.iter()) {
+        let graph = &self.explorer.state_space.graph;
+        let mut stack = vec![src];
+        let mut visited: HashSet<NodeIndex> = HashSet::new();
+        while let Some(node) = stack.pop() {
+            if !visited.insert(node) {
+                continue;
+            }
+            let ancestor_marking = self.explorer.state_space.marking_at(node);
+            if ancestor_marking < new_marking {
+                for (component, prev) in new_marking.iter_mut().zip(ancestor_marking.iter()) {
                     if *component > *prev {
                         *component = Omega::Unbounded;
                     }
                 }
+            }
+            for edge in graph.edges_directed(node, petgraph::Direction::Incoming) {
+                stack.push(edge.source());
             }
         }
     }
@@ -518,6 +561,24 @@ mod tests {
     }
 
     #[test]
+    fn rg_or_cg_short_circuits_on_unbounded() {
+        let (sys, _, _) = unbounded_producer();
+        match sys.build_reachability_or_coverability() {
+            Ok(_) => panic!("unbounded net must short-circuit"),
+            Err(cg) => assert!(!cg.is_fully_explored(), "frontier preserved on bail-out"),
+        }
+    }
+
+    #[test]
+    fn rg_or_cg_completes_for_bounded() {
+        let (sys, _p0, p1) = two_place_cycle();
+        let rg = sys.build_reachability_or_coverability()
+            .expect("bounded net must yield reachability graph");
+        assert_eq!(rg.state_count(), 2);
+        assert!(rg.is_reachable([(p1, 1)].into()));
+    }
+
+    #[test]
     fn switch_order_mid_exploration() {
         let (sys, _p0, _p1) = two_place_cycle();
         let mut cg = sys.explore_coverability(ExplorationOrder::BreadthFirst);
@@ -648,8 +709,10 @@ mod tests {
 
         b.add_arcs((idle2, t_req2, wait2, t_enter2, crit2, t_exit2, idle2));
 
-        b.add_arcs((mutex, t_enter1, mutex));
-        b.add_arcs((mutex, t_enter2, mutex));
+        b.add_arc((mutex, t_enter1));
+        b.add_arc((t_exit1, mutex));
+        b.add_arc((mutex, t_enter2));
+        b.add_arc((t_exit2, mutex));
 
         let net = b.build().expect("valid net");
         assert_eq!(net.class(), NetClass::AsymmetricChoice);
@@ -658,10 +721,13 @@ mod tests {
 
         assert!(cg.is_bounded());
         assert!(cg.is_deadlock_free());
+        let zero = Omega::Finite(0);
         for marking in cg.markings() {
+            let c1 = marking.get(crit1).copied().unwrap_or(zero);
+            let c2 = marking.get(crit2).copied().unwrap_or(zero);
             assert!(
-                marking[crit1] <= Omega::Finite(0) || marking[crit2] <= Omega::Finite(0),
-                "mutual exclusion violated"
+                c1 == zero || c2 == zero,
+                "mutual exclusion violated: {marking:?}",
             );
         }
 

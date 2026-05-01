@@ -409,10 +409,15 @@ fn compute_rcm_ordering(
         .zip(0..)
         .collect();
 
-    // 2. Build the unified undirected adjacency list
+    // 2. Build the unified undirected adjacency list.
+    //
+    // Per the convention above, transitions live in [p_count, p_count + t_count)
+    // in the unified index space, so we shift each transition's local index
+    // by `p_count` before using it as an `adj` index.
     let mut adj = vec![Vec::new(); total_nodes];
 
-    for (t, t_idx) in t_map {
+    for (t, t_local_idx) in t_map {
+        let t_idx = t_local_idx + p_count;
         let mut connect = |p: &Place| {
             let p_idx = p_map[p];
             adj[t_idx].push(p_idx);
@@ -539,10 +544,10 @@ impl From<Net> for NetBuilder {
         let mut preset_t = net.transitions()
             .map(|t| (t, HashSet::new()))
             .collect::<HashMap<_, _>>();
-        let postset_t = net.transitions()
+        let mut postset_t = net.transitions()
             .map(|t| (t, HashSet::new()))
             .collect::<HashMap<_, _>>();
-        let preset_p = net.places()
+        let mut preset_p = net.places()
             .map(|p| (p, HashSet::new()))
             .collect::<HashMap<_, _>>();
         let mut postset_p = net.places()
@@ -550,12 +555,14 @@ impl From<Net> for NetBuilder {
             .collect::<HashMap<_, _>>();
 
         for t in net.transitions() {
-            let mut insert = |p| {
+            for p in net.transition_preset(&t) {
                 preset_t.get_mut(&t).unwrap().insert(p);
                 postset_p.get_mut(&p).unwrap().insert(t);
-            };
-            net.transition_preset(&t).for_each(&mut insert);
-            net.transition_postset(&t).for_each(&mut insert);
+            }
+            for p in net.transition_postset(&t) {
+                postset_t.get_mut(&t).unwrap().insert(p);
+                preset_p.get_mut(&p).unwrap().insert(t);
+            }
         }
 
         Self {
