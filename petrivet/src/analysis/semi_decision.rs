@@ -68,7 +68,7 @@ pub(crate) fn find_marking_equation_rational_solution(
         net,
         initial,
         target,
-        variable().min(0.0),
+        &variable().min(0.0),
         |v| v,
     )
 }
@@ -94,11 +94,13 @@ pub(crate) fn find_marking_equation_integer_solution(
     initial_marking: &IdxMarking,
     target: &IdxMarking,
 ) -> Option<Box<[u32]>> {
+    // Safe because we are using integer variables
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     find_marking_equation_solution(
         net,
         initial_marking,
         target,
-        variable().integer().min(0),
+        &variable().integer().min(0),
         |v| v.round() as u32,
     )
 }
@@ -108,7 +110,7 @@ fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
     net: &DenseNet,
     initial: &IdxMarking,
     target: &IdxMarking,
-    variable_def: VariableDefinition,
+    variable_def: &VariableDefinition,
     extract: F,
 ) -> Option<Box<[T]>> {
     if net.transition_count() == 0 {
@@ -170,7 +172,7 @@ pub(crate) fn find_covering_equation_rational_solution(
         net,
         initial,
         threshold,
-        variable().min(0.0),
+        &variable().min(0.0),
         |v| v,
     )
 }
@@ -190,11 +192,13 @@ pub(crate) fn find_covering_equation_integer_solution(
     initial_marking: &IdxMarking,
     target: &IdxMarking,
 ) -> Option<Box<[u32]>> {
+    // Safe because we are using integer variables
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     find_covering_equation_solution(
         net,
         initial_marking,
         target,
-        variable().integer().min(0),
+        &variable().integer().min(0),
         |v| v.round() as u32,
     )
 }
@@ -204,7 +208,7 @@ fn find_covering_equation_solution<T, F: Fn(f64) -> T>(
     net: &DenseNet,
     initial: &IdxMarking,
     threshold: &IdxMarking,
-    variable_def: VariableDefinition,
+    variable_def: &VariableDefinition,
     extract: F,
 ) -> Option<Box<[T]>> {
     if net.transition_count() == 0 {
@@ -249,10 +253,10 @@ fn find_covering_equation_solution<T, F: Fn(f64) -> T>(
 /// Checks structural boundedness: is the net bounded for every possible
 /// initial marking?
 ///
-/// Finds a positive S-sub-invariant y >> 0 such that yᵀ · N ≤ 0 (non-strict).
-/// Equivalently, for each transition t: Σ_p N\[p\]\[t\] · y\[p\] ≤ 0.
+/// Finds a positive S-sub-invariant `y >> 0` such that `yᵀ · N ≤ 0` (non-strict).
+/// Equivalently, for each transition t: `Σ_p N[p][t] · y[p] ≤ 0`.
 ///
-/// This is weaker than *conservativeness* (which requires yᵀ · N = 0,
+/// This is weaker than *conservativeness* (which requires `yᵀ · N = 0`,
 /// i.e. S-invariant coverage). A structurally bounded net has the property
 /// that the weighted token sum y · M can only decrease or stay the same
 /// across firings, guaranteeing boundedness under any initial marking.
@@ -267,9 +271,9 @@ fn find_covering_equation_solution<T, F: Fn(f64) -> T>(
 ///
 /// Checks structural boundedness and returns the weight vector if feasible.
 ///
-/// Finds y > 0 such that yᵀ · N ≤ 0 (each component ≥ 1). If feasible,
+/// Finds `y > 0` such that `yᵀ · N ≤ 0` (each component ≥ 1). If feasible,
 /// returns the weight vector y. Given a specific initial marking M₀,
-/// per-place upper bounds can be derived: M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋.
+/// per-place upper bounds can be derived: `M[p] ≤ ⌊(y·M₀) / y[p]⌋`.
 #[must_use]
 pub(crate) fn find_positive_place_subvariant(
     net: &DenseNet

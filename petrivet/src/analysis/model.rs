@@ -50,14 +50,16 @@ impl CommonerHackCriterionResult {
     }
 }
 
-/// A siphon is a set of places D such that •D ⊆ D•,
-/// in other words every transition that produces to D also consumes from D.
+/// A siphon is a set of places D such that •D ⊆ D•.
+///
+/// In other words, every transition that produces to D also consumes from D.
 /// This is significant because it means once a siphon is unmarked,
 /// it can never be marked again (all transitions which could mark it are dead).
 pub type Siphon = HashSet<Place>;
 
-/// A trap is a set of places Q such that Q• ⊆ •Q,
-/// in other words every transition that consumes from Q also produces to Q.
+/// A trap is a set of places Q such that Q• ⊆ •Q.
+///
+/// In other words, every transition that consumes from Q also produces to Q.
 /// This is significant because it means once a trap is marked, it can never be unmarked again.
 pub type Trap = HashSet<Place>;
 
@@ -371,19 +373,19 @@ pub enum ReachabilityResult {
 impl ReachabilityResult {
     /// Whether the target is definitely reachable.
     #[must_use]
-    pub fn is_reachable(&self) -> bool {
+    pub const fn is_reachable(&self) -> bool {
         matches!(self, Self::Reachable(_))
     }
 
     /// Whether the target is definitely unreachable.
     #[must_use]
-    pub fn is_unreachable(&self) -> bool {
+    pub const fn is_unreachable(&self) -> bool {
         matches!(self, Self::Unreachable(_))
     }
 
     /// Whether the analysis was inconclusive.
     #[must_use]
-    pub fn is_inconclusive(&self) -> bool {
+    pub const fn is_inconclusive(&self) -> bool {
         matches!(self, Self::Inconclusive)
     }
 }
@@ -409,15 +411,6 @@ impl ReachabilityProof {
     pub fn firing_sequence(&self) -> Option<&[Transition]> {
         match self {
             Self::FiringSequence(seq) => Some(seq),
-            _ => None,
-        }
-    }
-
-    /// Token-conservation marking sum (only for `StronglyConnectedSNetTokenConservation`).
-    #[must_use]
-    pub fn marking_sum(&self) -> Option<u32> {
-        match self {
-            Self::StronglyConnectedSNetTokenConservation { marking_sum } => Some(*marking_sum),
             _ => None,
         }
     }
@@ -463,13 +456,13 @@ pub enum CoverabilityResult {
 impl CoverabilityResult {
     /// Whether the target is coverable.
     #[must_use]
-    pub fn is_coverable(&self) -> bool {
+    pub const fn is_coverable(&self) -> bool {
         matches!(self, Self::Coverable(_))
     }
 
     /// Whether the target is not coverable.
     #[must_use]
-    pub fn is_uncoverable(&self) -> bool {
+    pub const fn is_uncoverable(&self) -> bool {
         matches!(self, Self::Uncoverable(_))
     }
 }

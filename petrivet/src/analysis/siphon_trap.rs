@@ -209,7 +209,7 @@ pub(crate) fn minimal_siphons_ilp(
 
     // Siphon property: x[p] ≤ Σ_{q ∈ •t} x[q]  for all p, t ∈ •p
     for p in net.place_indices() {
-        for &t in net.preset_p[p].iter() {
+        for &t in &net.preset_p[p] {
             let sum_preset: Expression = net
                 .preset_t[t]
                 .iter()
@@ -242,6 +242,7 @@ pub(crate) fn minimal_siphons_ilp(
         }
 
         let prev_sum: Expression = siphon.iter().map(|&p| place_selectors[p]).sum();
+        #[allow(clippy::cast_precision_loss)]
         constraints.push(constraint!(prev_sum <= siphon.len() as f64 - 1.0));
     }
 
@@ -274,7 +275,7 @@ pub(crate) fn minimal_traps_ilp(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
 
         // Trap property: x[p] ≤ Σ_{q ∈ t•} x[q]  for all p, t ∈ p•
         for p in net.place_indices() {
-            for &t in net.postset_p[p].iter() {
+            for &t in &net.postset_p[p] {
                 let sum_postset: Expression = net
                     .postset_t[t]
                     .iter()
@@ -286,7 +287,8 @@ pub(crate) fn minimal_traps_ilp(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
 
         for prev in &no_good_sets {
             let prev_sum: Expression = prev.iter().map(|&p| x[p]).sum();
-            constraints.push(constraint!(prev_sum <= (prev.len() as f64 - 1.0)));
+            #[allow(clippy::cast_precision_loss)]
+            constraints.push(constraint!(prev_sum <= prev.len() as f64 - 1.0));
         }
 
         let Ok(solution) = vars

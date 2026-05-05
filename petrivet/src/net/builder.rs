@@ -73,8 +73,8 @@ pub enum NetError {
 impl fmt::Display for NetError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NetError::Degenerate => write!(f, "the net must have at least one place and at least one transition"),
-            NetError::NotConnected => write!(f, "the net must be connected (every node reachable from every other node ignoring arc directions)"),
+            Self::Degenerate => write!(f, "the net must have at least one place and at least one transition"),
+            Self::NotConnected => write!(f, "the net must be connected (every node reachable from every other node ignoring arc directions)"),
         }
     }
 }
@@ -205,10 +205,10 @@ impl NetBuilder {
         let outputs = self.postset_p.remove(&place).unwrap_or_default();
 
         for &t in &inputs {
-            self.postset_t.get_mut(&t).unwrap().remove(&place);
+            self.postset_t.get_mut(&t).map(|s| s.remove(&place));
         }
         for &t in &outputs {
-            self.preset_t.get_mut(&t).unwrap().remove(&place);
+            self.preset_t.get_mut(&t).map(|s| s.remove(&place));
         }
         if let Some(pos) = self.places.iter().position(|&k| k == place) {
             self.places.swap_remove(pos);
@@ -224,10 +224,10 @@ impl NetBuilder {
         let outputs = self.postset_t.remove(&transition).unwrap_or_default();
 
         for &p in &inputs {
-            self.postset_p.get_mut(&p).unwrap().remove(&transition);
+            self.postset_p.get_mut(&p).map(|s| s.remove(&transition));
         }
         for &p in &outputs {
-            self.preset_p.get_mut(&p).unwrap().remove(&transition);
+            self.preset_p.get_mut(&p).map(|s| s.remove(&transition));
         }
         if let Some(pos) = self.transitions.iter().position(|&k| k == transition) {
             self.transitions.swap_remove(pos);
@@ -244,7 +244,7 @@ impl NetBuilder {
                     .get_mut(&t)
                     .is_some_and(|s| s.remove(&p));
                 if removed {
-                    self.postset_p.get_mut(&p).unwrap().remove(&t);
+                    self.postset_p.get_mut(&p).map(|s| s.remove(&t));
                 }
                 removed
             }
@@ -254,7 +254,7 @@ impl NetBuilder {
                     .get_mut(&t)
                     .is_some_and(|s| s.remove(&p));
                 if removed {
-                    self.preset_p.get_mut(&p).unwrap().remove(&t);
+                    self.preset_p.get_mut(&p).map(|s| s.remove(&t));
                 }
                 removed
             }
@@ -262,12 +262,12 @@ impl NetBuilder {
     }
 
     #[must_use]
-    pub fn place_count(&self) -> usize {
+    pub const fn place_count(&self) -> usize {
         self.places.len()
     }
 
     #[must_use]
-    pub fn transition_count(&self) -> usize {
+    pub const fn transition_count(&self) -> usize {
         self.transitions.len()
     }
 
@@ -294,7 +294,9 @@ impl NetBuilder {
     }
 
     /// Classify the net in its current state while it is being built.
-    /// Returns a [`NetClass`] or a [`NetError`] if the net is degenerate or disconnected.
+    ///
+    /// # Errors
+    /// Returns [`NetError`] if the net is degenerate or disconnected.
     pub fn classify(&self) -> Result<NetClass, NetError> {
         if self.place_count() == 0 || self.transition_count() == 0 {
             return Err(NetError::Degenerate);
@@ -305,7 +307,10 @@ impl NetBuilder {
         ).ok_or(NetError::NotConnected)
     }
 
-    /// Consumes the builder and returns a validated [`Net`], or a [`NetError`].
+    /// Consumes the builder and returns a validated [`Net`] with dense indices and bandwidth reduction applied.
+    ///
+    /// # Errors
+    /// Returns [`NetError`] if the net is degenerate or disconnected.
     pub fn build(self) -> Result<Net, NetError> {
         let class = self.classify()?;
 
@@ -556,12 +561,12 @@ impl From<Net> for NetBuilder {
 
         for t in net.transitions() {
             for p in net.transition_preset(&t) {
-                preset_t.get_mut(&t).unwrap().insert(p);
-                postset_p.get_mut(&p).unwrap().insert(t);
+                preset_t.get_mut(&t).expect("always present").insert(p);
+                postset_p.get_mut(&p).expect("always present").insert(t);
             }
             for p in net.transition_postset(&t) {
-                postset_t.get_mut(&t).unwrap().insert(p);
-                preset_p.get_mut(&p).unwrap().insert(t);
+                postset_t.get_mut(&t).expect("always present").insert(p);
+                preset_p.get_mut(&p).expect("always present").insert(t);
             }
         }
 

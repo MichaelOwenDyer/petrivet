@@ -142,10 +142,10 @@ impl<'a, T: TokenOps> StateSpaceExplorer<'a, T> {
     /// Caller must ensure the transition is enabled.
     pub(crate) fn fire(&self, node: NodeIndex, t: TransitionIdx) -> IdxMarking<T> {
         let mut result = self.state_space.graph[node].clone();
-        for &p in self.state_space.net.core.preset_t[t].iter() {
+        for &p in &self.state_space.net.core.preset_t[t] {
             result[p].decrement();
         }
-        for &p in self.state_space.net.core.postset_t[t].iter() {
+        for &p in &self.state_space.net.core.postset_t[t] {
             result[p].increment();
         }
         result

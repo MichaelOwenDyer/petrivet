@@ -28,6 +28,7 @@ pub mod semi_decision;
 pub mod model;
 pub mod siphon_trap;
 pub mod incidence;
+pub mod backwards_coverability;
 
 impl<N: AsRef<Net>> System<N> {
 
@@ -68,6 +69,7 @@ impl<N: AsRef<Net>> System<N> {
             let bounds: Box<[(Place, Omega)]> = net.places()
                 .zip(place_weights.iter())
                 .map(|(place, &weight)| {
+                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
                     let bound = (weighted_sum / weight).floor() as u32;
                     (place, Omega::Finite(bound))
                 })

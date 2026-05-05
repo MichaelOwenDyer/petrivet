@@ -61,7 +61,7 @@ use crate::{CoverabilityExplorer, CoverabilityGraph, ExplorationOrder, Marking, 
 use std::fmt;
 use std::marker::PhantomData;
 
-///
+/// Internal representation of a Petri net system with dense indexing for efficient state-space exploration.
 #[derive(Debug, Clone)]
 pub(crate) struct DenseSystem<N: AsRef<Net>> {
     pub(crate) net: N,
@@ -359,6 +359,7 @@ impl<N: AsRef<Net>> System<N> {
             .zip(self.core.initial_marking.iter())
             .map(|(&w, &m)| w * f64::from(m))
             .sum();
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         weights.iter().all(|&w| (weighted_sum / w).floor() as u32 <= 1)
     }
 
@@ -396,7 +397,7 @@ impl<N: AsRef<Net>> System<N> {
             .copied()
             .ok_or(())
             .and_then(|t_idx| self.core.try_fire(t_idx))
-            .map_err(|_| NotEnabled(t))
+            .map_err(|()| NotEnabled(t))
     }
 
     /// Fire any single enabled transition.

@@ -35,93 +35,93 @@ pub(crate) mod idx {
     ///
     /// This is a crate-internal handle used by analysis algorithms. External users
     /// interact with [`Place`] instead.
-    pub(crate) type PlaceIdx = usize;
+    pub type PlaceIdx = usize;
 
     /// A transition in a built [`Net`], identified by a dense index in `0 .. transition_count`.
     ///
     /// This is a crate-internal handle used by analysis algorithms. External users
     /// interact with [`Transition`] instead.
-    pub(crate) type TransitionIdx = usize;
+    pub type TransitionIdx = usize;
 
     /// Arc using internal indices.
-    pub(crate) enum IdxArc {
+    pub enum IdxArc {
         PlaceToTransition(PlaceIdx, TransitionIdx),
         TransitionToPlace(TransitionIdx, PlaceIdx),
     }
 
     /// The structure of a Net compressed into a packed format optimized for analysis.
     #[derive(Debug, Clone)]
-    pub(crate) struct DenseNet {
+    pub struct DenseNet {
         /// Structural class of the net, cached at build time for efficient queries.
-        pub(crate) class: NetClass,
+        pub class: NetClass,
         /// Transition presets: for each transition t, the places in •t,
         /// sorted by their internal dense index for efficient set operations.
-        pub(crate) preset_t: Box<[SortedSet<PlaceIdx>]>,
+        pub preset_t: Box<[SortedSet<PlaceIdx>]>,
         /// Transition postsets: for each transition t, the of places in t•.
-        pub(crate) postset_t: Box<[SortedSet<PlaceIdx>]>,
+        pub postset_t: Box<[SortedSet<PlaceIdx>]>,
         /// Place presets: for each place p, the sorted set of transitions in •p.
-        pub(crate) preset_p: Box<[SortedSet<TransitionIdx>]>,
+        pub preset_p: Box<[SortedSet<TransitionIdx>]>,
         /// Place postsets: for each place p, the sorted set of transitions in p•.
-        pub(crate) postset_p: Box<[SortedSet<TransitionIdx>]>,
+        pub postset_p: Box<[SortedSet<TransitionIdx>]>,
     }
 
     impl DenseNet {
         /// A net is a circuit if it is both an S-net and a T-net.
         #[must_use]
-        pub fn is_circuit(&self) -> bool {
+        pub const fn is_circuit(&self) -> bool {
             self.class.is_circuit()
         }
 
         /// A net is an S-net, or state machine, if every transition has exactly one input and one output place.
         #[must_use]
-        pub fn is_state_machine(&self) -> bool {
+        pub const fn is_state_machine(&self) -> bool {
             self.class.is_state_machine()
         }
 
         /// A net is a T-net, or marked graph, if every place has exactly one input and one output transition.
         #[must_use]
-        pub fn is_marked_graph(&self) -> bool {
+        pub const fn is_marked_graph(&self) -> bool {
             self.class.is_marked_graph()
         }
 
         /// A net is free-choice if for every two transitions t1, t2:
         /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
         #[must_use]
-        pub fn is_free_choice_net(&self) -> bool {
+        pub const fn is_free_choice_net(&self) -> bool {
             self.class.is_free_choice()
         }
 
         /// A net is asymmetric-choice if for every two places s1, s2:
         /// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
         #[must_use]
-        pub fn is_asymmetric_choice_net(&self) -> bool {
+        pub const fn is_asymmetric_choice_net(&self) -> bool {
             self.class.is_asymmetric_choice()
         }
 
         /// Iterator over all internal places.
-        pub(crate) fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
+        pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
             0..self.place_count() as usize
         }
 
         /// Number of places in the net.
         #[must_use]
-        pub(crate) fn place_count(&self) -> u32 {
+        pub fn place_count(&self) -> u32 {
             u32::try_from(self.preset_p.len()).expect("cannot be built with more than u32::MAX places")
         }
 
         /// Number of transitions in the net.
         #[must_use]
-        pub(crate) fn transition_count(&self) -> u32 {
+        pub fn transition_count(&self) -> u32 {
             u32::try_from(self.preset_t.len()).expect("cannot be built with more than u32::MAX transitions")
         }
 
         /// Iterator over all internal transitions.
-        pub(crate) fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
+        pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
             0..self.transition_count() as usize
         }
 
         /// Returns an iterator over all transition indices and associated index presets and index postsets.
-        pub(crate) fn transition_io(&self) -> impl Iterator<Item = (TransitionIdx, &SortedSet<PlaceIdx>, &SortedSet<PlaceIdx>)> + '_ {
+        pub fn transition_io(&self) -> impl Iterator<Item = (TransitionIdx, &SortedSet<PlaceIdx>, &SortedSet<PlaceIdx>)> + '_ {
             self.transition_indices()
                 .zip(self.preset_t.iter().zip(self.postset_t.iter()))
                 .map(|(t, (preset, postset))| (t, preset, postset))
@@ -129,19 +129,19 @@ pub(crate) mod idx {
 
         /// Number of nodes in the net (places + transitions).
         #[must_use]
-        pub(crate) fn node_count(&self) -> usize {
+        pub fn node_count(&self) -> usize {
             self.preset_p.len() + self.preset_t.len()
         }
 
         /// Number of arcs in the net.
         #[must_use]
-        pub(crate) fn arc_count(&self) -> usize {
+        pub fn arc_count(&self) -> usize {
             std::iter::zip(&self.preset_p, &self.postset_p)
                 .map(|(pre, post)| pre.len() + post.len())
                 .sum()
         }
 
-        pub(crate) fn arcs(&self) -> impl Iterator<Item = IdxArc> + '_ {
+        pub fn arcs(&self) -> impl Iterator<Item = IdxArc> + '_ {
             self.place_indices()
                 .zip(self.preset_p.iter().zip(self.postset_p.iter()))
                 .flat_map(|(p_idx, (preset, postset))| {
@@ -191,7 +191,7 @@ pub(crate) mod idx {
         /// which would cause any place in the net to become unbounded.
         #[must_use]
         pub fn is_structurally_bounded(&self) -> bool {
-            analysis::semi_decision::find_positive_place_subvariant(&self).is_some()
+            analysis::semi_decision::find_positive_place_subvariant(self).is_some()
         }
 
         /// Checks if a single place is structurally bounded.
@@ -200,7 +200,7 @@ pub(crate) mod idx {
         #[must_use]
         pub fn is_place_structurally_bounded(&self, place: &PlaceIdx) -> bool {
             analysis::semi_decision::find_semipositive_place_subvariant(
-                &self,
+                self,
                 |p| p == place
             ).is_some()
         }
@@ -247,7 +247,7 @@ where
     type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some((i, val)) = self.iter.next() {
+        for (i, val) in self.iter.by_ref() {
             if let Some(&target) = self.indices.peek() {
                 if i == target {
                     self.indices.next();
@@ -360,39 +360,39 @@ impl Net {
 
     /// Returns the structural class of this net (cached at build time).
     #[must_use]
-    pub fn class(&self) -> NetClass {
+    pub const fn class(&self) -> NetClass {
         self.core.class
     }
 
     /// A net is a circuit if it is both an S-net and a T-net.
     #[must_use]
-    pub fn is_circuit(&self) -> bool {
+    pub const fn is_circuit(&self) -> bool {
         self.core.is_circuit()
     }
 
     /// A net is an S-net, or state machine, if every transition has exactly one input and one output place.
     #[must_use]
-    pub fn is_state_machine(&self) -> bool {
+    pub const fn is_state_machine(&self) -> bool {
         self.core.is_state_machine()
     }
 
     /// A net is a T-net, or marked graph, if every place has exactly one input and one output transition.
     #[must_use]
-    pub fn is_marked_graph(&self) -> bool {
+    pub const fn is_marked_graph(&self) -> bool {
         self.core.is_marked_graph()
     }
 
     /// A net is free-choice if for every two transitions t1, t2:
     /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
     #[must_use]
-    pub fn is_free_choice_net(&self) -> bool {
+    pub const fn is_free_choice_net(&self) -> bool {
         self.core.is_free_choice_net()
     }
 
     /// A net is asymmetric-choice if for every two places s1, s2:
     /// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
     #[must_use]
-    pub fn is_asymmetric_choice_net(&self) -> bool {
+    pub const fn is_asymmetric_choice_net(&self) -> bool {
         self.core.is_asymmetric_choice_net()
     }
 

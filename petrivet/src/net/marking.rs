@@ -224,7 +224,7 @@ impl<T> FromIterator<T> for IdxMarking<T> {
 /// Merges two orderings in the context of element-wise comparison of markings.
 /// If either is `Equal`, returns the other. If both are `Less` or both are `Greater`, returns that.
 /// Otherwise, returns `None` (incomparable).
-fn merge_ordering(acc: Ordering, next: Ordering) -> Option<Ordering> {
+const fn merge_ordering(acc: Ordering, next: Ordering) -> Option<Ordering> {
     match (acc, next) {
         (Ordering::Equal, o) | (o, Ordering::Equal) => Some(o),
         (Ordering::Less, Ordering::Less) => Some(Ordering::Less),
@@ -261,25 +261,25 @@ pub enum Omega {
 impl Omega {
     /// Returns `true` if this is a finite value.
     #[must_use]
-    pub fn is_finite(self) -> bool {
+    pub const fn is_finite(self) -> bool {
         matches!(self, Omega::Finite(_))
     }
 
     /// Returns `true` if this value is unbounded (omega).
     #[must_use]
-    pub fn is_unbounded(self) -> bool {
+    pub const fn is_unbounded(self) -> bool {
         matches!(self, Omega::Unbounded)
     }
 
     /// Returns true if this is a finite value less than or equal to `b`.
     #[must_use]
-    pub fn is_b_bounded(self, b: u32) -> bool {
+    pub const fn is_b_bounded(self, b: u32) -> bool {
         matches!(self, Omega::Finite(bound) if bound <= b)
     }
 
     /// Returns the finite value, or `None` if unbounded.
     #[must_use]
-    pub fn finite(self) -> Option<u32> {
+    pub const fn finite(self) -> Option<u32> {
         match self {
             Omega::Finite(n) => Some(n),
             Omega::Unbounded => None,

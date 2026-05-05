@@ -2,6 +2,9 @@
 name = "petrivet"
 version = "0.1.0"
 edition = "2024"
+description = "A Rust library for working with Petri nets"
+repository = "https://github.com/MichaelOwenDyer/petrivet"
+keywords = ["petrinets", "modeling", "analysis"]
 
 [dependencies]
 good_lp = { version = "1.15.0", default-features = false, features = ["microlp"] }

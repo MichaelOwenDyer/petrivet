@@ -39,7 +39,6 @@ pub struct NupnIdList {
 
 impl NupnIdList {
     /// Iterator over place or unit identifiers in document order of tokens.
-    #[must_use]
     pub fn ids(&self) -> impl Iterator<Item = &str> + '_ {
         self.raw.split_whitespace()
     }
@@ -71,7 +70,7 @@ pub struct NupnUnit {
 /// `<structure units="U" root="R" safe="S">…</structure>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NupnStructure {
-    /// Declared number of units (including the root); should match [`Self::units`].len().
+    /// Declared number of units (including the root); should match the length of [`Self::units`].
     #[serde(rename = "@units")]
     pub unit_count: u64,
     /// `id` of the root unit.
@@ -94,7 +93,7 @@ pub struct NupnMetadata {
 impl NupnMetadata {
     /// Shorthand for [`Self::structure`].[`NupnStructure::unit_safe`].
     #[must_use]
-    pub fn unit_safe_declared(&self) -> bool {
+    pub const fn unit_safe_declared(&self) -> bool {
         self.structure.unit_safe
     }
 
@@ -135,10 +134,9 @@ impl NupnMetadata {
             }
         }
         for obj in &page.objects {
-            if let PageObject::Page(sub) = obj {
-                if let Some(m) = Self::from_page(sub) {
-                    return Some(m);
-                }
+            if let PageObject::Page(sub) = obj
+                && let Some(m) = Self::from_page(sub) {
+                return Some(m);
             }
         }
         None

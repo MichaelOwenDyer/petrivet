@@ -166,12 +166,12 @@ impl<'a> ReachabilityExplorer<'a> {
 
     /// Current exploration order.
     #[must_use]
-    pub fn exploration_order(&self) -> ExplorationOrder {
+    pub const fn exploration_order(&self) -> ExplorationOrder {
         self.core.order
     }
 
     /// Change the exploration order for subsequent steps.
-    pub fn set_exploration_order(&mut self, order: ExplorationOrder) {
+    pub const fn set_exploration_order(&mut self, order: ExplorationOrder) {
         self.core.order = order;
     }
 

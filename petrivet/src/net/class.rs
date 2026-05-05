@@ -374,39 +374,36 @@ pub enum NetClass {
 impl NetClass {
     /// Returns true if this class is `Circuit`.
     #[must_use]
-    pub fn is_circuit(&self) -> bool {
-        use NetClass::Circuit;
-        matches!(self, Circuit)
+    pub const fn is_circuit(&self) -> bool {
+        matches!(self, Self::Circuit)
     }
 
-    /// Returns true if this class is `SNet` or `Circuit` (since circuits are a subclass of S-nets).
+    /// Returns true if this class is `SNet` or `Circuit`
+    /// (since circuits are a subclass of S-nets).
     #[must_use]
-    pub fn is_state_machine(&self) -> bool {
-        use NetClass::*;
-        matches!(self, StateMachine | Circuit)
+    pub const fn is_state_machine(&self) -> bool {
+        matches!(self, Self::StateMachine | Self::Circuit)
     }
 
-    /// Returns true if this class is `TNet` or `Circuit` (since circuits are a subclass of T-nets).
+    /// Returns true if this class is `TNet` or `Circuit`
+    /// (since circuits are a subclass of T-nets).
     #[must_use]
-    pub fn is_marked_graph(&self) -> bool {
-        use NetClass::*;
-        matches!(self, MarkedGraph | Circuit)
+    pub const fn is_marked_graph(&self) -> bool {
+        matches!(self, Self::MarkedGraph | Self::Circuit)
     }
 
-    /// Returns true if this class is `FreeChoice` or any of its subclasses
-    /// (Circuit, SNet, TNet).
+    /// Returns true if this class is `FreeChoice`, `StateMachine`, `MarkedGraph`, or `Circuit`
+    /// (since all of these are subclasses of Free-Choice nets).
     #[must_use]
-    pub fn is_free_choice(&self) -> bool {
-        use NetClass::*;
-        matches!(self, FreeChoice | StateMachine | MarkedGraph | Circuit)
+    pub const fn is_free_choice(&self) -> bool {
+        matches!(self, Self::FreeChoice | Self::StateMachine | Self::MarkedGraph | Self::Circuit)
     }
 
-    /// Returns true if this class is `AsymmetricChoice` or any of its subclasses
-    /// (Circuit, SNet, TNet, FreeChoice).
+    /// Returns true if this class is `AsymmetricChoice`, `FreeChoice`, `StateMachine`, `MarkedGraph`, or `Circuit`
+    /// (since all of these are subclasses of Asymmetric-Choice nets).
     #[must_use]
-    pub fn is_asymmetric_choice(&self) -> bool {
-        use NetClass::*;
-        matches!(self, AsymmetricChoice | FreeChoice | StateMachine | MarkedGraph | Circuit)
+    pub const fn is_asymmetric_choice(&self) -> bool {
+        matches!(self, Self::AsymmetricChoice | Self::FreeChoice | Self::StateMachine | Self::MarkedGraph | Self::Circuit)
     }
 }
 
@@ -425,39 +422,39 @@ impl fmt::Display for NetClass {
 
 /// Check if the net is strongly connected.
 /// This is a prerequisite for classifying or building a net in this library.
-pub fn is_connected<S: std::hash::BuildHasher>(
+/// It is expected that these maps are eagerly populated, symmetrically consistent,
+/// and non-empty.
+pub(crate) fn is_connected<S: std::hash::BuildHasher>(
     preset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     postset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     preset_p: &HashMap<Place, HashSet<Transition, S>, S>,
     postset_p: &HashMap<Place, HashSet<Transition, S>, S>,
 ) -> bool {
-    let n_places = preset_p.len();
-    let n_transitions = preset_t.len();
-    let n_nodes = n_places + n_transitions;
+    let n_nodes = preset_p.len() + preset_t.len();
     if n_nodes > 0 {
         let mut visited_p = HashSet::new();
         let mut visited_t = HashSet::new();
         let mut queue = VecDeque::new();
-        if n_places > 0 {
-            let first_place = preset_p.keys().next().unwrap().to_owned();
-            visited_p.insert(first_place);
-            queue.push_back(Node::Place(first_place));
-        } else {
-            let first_transition = preset_t.keys().next().unwrap().to_owned();
-            visited_t.insert(first_transition);
-            queue.push_back(Node::Transition(first_transition));
-        }
+        let first_place = preset_p.keys().next().expect("n_places > 0").to_owned();
+        visited_p.insert(first_place);
+        queue.push_back(Node::Place(first_place));
         while let Some(node) = queue.pop_front() {
             match node {
                 Node::Place(p) => {
-                    for &t in iter::chain(preset_p.get(&p).unwrap().iter(), postset_p.get(&p).unwrap().iter()) {
+                    for &t in iter::chain(
+                        preset_p.get(&p).expect("eagerly populated").iter(),
+                        postset_p.get(&p).expect("eagerly populated").iter()
+                    ) {
                         if visited_t.insert(t) {
                             queue.push_back(Node::Transition(t));
                         }
                     }
                 }
                 Node::Transition(t) => {
-                    for &p in iter::chain(preset_t.get(&t).unwrap().iter(), postset_t.get(&t).unwrap().iter()) {
+                    for &p in iter::chain(
+                        preset_t.get(&t).expect("eagerly populated").iter(),
+                        postset_t.get(&t).expect("eagerly populated").iter()
+                    ) {
                         if visited_p.insert(p) {
                             queue.push_back(Node::Place(p));
                         }
@@ -479,13 +476,14 @@ pub fn is_connected<S: std::hash::BuildHasher>(
 /// (e.g. if `p` is in `preset_t[t]` then `t` is in `postset_p[p]`)
 /// and eagerly populated for all nodes (e.g. if `t` has no preset,
 /// then `preset_t[t]` is an empty set, not missing).
+#[allow(clippy::similar_names)]
 pub(crate) fn classify<S: std::hash::BuildHasher>(
     preset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     postset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     preset_p: &HashMap<Place, HashSet<Transition, S>, S>,
     postset_p: &HashMap<Place, HashSet<Transition, S>, S>
 ) -> Option<NetClass> {
-    if !is_connected(preset_t, postset_t, preset_p, &postset_p) {
+    if !is_connected(preset_t, postset_t, preset_p, postset_p) {
         return None;
     }
     let is_s_net = is_s_net(preset_t, postset_t);
@@ -527,7 +525,7 @@ fn is_free_choice_net<S: std::hash::BuildHasher>(
 ) -> bool {
     postset_p.values().all(|postset| {
         let mut iter = postset.iter().map(|t| preset_t.get(t).unwrap());
-        iter.next().map_or(true, |first| iter.all(|preset| preset == first))
+        iter.next().is_none_or(|first| iter.all(|preset| preset == first))
     })
 }
 

@@ -215,7 +215,7 @@ impl NetLabels {
     /// Nested-unit (NUPN) metadata from PNML, when the source file contained a
     /// `<toolspecific tool="nupn" version="1.1">` block.
     #[must_use]
-    pub fn nupn(&self) -> Option<&NupnMetadata> {
+    pub const fn nupn(&self) -> Option<&NupnMetadata> {
         self.nupn.as_ref()
     }
 

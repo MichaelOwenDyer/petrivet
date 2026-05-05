@@ -87,12 +87,12 @@ impl<'a> CoverabilityExplorer<'a> {
 
     /// Current exploration order.
     #[must_use]
-    pub fn exploration_order(&self) -> ExplorationOrder {
+    pub const fn exploration_order(&self) -> ExplorationOrder {
         self.explorer.order
     }
 
     /// Change the exploration order for subsequent steps.
-    pub fn set_exploration_order(&mut self, order: ExplorationOrder) {
+    pub const fn set_exploration_order(&mut self, order: ExplorationOrder) {
         self.explorer.order = order;
     }
 
@@ -207,11 +207,11 @@ impl<'a> CoverabilityExplorer<'a> {
         let graph = &self.explorer.state_space.graph;
         let mut stack = vec![src];
         let mut visited: HashSet<NodeIndex> = HashSet::new();
-        while let Some(node) = stack.pop() {
-            if !visited.insert(node) {
+        while let Some(predecessor_node) = stack.pop() {
+            if !visited.insert(predecessor_node) {
                 continue;
             }
-            let ancestor_marking = self.explorer.state_space.marking_at(node);
+            let ancestor_marking = self.explorer.state_space.marking_at(predecessor_node);
             if ancestor_marking < new_marking {
                 for (component, prev) in new_marking.iter_mut().zip(ancestor_marking.iter()) {
                     if *component > *prev {
@@ -219,8 +219,11 @@ impl<'a> CoverabilityExplorer<'a> {
                     }
                 }
             }
-            for edge in graph.edges_directed(node, petgraph::Direction::Incoming) {
-                stack.push(edge.source());
+            for incoming_edge in graph.edges_directed(
+                predecessor_node,
+                petgraph::Direction::Incoming
+            ) {
+                stack.push(incoming_edge.source());
             }
         }
     }
@@ -492,10 +495,10 @@ mod tests {
 
     #[test]
     fn coverability_check() {
+        use Omega::Finite;
         let (sys, p0, p1) = two_place_cycle();
         let cg = sys.build_coverability_graph();
 
-        use Omega::Finite;
         assert!(cg.cover([(p0, Finite(1))].into()).is_some());
         assert!(cg.cover([(p1, Finite(1))].into()).is_some());
         assert!(cg.cover([(p0, Finite(1)), (p1, Finite(1))].into()).is_none());
@@ -644,7 +647,7 @@ mod tests {
         }
     }
 
-    /// Connected net with concurrent enabling: both sub-cycles share p_shared.
+    /// Connected net with concurrent enabling: both sub-cycles share `p_shared`.
     /// Tests that transitions enabled from pre-existing tokens are explored.
     #[test]
     fn concurrent_enabling_bounded() {

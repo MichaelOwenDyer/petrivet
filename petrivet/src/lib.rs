@@ -1,3 +1,13 @@
+#![warn(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::cargo,
+)]
+#![allow(
+    clippy::cargo_common_metadata,
+    clippy::use_self,
+)]
+
 //! Petrivet: a Rust library for modeling, simulating, and analyzing Petri nets.
 //!
 //! # Public API model
