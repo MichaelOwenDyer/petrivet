@@ -1,4 +1,4 @@
-use petrivet::System;
+use petrivet::PetriNet;
 
 fn main() {
     let path = concat!(
@@ -8,7 +8,7 @@ fn main() {
     let champagne = std::fs::read_to_string(path).unwrap();
     // println!("PNML content:\n{}", champagne);
 
-    let system = System::from_pnml(&champagne).unwrap();
+    let system = PetriNet::from_pnml(&champagne).unwrap();
     println!("{:?}", system.initial_marking());
     let enabled = system.enabled_transitions().collect::<Box<_>>();
     println!("{enabled:?}");

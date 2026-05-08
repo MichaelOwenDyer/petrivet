@@ -39,7 +39,7 @@ use std::collections::HashMap;
 /// Labels are purely presentational: they have no effect on structural
 /// classification, reachability analysis, or simulation. The struct is
 /// intentionally decoupled from [`Net`](Net) and
-/// [`System`](crate::system::System) — callers hold the three values
+/// [`System`](crate::system::PetriNet) — callers hold the three values
 /// independently and compose them as needed.
 ///
 /// It is undefined behavior to access labels for a place/transition/arc

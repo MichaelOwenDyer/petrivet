@@ -19,7 +19,7 @@
 //! ```
 //! use petrivet::net::builder::NetBuilder;
 //! use petrivet::net::marking::IdxMarking;
-//! use petrivet::net::system::System;
+//! use petrivet::net::system::PetriNet;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -27,7 +27,7 @@
 //! b.add_arc((p0, t0)); b.add_arc((t0, p1));
 //! b.add_arc((p1, t1)); b.add_arc((t1, p0));
 //! let net = b.build().unwrap();
-//! let sys = System::new(net, [1u32, 0]);
+//! let sys = PetriNet::new(net, [1u32, 0]);
 //!
 //! // Can we reach (0, 1)? The marking equation says: feasible
 //! let result = sys.analyze_reachability(&IdxMarking::from([0u32, 1]));

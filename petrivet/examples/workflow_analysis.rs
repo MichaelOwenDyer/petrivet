@@ -35,7 +35,7 @@
 //! Run: `cargo run --example workflow_analysis`
 
 use petrivet::net::builder::NetBuilder;
-use petrivet::net::system::System;
+use petrivet::net::system::PetriNet;
 use petrivet::state_space::ExplorationOrder;
 use petrivet::ReachabilityGraph;
 
@@ -101,7 +101,7 @@ fn main() {
     println!("\n--- Behavioral Analysis (3 boards, 1 station) ---\n");
 
     // 3 raw boards, 1 station slot, everything else empty
-    let sys = System::new(&net, [(raw, 3), (station, 1)]);
+    let sys = PetriNet::new(&net, [(raw, 3), (station, 1)]);
     let boundedness = sys.analyze_boundedness();
 
     println!("Bounded: {:?}", boundedness.system_bound());

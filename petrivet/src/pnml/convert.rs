@@ -31,7 +31,7 @@
 //! # Unsupported net types
 //!
 //! Only P/T nets (`http://www.pnml.org/version-2009/grammar/ptnet`) are
-//! converted into a runnable [`System`]. All other net type URIs produce
+//! converted into a runnable [`PetriNet`]. All other net type URIs produce
 //! [`PetriNetKind::Unsupported`] — the PNML data model is still fully parsed,
 //! but no attempt is made to interpret type-specific labels whose semantics
 //! are not yet implemented. This is intentional: silently ignoring high-level
@@ -42,12 +42,12 @@ use crate::net::builder::{NetBuilder, NetError};
 use crate::pnml::labels::NetLabels;
 use crate::net::{Arc, Net, Place, Transition};
 use crate::pnml::graphics::PnmlGraphics;
-use crate::net::system::System;
+use crate::net::system::PetriNet;
 use crate::Marking;
 use std::collections::HashMap;
 
 /// Errors that can occur when converting a [`super::PnmlNet`] PNML model into a
-/// native petrivet [`System`].
+/// native petrivet [`PetriNet`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PnmlConversionError {
     /// The net's type URI does not match the requested conversion. The URI
@@ -101,7 +101,7 @@ impl From<NetError> for PnmlConversionError {
 /// The result of a URI-dispatched PNML conversion.
 ///
 /// Each variant corresponds to a class of Petri net type. Currently only P/T
-/// nets are converted into a runnable [`System`]; all other type URIs produce
+/// nets are converted into a runnable [`PetriNet`]; all other type URIs produce
 /// [`PetriNetKind::Unsupported`].
 ///
 /// # Adding support for new net types
@@ -111,7 +111,7 @@ impl From<NetError> for PnmlConversionError {
 #[derive(Debug)]
 pub enum PetriNetKind {
     /// A fully converted P/T net system, ready for simulation and analysis.
-    PtNet(System<Net>),
+    PtNet(PetriNet<Net>),
 
     /// The net's type URI is recognised but not yet supported by this library.
     /// The raw PNML data model is available via [`PnmlDocument`] if
@@ -222,7 +222,7 @@ impl<'a> FlatNet<'a> {
 #[expect(clippy::too_many_lines)]
 fn convert_pt_net(
     pnml_net: &net::PnmlNet,
-) -> Result<System<Net>, PnmlConversionError> {
+) -> Result<PetriNet<Net>, PnmlConversionError> {
     let mut flat = FlatNet::new();
     for page in &pnml_net.pages {
         flat.visit_page(page)?;
@@ -407,7 +407,7 @@ fn convert_pt_net(
     let mut net = builder.build()?;
     net.set_labels(labels);
     net.set_graphics(graphics);
-    let system = System::new(net, initial_marking);
+    let system = PetriNet::new(net, initial_marking);
 
     Ok(system)
 }
@@ -453,7 +453,7 @@ impl net::PnmlNet {
     ///   net URI.
     /// - Any other [`PnmlConversionError`] variant if the topology is
     ///   structurally invalid.
-    pub fn to_pt_system(&self) -> Result<System<Net>, PnmlConversionError> {
+    pub fn to_pt_system(&self) -> Result<PetriNet<Net>, PnmlConversionError> {
         if self.net_type != net_type::PT_NET {
             return Err(PnmlConversionError::WrongNetType(self.net_type.clone()));
         }

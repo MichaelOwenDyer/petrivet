@@ -16,7 +16,7 @@
 //!
 //! ```
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::net::system::System;
+//! use petrivet::net::system::PetriNet;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -24,7 +24,7 @@
 //! b.add_arc((p0, t0)); b.add_arc((t0, p1));
 //! b.add_arc((p1, t1)); b.add_arc((t1, p0));
 //! let net = b.build().unwrap();
-//! let sys = System::new(net, [1, 0]);
+//! let sys = PetriNet::new(net, [1, 0]);
 //!
 //! // 1. Build coverability graph (always terminates)
 //! let cg = sys.build_coverability_graph();
@@ -44,7 +44,7 @@
 
 use crate::analysis::model::LivenessLevel;
 use crate::net::marking::{IdxMarking, Omega};
-use crate::net::system::System;
+use crate::net::system::PetriNet;
 use crate::net::{Net, Transition};
 use crate::state_space::explorer::StateGraph;
 use crate::state_space::{explorer::StateSpaceExplorer, CoverabilityGraph, ExplorationOrder};
@@ -62,7 +62,7 @@ use crate::{Marking, Place};
 ///
 /// ```
 /// use petrivet::net::builder::NetBuilder;
-/// use petrivet::net::system::System;
+/// use petrivet::net::system::PetriNet;
 /// use petrivet::{ReachabilityExplorer, ReachabilityGraph, ExplorationOrder};
 ///
 /// let mut b = NetBuilder::new();
@@ -72,7 +72,7 @@ use crate::{Marking, Place};
 /// b.add_arc((t0, p0));
 /// b.add_arc((t0, p1));
 /// let net = b.build().unwrap();
-/// let sys = System::new(net, [1, 0]);
+/// let sys = PetriNet::new(net, [1, 0]);
 ///
 /// // Explore an unbounded net incrementally, stopping after 50 states
 /// let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
@@ -98,7 +98,7 @@ pub struct ReachabilityStep {
 impl<'a> ReachabilityExplorer<'a> {
     /// Create an unexplored explorer from a system.
     #[must_use]
-    pub fn new(sys: &'a System<impl AsRef<Net>>, order: ExplorationOrder) -> Self {
+    pub fn new(sys: &'a PetriNet<impl AsRef<Net>>, order: ExplorationOrder) -> Self {
         let net = sys.core.net();
         let marking = sys.core.current_marking.clone();
         Self {
@@ -134,7 +134,7 @@ impl<'a> ReachabilityExplorer<'a> {
     ///
     /// ```
     /// use petrivet::net::builder::NetBuilder;
-    /// use petrivet::net::system::System;
+    /// use petrivet::net::system::PetriNet;
     /// use petrivet::{ReachabilityExplorer, ExplorationOrder};
     /// use petrivet::net::marking::IdxMarking;
     ///
@@ -144,7 +144,7 @@ impl<'a> ReachabilityExplorer<'a> {
     /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
     /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
     /// let net = b.build().unwrap();
-    /// let sys = System::new(net, [1, 0]);
+    /// let sys = PetriNet::new(net, [1, 0]);
     ///
     /// let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
     ///
@@ -303,7 +303,7 @@ impl std::fmt::Debug for ReachabilityExplorer<'_> {
 ///
 /// ```
 /// use petrivet::net::builder::NetBuilder;
-/// use petrivet::net::system::System;
+/// use petrivet::net::system::PetriNet;
 /// use petrivet::{ReachabilityGraph, ExplorationOrder};
 /// use petrivet::net::marking::IdxMarking;
 ///
@@ -313,7 +313,7 @@ impl std::fmt::Debug for ReachabilityExplorer<'_> {
 /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
 /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
 /// let net = b.build().unwrap();
-/// let sys = System::new(net, [1, 0]);
+/// let sys = PetriNet::new(net, [1, 0]);
 ///
 /// let rg = ReachabilityGraph::build(&sys);
 ///
@@ -335,7 +335,7 @@ impl<'a> ReachabilityGraph<'a> {
     /// space is infinite. For unknown nets, prefer the coverability graph
     /// path or use [`ReachabilityExplorer`] with manual termination.
     #[must_use]
-    pub fn build(sys: &'a System<impl AsRef<Net>>) -> Self {
+    pub fn build(sys: &'a PetriNet<impl AsRef<Net>>) -> Self {
         let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
         explorer.explore_all(); // WARNING: does not terminate for unbounded nets!
         // explore_all() returned, so the frontier is exhausted,
@@ -495,7 +495,7 @@ impl<'a> ReachabilityGraph<'a> {
     /// Returns a dense `TransitionMap<LivenessLevel>` indexed by transition index.
     /// Store the result if you need to query it multiple times.
     ///
-    /// To get per-key results, use [`System::analyze_liveness`] which returns a
+    /// To get per-key results, use [`PetriNet::analyze_liveness`] which returns a
     /// [`LivenessAnalysis`] with key-based access via
     /// [`transition_level`](crate::analysis::model::LivenessAnalysis::transition_level).
     #[must_use]

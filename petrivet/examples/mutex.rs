@@ -31,7 +31,7 @@
 use std::collections::HashMap;
 use petrivet::net::builder::NetBuilder;
 use petrivet::net::{Place, Transition};
-use petrivet::net::system::System;
+use petrivet::net::system::PetriNet;
 use petrivet::Net;
 
 fn main() {
@@ -71,7 +71,7 @@ fn main() {
 
     // Initial marking: both processes idle, mutex available
     // Places: idle1, wait1, crit1, idle2, wait2, crit2, mutex
-    let mut sys = System::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
+    let mut sys = PetriNet::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
 
     println!();
     print_state(&sys, &net, &place_names);
@@ -97,7 +97,7 @@ fn main() {
     print_state(&sys, &net, &place_names);
 
     println!("\n--- Priority simulation: process 2 has priority ---\n");
-    let mut sys = System::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
+    let mut sys = PetriNet::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
     print_state(&sys, &net, &place_names);
 
     for step in 1..=12 {
@@ -119,7 +119,7 @@ fn main() {
     }
 
     println!("\n--- Manual firing with try_fire ---\n");
-    let mut sys = System::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
+    let mut sys = PetriNet::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
 
     println!("Trying to enter critical section without requesting first...");
     match sys.try_fire(t_enter1) {
@@ -153,7 +153,7 @@ fn main() {
     println!("\n=== Done ===");
 }
 
-fn print_state(sys: &System<impl AsRef<Net>>, net: &Net, names: &HashMap<Place, &str>) {
+fn print_state(sys: &PetriNet<impl AsRef<Net>>, net: &Net, names: &HashMap<Place, &str>) {
     print!("State: ");
     for p in net.places() {
         let tokens = sys.current_tokens(p);

@@ -23,7 +23,7 @@
 //! ```
 //! use petrivet::{CoverabilityExplorer, ExplorationOrder};
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::net::system::System;
+//! use petrivet::net::system::PetriNet;
 //!
 //! let mut net = NetBuilder::new();
 //! let [p0, p1] = net.add_places();
@@ -36,7 +36,7 @@
 //! let net = net.build().expect("valid net");
 //! println!("Class: {}", net.class());
 //!
-//! let mut sys = System::new(net, [1, 0]);
+//! let mut sys = PetriNet::new(net, [1, 0]);
 //! sys.choose_and_fire(|enabled| enabled.first());
 //! println!("Marking after firing: {}", sys.current_marking());
 //!
@@ -61,4 +61,4 @@ pub use net::*;
 pub use state_space::coverability::*;
 pub use state_space::explorer::*;
 pub use state_space::reachability::*;
-pub use net::system::System;
+pub use net::system::PetriNet;

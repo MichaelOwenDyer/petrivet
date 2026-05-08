@@ -27,7 +27,7 @@ use petrivet::net::class::NetClass;
 use petrivet::pnml::labels::NetLabels;
 use petrivet::net::{Arc as PetriArc, Net, Place, Transition};
 use petrivet::pnml::PnmlDocument;
-use petrivet::net::system::System;
+use petrivet::net::system::PetriNet;
 use wasm_bindgen::prelude::*;
 use petrivet::Marking;
 
@@ -44,7 +44,7 @@ use types::*;
 /// corresponding [`Place`]/[`Transition`] handles used by the petrivet API.
 #[wasm_bindgen]
 pub struct WasmSystem {
-    system: System<Rc<Net>>,
+    system: PetriNet<Rc<Net>>,
     initial_marking: Marking,
     labels: Option<NetLabels>,
     graphics: Option<PnmlGraphics>,
@@ -79,7 +79,7 @@ impl WasmSystem {
         let place_keys: Vec<Place> = system.net().places().collect();
         let transition_keys: Vec<Transition> = system.net().transitions().collect();
         let (net, marking) = system.into_parts();
-        let system = System::new(Rc::new(net), marking);
+        let system = PetriNet::new(Rc::new(net), marking);
 
         Ok(WasmSystem {
             system,
@@ -94,7 +94,7 @@ impl WasmSystem {
 
 impl WasmSystem {
     fn from_parts(
-        system: System<Rc<Net>>,
+        system: PetriNet<Rc<Net>>,
         initial_marking: Marking,
         labels: Option<NetLabels>,
         graphics: Option<PnmlGraphics>,
@@ -346,7 +346,7 @@ impl WasmSystem {
     #[wasm_bindgen]
     pub fn reset(&mut self) {
         let net = Rc::clone(self.system.net());
-        self.system = System::new(net, self.initial_marking.clone());
+        self.system = PetriNet::new(net, self.initial_marking.clone());
     }
 }
 
@@ -991,7 +991,7 @@ impl WasmNetBuilder {
         let graphics = None;
 
         let initial_marking = Marking::from(marking_vec.clone());
-        let system = System::new(Rc::new(net), marking_vec);
+        let system = PetriNet::new(Rc::new(net), marking_vec);
 
         Ok(WasmSystem::from_parts(system, initial_marking, Some(labels), graphics))
     }

@@ -18,7 +18,7 @@
 //! > has at least one token.
 //!
 //! Used in: [`SNetLivenessEvidence`],
-//! [`System::analyze_liveness`](crate::System::analyze_liveness).
+//! [`System::analyze_liveness`](crate::PetriNet::analyze_liveness).
 //!
 //! ## Theorem 5 — Safety of S-nets (state machines)
 //!
@@ -36,7 +36,7 @@
 //! > each directed circuit in G.
 //!
 //! Used in: [`TNetLivenessEvidence`],
-//! [`System::analyze_liveness`](crate::System::analyze_liveness).
+//! [`System::analyze_liveness`](crate::PetriNet::analyze_liveness).
 //!
 //! ## Theorem 8 — Place bounds in T-nets (marked graphs)
 //!
@@ -111,7 +111,7 @@
 //! The rational (LP) relaxation is exact for S-nets due to total
 //! unimodularity of the incidence matrix.
 //!
-//! Used in: [`System::analyze_reachability`](crate::System::analyze_reachability).
+//! Used in: [`System::analyze_reachability`](crate::PetriNet::analyze_reachability).
 //!
 //! ## Theorem 22 — Reachability in T-nets
 //!
@@ -119,7 +119,7 @@
 //! > integer solution x to M₀ + N·x = M' such that no token-free directed
 //! > circuit exists in the subnet induced by the support of x.
 //!
-//! Used in: [`System::analyze_reachability`](crate::System::analyze_reachability).
+//! Used in: [`System::analyze_reachability`](crate::PetriNet::analyze_reachability).
 //!
 //! ## Theorem 26 — Circuit token invariance in T-nets
 //!
@@ -146,8 +146,8 @@
 //!   \(M \le M′\).
 //!
 //! Used in: [`CoverabilityGraph`](crate::CoverabilityGraph),
-//! [`System::analyze_boundedness`](crate::System::analyze_boundedness),
-//! [`System::analyze_coverability`](crate::System::analyze_coverability).
+//! [`System::analyze_boundedness`](crate::PetriNet::analyze_boundedness),
+//! [`System::analyze_coverability`](crate::PetriNet::analyze_coverability).
 //!
 //! ## §IV-B — Incidence matrix and state equation
 //!
@@ -237,7 +237,7 @@
 //! with ω-acceleration.
 //!
 //! Used in: [`CoverabilityGraph`](crate::CoverabilityGraph),
-//! [`System::analyze_coverability`](crate::System::analyze_coverability).
+//! [`System::analyze_coverability`](crate::PetriNet::analyze_coverability).
 //!
 //! ## Lemma 3.24 — Firing sequences in RG(N) and in Cov(N)
 //!
@@ -245,7 +245,7 @@
 //! corresponding paths in the coverability graph, and is used in the proof of
 //! Proposition 3.27.
 //!
-//! Used in: [`System::analyze_coverability`](crate::System::analyze_coverability),
+//! Used in: [`System::analyze_coverability`](crate::PetriNet::analyze_coverability),
 //! [`CoverabilityGraph::is_coverable`](crate::CoverabilityGraph::cover).
 //!
 //! ## Proposition 3.27 — All that can be checked on a coverability graph
@@ -260,7 +260,7 @@
 //! M″ ≥ M.
 //!
 //! Used in: [`CoverabilityGraph::is_coverable`](crate::CoverabilityGraph::cover),
-//! [`System::analyze_coverability`](crate::System::analyze_coverability).
+//! [`System::analyze_coverability`](crate::PetriNet::analyze_coverability).
 //!
 //! ## Provision 4.5 — No empty Petri nets
 //!
@@ -390,7 +390,7 @@
 //! with ω-acceleration.
 //!
 //! Used in: [`CoverabilityGraph`](crate::CoverabilityGraph),
-//! [`System::analyze_coverability`](crate::System::analyze_coverability).
+//! [`System::analyze_coverability`](crate::PetriNet::analyze_coverability).
 //!
 //! ## Theorem 3.2.8 — Coverability characterization
 //!
@@ -401,7 +401,7 @@
 //! finite coverability graph for a node that covers the target.
 //!
 //! Used in: [`CoverabilityGraph::is_coverable`](crate::CoverabilityGraph::cover),
-//! [`System::analyze_coverability`](crate::System::analyze_coverability).
+//! [`System::analyze_coverability`](crate::PetriNet::analyze_coverability).
 
 // These imports exist only to make intra-doc links shorter/readable.
 // They are compiled only under rustdoc.

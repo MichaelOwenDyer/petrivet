@@ -15,7 +15,7 @@
 //!
 //! ```
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::net::system::System;
+//! use petrivet::net::system::PetriNet;
 //! use petrivet::{CoverabilityGraph, ExplorationOrder};
 //!
 //! let mut b = NetBuilder::new();
@@ -25,7 +25,7 @@
 //! b.add_arc((t0, p0));
 //! b.add_arc((t0, p1));
 //! let net = b.build().expect("valid net");
-//! let sys = System::new(net, [1, 0]);
+//! let sys = PetriNet::new(net, [1, 0]);
 //! let cg = sys.build_coverability_graph();
 //! assert!(!cg.is_bounded());
 //! ```
@@ -36,7 +36,7 @@ use crate::net::{Net};
 use crate::state_space::explorer::StateGraph;
 use crate::state_space::ReachabilityGraph;
 use crate::state_space::{explorer::StateSpaceExplorer, ExplorationOrder};
-use crate::net::system::System;
+use crate::net::system::PetriNet;
 use crate::{OmegaMarking, Place, Transition};
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
@@ -77,7 +77,7 @@ pub(crate) struct CoverabilityStepIdx {
 impl<'a> CoverabilityExplorer<'a> {
     /// Create a new coverability explorer for a system and exploration order.
     #[must_use]
-    pub fn new<N: AsRef<Net>>(sys: &'a System<N>, order: ExplorationOrder) -> Self {
+    pub fn new<N: AsRef<Net>>(sys: &'a PetriNet<N>, order: ExplorationOrder) -> Self {
         let net = sys.net();
         let omega_marking = IdxOmegaMarking::from(sys.core.current_marking.clone());
         Self {
@@ -291,7 +291,7 @@ pub struct CoverabilityGraph<'a> {
 
 impl<'a> CoverabilityGraph<'a> {
     /// Build the coverability graph for a system in one shot.
-    pub fn new(system: &'a System<impl AsRef<Net>>) -> Self {
+    pub fn new(system: &'a PetriNet<impl AsRef<Net>>) -> Self {
         CoverabilityExplorer::new(system, ExplorationOrder::BreadthFirst).build_coverability_graph()
     }
 
@@ -443,7 +443,7 @@ mod tests {
     use crate::net::{builder::NetBuilder, class::NetClass, Net};
 
     /// Two-place cycle: p0 → t0 → p1 → t1 → p0 (bounded)
-    fn two_place_cycle() -> (System<Net>, Place, Place) {
+    fn two_place_cycle() -> (PetriNet<Net>, Place, Place) {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
@@ -453,7 +453,7 @@ mod tests {
     }
 
     /// Unbounded: t0 consumes from p0 and produces to both p0 and p1
-    fn unbounded_producer() -> (System<Net>, Place, Place) {
+    fn unbounded_producer() -> (PetriNet<Net>, Place, Place) {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0] = b.add_transitions();
@@ -464,7 +464,7 @@ mod tests {
     }
 
     /// Self-loop with 0 tokens: immediate deadlock
-    fn deadlock_net() -> System<Net> {
+    fn deadlock_net() -> PetriNet<Net> {
         let mut b = NetBuilder::new();
         let p0 = b.add_place();
         let [t0] = b.add_transitions();

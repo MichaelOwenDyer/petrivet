@@ -16,7 +16,7 @@ pub use nodes::{Place, Transition};
 pub use sorted_set::UniqueSortedSlice;
 
 use crate::class::NetClass;
-use crate::{Marking, System};
+use crate::{Marking, PetriNet};
 use std::collections::HashMap;
 
 use crate::net::idx::{DenseNet, PlaceIdx, TransitionIdx};
@@ -316,8 +316,8 @@ impl Net {
     }
 
     /// Creates a system by combining this net with the given marking.
-    pub fn with_marking(self, initial_marking: impl Into<Marking>) -> System<Self> {
-        System::new(self, initial_marking)
+    pub fn with_marking(self, initial_marking: impl Into<Marking>) -> PetriNet<Self> {
+        PetriNet::new(self, initial_marking)
     }
 
     /// Returns the structural class of this net (cached at build time).

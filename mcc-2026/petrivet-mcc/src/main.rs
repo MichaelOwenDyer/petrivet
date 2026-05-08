@@ -2,7 +2,7 @@ mod protocol;
 
 use std::path::{Path, PathBuf};
 
-use petrivet::{Net, ReachabilityGraph, System};
+use petrivet::{Net, ReachabilityGraph, PetriNet};
 use protocol::{
     BooleanFormulaReport, Examination, ParticipationError, RunContext, StateSpaceReport, Technique,
 };
@@ -219,13 +219,13 @@ fn emit_global(formula: &str, value: bool, techniques: &[Technique]) {
     println!("{report}");
 }
 
-fn load_system(input_dir: &Path) -> Result<System<Net>, ParticipationError> {
+fn load_system(input_dir: &Path) -> Result<PetriNet<Net>, ParticipationError> {
     let pnml = std::fs::read_to_string(input_dir.join("model.pnml"))
         .map_err(|e| {
             eprintln!("failed to read model.pnml: {e}");
             ParticipationError::CannotCompute
         })?;
-    System::from_pnml(&pnml).map_err(|e| {
+    PetriNet::from_pnml(&pnml).map_err(|e| {
         eprintln!("failed to parse system: {e}");
         ParticipationError::CannotCompute
     })

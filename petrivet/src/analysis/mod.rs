@@ -15,21 +15,21 @@
 //!   by invariant computation.
 //!
 //! Most users should start with the high-level behavioral queries on
-//! [`System`] (e.g. `is_bounded`, `is_live`, `liveness_levels`),
+//! [`PetriNet`] (e.g. `is_bounded`, `is_live`, `liveness_levels`),
 //! which internally dispatch to the best available algorithm based on
 //! net class. Use this module directly when you need access to
 //! invariant vectors, siphon/trap sets, or marking equation
 //! results for custom analysis.
 
 use crate::analysis::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CommonerHackCriterionResult, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, SiphonTrapPair, UnreachabilityProof};
-use crate::{ExplorationOrder, IdxOmegaMarking, Marking, Net, Omega, OmegaMarking, Place, System};
+use crate::{ExplorationOrder, IdxOmegaMarking, Marking, Net, Omega, OmegaMarking, Place, PetriNet};
 
 pub mod semi_decision;
 pub mod model;
 pub mod siphon_trap;
 pub mod incidence;
 
-impl<N: AsRef<Net>> System<N> {
+impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Checks the Commoner/Hack criterion, which is fulfilled when all siphons in the system
     /// contain a trap marked at the initial marking.
@@ -374,7 +374,7 @@ mod tests {
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p1, t1)); b.add_arc((t1, p0));
         let net = b.build().unwrap();
-        let sys = System::new(net, [(p0, 1), (p1, 0)]);
+        let sys = PetriNet::new(net, [(p0, 1), (p1, 0)]);
         let analysis = sys.analyze_liveness();
         assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L4));
         assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L4));
@@ -390,7 +390,7 @@ mod tests {
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p1, t1)); b.add_arc((t1, p0));
         let net = b.build().unwrap();
-        let sys = System::new(net, [(p0, 0), (p1, 0)]);
+        let sys = PetriNet::new(net, [(p0, 0), (p1, 0)]);
         let analysis = sys.analyze_liveness();
         assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
         assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
@@ -407,7 +407,7 @@ mod tests {
 
         let net = b.build().unwrap();
         assert!(net.is_state_machine());
-        let sys = System::new(net, [(p0, 1), (p1, 0), (p2, 0), (p3, 0)]);
+        let sys = PetriNet::new(net, [(p0, 1), (p1, 0), (p2, 0), (p3, 0)]);
         let analysis = sys.analyze_liveness();
 
         // SCC_A is non-sink and marked → internal transitions L3
@@ -438,7 +438,7 @@ mod tests {
         let net = b.build().unwrap();
         assert!(net.is_state_machine());
 
-        let sys = System::new(net, [(p0, 0), (p1, 0), (p2, 0), (p3, 0)]);
+        let sys = PetriNet::new(net, [(p0, 0), (p1, 0), (p2, 0), (p3, 0)]);
         let analysis = sys.analyze_liveness();
         assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
         assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
@@ -458,7 +458,7 @@ mod tests {
         let net = b.build().unwrap();
         assert!(net.is_marked_graph());
 
-        let sys = System::new(net, [(p0, 1), (p1, 1), (p2, 1)]);
+        let sys = PetriNet::new(net, [(p0, 1), (p1, 1), (p2, 1)]);
         let analysis = sys.analyze_liveness();
         assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L4));
         assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L4));
@@ -476,7 +476,7 @@ mod tests {
         let net = b.build().unwrap();
         assert!(net.is_marked_graph());
 
-        let sys = System::new(net, [(p0, 0), (p1, 0)]);
+        let sys = PetriNet::new(net, [(p0, 0), (p1, 0)]);
         let analysis = sys.analyze_liveness();
         assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
         assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
@@ -501,7 +501,7 @@ mod tests {
         assert!(net.is_marked_graph());
 
         // Cycle {p0, p1} has 1 token → marked
-        let sys = System::new(net, [(p_src, 0), (p0, 1), (p1, 0)]);
+        let sys = PetriNet::new(net, [(p_src, 0), (p0, 1), (p1, 0)]);
         let analysis = sys.analyze_liveness();
         // t_src is always enabled (no inputs) → L4
         assert_eq!(analysis.transition_level(t_src), Some(LivenessLevel::L4));
@@ -529,7 +529,7 @@ mod tests {
         assert!(net.is_marked_graph());
 
         // SCC_A unmarked, SCC_B marked but predecessor dead
-        let sys = System::new(net, [(p0, 0), (p1, 0), (p_link, 0), (p2, 1), (p3, 0)]);
+        let sys = PetriNet::new(net, [(p0, 0), (p1, 0), (p_link, 0), (p2, 1), (p3, 0)]);
         let analysis = sys.analyze_liveness();
         assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
         assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
@@ -567,7 +567,7 @@ mod tests {
         assert!(!net.is_state_machine());
         assert!(!net.is_marked_graph());
 
-        let sys = System::new(net, [
+        let sys = PetriNet::new(net, [
             (s1, 1),
             (s2, 1),
             (s3, 0),
@@ -589,7 +589,7 @@ mod tests {
         let [t0, t1] = b.add_transitions();
         b.add_arcs((p0, t0, p1, t1, p0));
         let net = b.build().unwrap();
-        let sys = System::new(net, [(p0, 1), (p1, 0)]);
+        let sys = PetriNet::new(net, [(p0, 1), (p1, 0)]);
 
         let res = sys.analyze_coverability([(p0, 1)].into());
         assert!(res.is_coverable());
@@ -610,7 +610,7 @@ mod tests {
         let [t0, t1] = b.add_transitions();
         b.add_arcs((p0, t0, p1, t1, p0));
         let net = b.build().unwrap();
-        let sys = System::new(net, [(p0, 1)]);
+        let sys = PetriNet::new(net, [(p0, 1)]);
 
         let res = sys.analyze_coverability([(p0, 1), (p1, 1)].into());
         assert!(res.is_uncoverable());
@@ -630,7 +630,7 @@ mod tests {
         b.add_arc((t0, p0));
         b.add_arc((t0, p1));
         let net = b.build().unwrap();
-        let sys = System::new(net, [(p0, 1), (p1, 0)]);
+        let sys = PetriNet::new(net, [(p0, 1), (p1, 0)]);
 
         let res = sys.analyze_coverability([(p0, 1), (p1, 10)].into());
         assert!(res.is_coverable());

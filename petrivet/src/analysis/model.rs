@@ -1,6 +1,6 @@
 //! Structured analysis results with evidence.
 //!
-//! Each `analyze_*` method on [`System`](crate::system::System) returns a result
+//! Each `analyze_*` method on [`System`](crate::system::PetriNet) returns a result
 //! struct with two parts:
 //!
 //! 1. **Uniform fields**: always valid regardless of which method was used.

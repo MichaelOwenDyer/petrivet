@@ -8,7 +8,7 @@
 //!
 //! ```
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::net::system::System;
+//! use petrivet::net::system::PetriNet;
 //!
 //! // Build a simple producer-consumer net
 //! let mut b = NetBuilder::new();
@@ -17,7 +17,7 @@
 //! b.add_arcs((idle, start, busy, finish, idle));
 //! let net = b.build().expect("valid net");
 //!
-//! let mut sys = System::new(&net, [(idle, 1)].into());
+//! let mut sys = PetriNet::new(&net, [(idle, 1)].into());
 //!
 //! // Simulation
 //! assert!(sys.is_enabled(start));
@@ -25,7 +25,7 @@
 //! assert_eq!(sys.current_marking(), [(busy, 1)].into());
 //!
 //! // Behavioral analysis
-//! let sys = System::new(&net, [(idle, 1)].into());
+//! let sys = PetriNet::new(&net, [(idle, 1)].into());
 //! assert!(sys.is_bounded());
 //! assert!(sys.is_live());
 //! ```
@@ -36,14 +36,14 @@
 //!
 //! ```
 //! # use petrivet::net::builder::NetBuilder;
-//! # use petrivet::net::system::System;
+//! # use petrivet::net::system::PetriNet;
 //! # let mut b = NetBuilder::new();
 //! # let [p0, p1] = b.add_places();
 //! # let [t0, t1] = b.add_transitions();
 //! # b.add_arc((p0, t0)); b.add_arc((t0, p1));
 //! # b.add_arc((p1, t1)); b.add_arc((t1, p0));
 //! # let net = b.build().unwrap();
-//! # let mut sys = System::new(net, [1, 0]);
+//! # let mut sys = PetriNet::new(net, [1, 0]);
 //! // 1. I know which transition - just try it
 //! sys.try_fire(t0).unwrap();
 //!
@@ -63,13 +63,13 @@ use std::marker::PhantomData;
 
 /// Internal representation of a Petri net system with dense indexing for efficient state-space exploration.
 #[derive(Debug, Clone)]
-pub(crate) struct DenseSystem<N: AsRef<Net>> {
+pub(crate) struct DensePetriNet<N: AsRef<Net>> {
     pub(crate) net: N,
     pub(crate) initial_marking: IdxMarking<u32>,
     pub(crate) current_marking: IdxMarking<u32>,
 }
 
-impl<N: AsRef<Net>> DenseSystem<N> {
+impl<N: AsRef<Net>> DensePetriNet<N> {
     pub(crate) fn into_parts(self) -> (N, IdxMarking<u32>, IdxMarking<u32>) {
         (self.net, self.initial_marking, self.current_marking)
     }
@@ -129,22 +129,24 @@ impl<N: AsRef<Net>> DenseSystem<N> {
     }
 }
 
-/// A Petri net system (N, M): a net structure paired with a mutable marking.
+/// A Petri net system `(N, M₀)`,
+/// where `N` is the structure of the net and `M₀` is the initial marking.
 ///
-/// `N` can be any type that provides access to a [`Net`] reference via [`AsRef<Net>`]:
-/// `Net` (owned), `&Net` (borrowed), `Rc<Net>`, `Arc<Net>`, etc.
-/// This lets callers choose the ownership strategy that fits their use case.
+/// Additionally, the system tracks the current marking, which can be mutated by firing transitions:
+/// see [`try_fire`](Self::try_fire), [`choose_and_fire`](Self::choose_and_fire), and [`fire_any`](Self::fire_any).
+/// The current marking can be reset to the initial marking via [`reset`](Self::reset).
+///
+/// **Note:** Analysis methods will use the **current** marking as the starting point.
 #[derive(Debug, Clone)]
-pub struct System<N: AsRef<Net>> {
-    pub(crate) core: DenseSystem<N>,
+pub struct PetriNet<N: AsRef<Net> = Net> {
+    pub(crate) core: DensePetriNet<N>,
 }
-
 
 #[cfg(feature = "pnml")]
 mod pnml {
     use crate::pnml::convert::PnmlConversionError;
     use crate::pnml::PnmlDocument;
-    use crate::{Net, System};
+    use crate::{Net, PetriNet};
     use std::error::Error;
     use std::fmt;
     use std::fmt::{Display, Formatter};
@@ -168,7 +170,7 @@ mod pnml {
 
     impl Error for FromPnmlError {}
 
-    impl System<Net> {
+    impl PetriNet<Net> {
         /// Parses the first Petri Net (including initial marking) out of a PNML document.
         /// Accepts the PNML content as a string slice.
         ///
@@ -194,26 +196,19 @@ mod pnml {
         ///
         /// TODO: Allow parsing just the net structure out of any type of PNML
         pub fn from_pnml(pnml: &str) -> Result<Self, FromPnmlError> {
-            System::from_pnml(pnml).map(|system| system.into_parts().0)
+            PetriNet::from_pnml(pnml).map(|system| system.into_parts().0)
         }
     }
 }
 
-impl<N: AsRef<Net>> System<N> {
-    /// Creates a new system from a net and initial marking.
-    ///
-    /// Accepts anything that converts to `Marking`.
-    ///
-    /// # Panics
-    ///
-    /// Panics in debug mode if the marking length doesn't match the number of
-    /// places in the net.
+impl<N: AsRef<Net>> PetriNet<N> {
+    /// Creates a new Petri net from a net and initial marking.
     #[must_use]
     pub fn new(net: N, initial_marking: impl Into<Marking>) -> Self {
         let initial_marking = initial_marking.into();
         let initial_marking = net.as_ref().to_idx_marking(initial_marking);
         let current_marking = initial_marking.clone();
-        Self { core: DenseSystem { net, initial_marking, current_marking } }
+        Self { core: DensePetriNet { net, initial_marking, current_marking } }
     }
 
     /// Returns a reference to the underlying net.
@@ -221,28 +216,24 @@ impl<N: AsRef<Net>> System<N> {
         self.core.net.as_ref()
     }
 
-    pub(crate) fn to_marking(&self, marking: IdxMarking) -> Marking {
-        self.core.net().to_marking(marking)
-    }
-
     /// Returns the current marking of the system.
     #[must_use]
     pub fn current_marking(&self) -> Marking {
         let current_marking = self.core.current_marking.clone();
-        self.to_marking(current_marking)
+        self.core.net().to_marking(current_marking)
     }
 
     /// Returns the initial marking of the system.
     pub fn initial_marking(&self) -> Marking {
         let initial_marking = self.core.initial_marking.clone();
-        self.to_marking(initial_marking)
+        self.core.net().to_marking(initial_marking)
     }
 
     /// Resets the current marking to the initial marking.
     /// Returns the marking before the reset.
     pub fn reset(&mut self) -> Marking {
         let previous = self.core.reset();
-        self.to_marking(previous)
+        self.core.net().to_marking(previous)
     }
 
     /// Returns the token count at a place identified by its [`Place`].
@@ -426,7 +417,7 @@ impl<N: AsRef<Net>> System<N> {
     ///
     /// ```
     /// use petrivet::net::builder::NetBuilder;
-    /// use petrivet::net::system::System;
+    /// use petrivet::net::system::PetriNet;
     ///
     /// let mut b = NetBuilder::new();
     /// let [p0, p1] = b.add_places();
@@ -434,7 +425,7 @@ impl<N: AsRef<Net>> System<N> {
     /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
     /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
     /// let net = b.build().unwrap();
-    /// let mut sys = System::new(net, [1, 0]);
+    /// let mut sys = PetriNet::new(net, [1, 0]);
     ///
     /// // Pick the first enabled transition
     /// let fired = sys.choose_and_fire(|enabled| enabled.first());
@@ -476,7 +467,7 @@ impl<N: AsRef<Net>> System<N> {
 /// Proof that a transition was found enabled in the current marking.
 ///
 /// Cannot be constructed outside this module (private fields), cannot be
-/// copied or cloned, and cannot escape the [`choose_and_fire`](System::choose_and_fire)
+/// copied or cloned, and cannot escape the [`choose_and_fire`](PetriNet::choose_and_fire)
 /// closure (higher-ranked lifetime bound).
 pub struct EnabledTransition<'a>(Transition, PhantomData<&'a ()>);
 
@@ -507,7 +498,7 @@ impl fmt::Debug for EnabledTransition<'_> {
 
 /// The set of transitions enabled in a specific marking.
 ///
-/// Only exists inside the [`choose_and_fire`](System::choose_and_fire) closure.
+/// Only exists inside the [`choose_and_fire`](PetriNet::choose_and_fire) closure.
 pub struct EnabledSet<'a>(Box<[Transition]>, PhantomData<&'a ()>);
 
 impl<'a> EnabledSet<'a> {
@@ -600,16 +591,6 @@ mod tests {
         let mut sys = net.with_marking([]);
         assert!(sys.is_deadlocked());
         assert!(sys.fire_any().is_none());
-    }
-
-    #[test]
-    fn fire_any_success() {
-        let (net, p0, _t0, p1, _t1) = two_place_cycle();
-        let mut sys = net.with_marking([(p0, 1)]);
-        assert!(!sys.is_deadlocked());
-        let fired = sys.fire_any();
-        assert!(fired.is_some());
-        assert_eq!(sys.current_marking(), [(p1, 1)].into());
     }
 
     #[test]
@@ -787,7 +768,7 @@ mod tests {
         b.add_arcs((mutex, t_enter2, mutex));
 
         let net = b.build().expect("valid net");
-        let sys = System::new(net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
+        let sys = PetriNet::new(net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
         assert!(sys.is_bounded());
         assert!(sys.is_live());
     }

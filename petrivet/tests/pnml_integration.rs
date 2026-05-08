@@ -10,7 +10,7 @@
 
 use petrivet::pnml::convert::PetriNetKind;
 use petrivet::pnml::PnmlDocument;
-use petrivet::net::system::System;
+use petrivet::net::system::PetriNet;
 use petrivet::pnml::labels::NetLabels;
 use petrivet::net::Net;
 
@@ -21,7 +21,7 @@ fn load(path: &str) -> PnmlDocument {
         .unwrap_or_else(|e| panic!("could not parse fixture {path}: {e}"))
 }
 
-fn first_pt_net(doc: &PnmlDocument) -> (System<Net>, Box<NetLabels>) {
+fn first_pt_net(doc: &PnmlDocument) -> (PetriNet<Net>, Box<NetLabels>) {
     let sys = doc.nets[0]
         .to_pt_system()
         .expect("conversion failed");

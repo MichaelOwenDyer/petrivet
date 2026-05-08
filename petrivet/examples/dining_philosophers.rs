@@ -20,7 +20,7 @@
 
 use petrivet::net::builder::NetBuilder;
 use petrivet::state_space::ReachabilityGraph;
-use petrivet::net::system::System;
+use petrivet::net::system::PetriNet;
 use petrivet::Marking;
 
 const N: usize = 4;
@@ -69,7 +69,7 @@ fn main() {
         .map(|p| (p, 1))
         .collect();
 
-    let mut sys = System::new(&net, initial.clone());
+    let mut sys = PetriNet::new(&net, initial.clone());
 
     println!("--- Simulation ---\n");
 
@@ -91,7 +91,7 @@ fn main() {
     println!("--- State Space Analysis ---\n");
 
 
-    let sys = System::new(&net, initial.clone());
+    let sys = PetriNet::new(&net, initial.clone());
     let rg = ReachabilityGraph::build(&sys);
     println!("Reachable states: {}", rg.state_count());
     println!("Edges: {}", rg.transition_count());
