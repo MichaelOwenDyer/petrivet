@@ -39,7 +39,7 @@ impl Examination {
 
     /// The exact spelling expected as the `<formula-id>` for `FORMULA …` lines
     /// in `GlobalProperties` examinations (per the MCC Submission Manual:
-    /// "you may either use the value of the BK_EXAMINATION environment variable
+    /// "you may either use the value of the `BK_EXAMINATION` environment variable
     /// or the XML formula that is provided in the directory").
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -64,6 +64,15 @@ impl Examination {
 pub enum ParticipationError {
     DoNotCompete,
     CannotCompute,
+}
+
+impl fmt::Display for ParticipationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DoNotCompete => write!(f, "DO_NOT_COMPETE"),
+            Self::CannotCompute => write!(f, "CANNOT_COMPUTE"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -119,17 +128,17 @@ impl fmt::Display for Technique {
 /// real values, since by the time we have a `ReachabilityGraph` the counts
 /// are exact and free.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StateSpaceReport {
+pub struct StateSpaceReport<'a> {
     pub states: usize,
     pub transitions: usize,
     pub max_tokens_per_marking: u32,
     pub max_tokens_in_place: u32,
-    pub techniques: Vec<Technique>,
+    pub techniques: &'a [Technique],
 }
 
-impl fmt::Display for StateSpaceReport {
+impl fmt::Display for StateSpaceReport<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let techs = format_techniques(&self.techniques);
+        let techs = format_techniques(self.techniques);
         writeln!(f, "STATE_SPACE STATES {} TECHNIQUES {techs}", self.states)?;
         writeln!(f, "STATE_SPACE TRANSITIONS {} TECHNIQUES {techs}", self.transitions)?;
         writeln!(f, "STATE_SPACE MAX_TOKEN_PER_MARKING {} TECHNIQUES {techs}", self.max_tokens_per_marking)?;
@@ -153,17 +162,17 @@ fn format_techniques(techniques: &[Technique]) -> String {
 /// Submission Manual forbids `DO NOT COMPETE` at this granularity (that
 /// keyword is reserved for whole-subcategory opt-outs).
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BooleanFormulaReport {
-    pub formula: String,
+pub struct BooleanFormulaReport<'a> {
+    pub formula: &'a str,
     pub value: Option<bool>,
-    pub techniques: Vec<Technique>,
+    pub techniques: &'a [Technique],
 }
 
-impl fmt::Display for BooleanFormulaReport {
+impl fmt::Display for BooleanFormulaReport<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.value {
             Some(value) => {
-                let techs = format_techniques(&self.techniques);
+                let techs = format_techniques(self.techniques);
                 let bool_str = if value { "TRUE" } else { "FALSE" };
                 write!(f, "FORMULA {} {bool_str} TECHNIQUES {techs}", self.formula)
             }

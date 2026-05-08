@@ -19,6 +19,18 @@ const HELP: &str =
       BIN_DIR         location of tool binaries inside the guest
     ";
 
+const DEFAULT_TECHNIQUES: &[Technique] = &[
+    Technique::SequentialProcessing,
+    Technique::Explicit,
+    Technique::Topological,
+];
+
+const STRUCTURAL_TECHNIQUES: &[Technique] = &[
+    Technique::SequentialProcessing,
+    Technique::Topological,
+    Technique::StructuralReduction,
+];
+
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     if matches!(args.next().as_deref(), Some("--help" | "-h")) {
@@ -27,14 +39,15 @@ fn main() -> Result<(), String> {
     }
 
     let ctx = RunContext::from_env()?;
-    match run(&ctx) {
-        Ok(()) => Ok(()),
-        Err(ParticipationError::DoNotCompete) => {
-            println!("DO NOT COMPETE");
+    match std::panic::catch_unwind(|| run(&ctx)) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(err)) => {
+            println!("{err}");
             Ok(())
-        }
-        Err(ParticipationError::CannotCompute) => {
-            println!("CANNOT COMPUTE");
+        },
+        Err(_panic_cause) => {
+            eprintln!("panic!");
+            println!("{}", ParticipationError::CannotCompute);
             Ok(())
         }
     }
@@ -44,7 +57,7 @@ fn run(ctx: &RunContext) -> Result<(), ParticipationError> {
     let input_dir = PathBuf::from(".");
 
     if is_colored_model(&input_dir, &ctx.input_name) {
-        return Err(ParticipationError::CannotCompute);
+        return Err(ParticipationError::DoNotCompete);
     }
     // Per the Submission Manual page 5: `unfinite` and `large_marking` are
     // empty marker files dropped by BenchKit when it knows in advance that
@@ -53,7 +66,7 @@ fn run(ctx: &RunContext) -> Result<(), ParticipationError> {
     // `large_marking` instance would overflow before we got anywhere; bail
     // out before trying to parse the model.
     if has_marker(&input_dir, "unfinite") || has_marker(&input_dir, "large_marking") {
-        return Err(ParticipationError::CannotCompute);
+        return Err(ParticipationError::DoNotCompete);
     }
 
     match &ctx.examination {
@@ -61,14 +74,22 @@ fn run(ctx: &RunContext) -> Result<(), ParticipationError> {
         Examination::ReachabilityDeadlock => run_reachability_deadlock(&input_dir),
         Examination::OneSafe => run_one_safe(&input_dir),
         Examination::QuasiLiveness => {
-            run_global_property_via_rg(&input_dir, ctx.examination.as_str(), |rg| {
-                rg.is_quasi_live()
-            })
+            run_global_property_via_rg(
+                &input_dir,
+                ctx.examination.as_str(),
+                |rg| {
+                    rg.is_quasi_live()
+                }
+            )
         }
         Examination::StableMarking => {
-            run_global_property_via_rg(&input_dir, ctx.examination.as_str(), |rg| {
-                rg.has_stable_place()
-            })
+            run_global_property_via_rg(
+                &input_dir,
+                ctx.examination.as_str(),
+                |rg| {
+                    rg.has_stable_place()
+                }
+            )
         }
         Examination::Liveness => run_liveness(&input_dir),
         Examination::UpperBounds
@@ -85,13 +106,13 @@ fn run_state_space(input_dir: &Path) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
     let rg = system
         .build_reachability_or_coverability()
-        .map_err(|_| ParticipationError::CannotCompute)?;
+        .map_err(|_| ParticipationError::DoNotCompete)?;
     let report = StateSpaceReport {
         states: rg.state_count(),
         transitions: rg.transition_count(),
         max_tokens_per_marking: rg.max_token_per_marking(),
         max_tokens_in_place: rg.max_token_in_any_place(),
-        techniques: default_techniques(),
+        techniques: DEFAULT_TECHNIQUES,
     };
     println!("{report}");
     Ok(())
@@ -114,11 +135,11 @@ fn run_reachability_deadlock(input_dir: &Path) -> Result<(), ParticipationError>
     let system = load_system(input_dir)?;
     let rg = system
         .build_reachability_or_coverability()
-        .map_err(|_| ParticipationError::CannotCompute)?;
+        .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
     emit_global(
         Examination::ReachabilityDeadlock.as_str(),
         rg.has_reachable_deadlock(),
-        default_techniques(),
+        DEFAULT_TECHNIQUES,
     );
     Ok(())
 }
@@ -139,19 +160,19 @@ fn run_one_safe(input_dir: &Path) -> Result<(), ParticipationError> {
     let name = Examination::OneSafe.as_str();
 
     if system.is_structurally_one_safe() {
-        emit_global(name, true, structural_techniques());
+        emit_global(name, true, STRUCTURAL_TECHNIQUES);
         return Ok(());
     }
 
     if system.net().is_structurally_bounded() {
-        emit_global(name, !system.has_reachable_unsafe_marking(), default_techniques());
+        emit_global(name, !system.has_reachable_unsafe_marking(), DEFAULT_TECHNIQUES);
         return Ok(());
     }
 
     let rg = system
         .build_reachability_or_coverability()
-        .map_err(|_| ParticipationError::CannotCompute)?;
-    emit_global(name, rg.is_one_safe(), default_techniques());
+        .map_err(|_unbounded_graph| ParticipationError::CannotCompute)?;
+    emit_global(name, rg.is_one_safe(), DEFAULT_TECHNIQUES);
     Ok(())
 }
 
@@ -163,14 +184,14 @@ fn run_liveness(input_dir: &Path) -> Result<(), ParticipationError> {
     let name = Examination::Liveness.as_str();
 
     if system.net().is_free_choice_net() && system.commoner_hack_criterion().is_satisfied() {
-        emit_global(name, true, structural_techniques());
+        emit_global(name, true, STRUCTURAL_TECHNIQUES);
         return Ok(());
     }
 
     let rg = system
         .build_reachability_or_coverability()
-        .map_err(|_| ParticipationError::CannotCompute)?;
-    emit_global(name, rg.is_live(), default_techniques());
+        .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
+    emit_global(name, rg.is_live(), DEFAULT_TECHNIQUES);
     Ok(())
 }
 
@@ -184,42 +205,30 @@ fn run_global_property_via_rg(
     let system = load_system(input_dir)?;
     let rg = system
         .build_reachability_or_coverability()
-        .map_err(|_| ParticipationError::CannotCompute)?;
-    emit_global(formula_name, answer(&rg), default_techniques());
+        .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
+    emit_global(formula_name, answer(&rg), DEFAULT_TECHNIQUES);
     Ok(())
 }
 
-fn emit_global(formula: &str, value: bool, techniques: Vec<Technique>) {
+fn emit_global(formula: &str, value: bool, techniques: &[Technique]) {
     let report = BooleanFormulaReport {
-        formula: formula.to_string(),
+        formula,
         value: Some(value),
         techniques,
     };
     println!("{report}");
 }
 
-fn default_techniques() -> Vec<Technique> {
-    vec![
-        Technique::SequentialProcessing,
-        Technique::Explicit,
-        Technique::Topological,
-    ]
-}
-
-fn structural_techniques() -> Vec<Technique> {
-    vec![
-        Technique::SequentialProcessing,
-        Technique::Topological,
-        Technique::StructuralReduction,
-    ]
-}
-
 fn load_system(input_dir: &Path) -> Result<System<Net>, ParticipationError> {
     let pnml = std::fs::read_to_string(input_dir.join("model.pnml"))
-        .map_err(|_| ParticipationError::CannotCompute)?;
-    System::from_pnml(&pnml)
-        .inspect_err(|err| eprintln!("{err:?}"))
-        .map_err(|_| ParticipationError::CannotCompute)
+        .map_err(|e| {
+            eprintln!("failed to read model.pnml: {e}");
+            ParticipationError::CannotCompute
+        })?;
+    System::from_pnml(&pnml).map_err(|e| {
+        eprintln!("failed to parse system: {e}");
+        ParticipationError::CannotCompute
+    })
 }
 
 fn is_colored_model(input_dir: &Path, input_name: &str) -> bool {
