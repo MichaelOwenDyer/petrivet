@@ -9,38 +9,25 @@
 //! [`NetBuilder::from`] rebuilds a builder from a built [`Net`] using the net’s stored keys so
 //! handles remain usable across round-trips.
 
+use crate::Arc;
 use crate::class::NetClass;
 use crate::net::idx::{DenseNet, PlaceIdx, TransitionIdx};
 use crate::net::nodes::{Place, Transition};
-use crate::net::{Net, Node, SortedSet};
-use crate::Arc;
+use crate::net::{Net, Node, UniqueSortedSlice};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::hash::Hash;
+use std::num::NonZeroU32;
 use std::{fmt, iter};
 
 /// Builder for an ordinary Petri net.
-///
-/// Active places and transitions are listed in [`NetBuilder::places`] /
-/// [`NetBuilder::transitions`] order; that order becomes dense `0..n−1` at [`NetBuilder::build`].
-/// New keys are unique numeric ids minted by this builder. [`NetBuilder::from`] seeds lists from a
-/// [`Net`] so existing [`Place`] / [`Transition`] handles stay valid.
-///
-/// Adjacency is kept in the usual four directions (each place and each transition has preset and
-/// postset sets of the opposite kind’s keys), so removing a node touches only its neighbours’
-/// sets.
-///
-/// We use [`HashMap`] for adjacency so keys from a built [`Net`] can coexist with keys minted
-/// after [`NetBuilder::from`]. [`Place`] / [`Transition`] are unique numeric ids (see
-/// [`crate::net::nodes`]), so hash-based structures stay sound when mixing round-tripped and new
-/// handles.
 #[derive(Debug, Clone)]
 pub struct NetBuilder {
     /// Next unused id for [`add_place`](Self::add_place) (strictly greater than any id in
     /// [`Self::places`]).
-    next_place_id: u32,
+    next_place_id: NonZeroU32,
     /// Next unused id for [`add_transition`](Self::add_transition).
-    next_transition_id: u32,
+    next_transition_id: NonZeroU32,
     /// Live places in iteration order (defines dense indices at build).
     places: Vec<Place>,
     /// Live transitions in iteration order (defines dense indices at build).
@@ -98,8 +85,8 @@ impl NetBuilder {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            next_place_id: 1,
-            next_transition_id: 1,
+            next_place_id: NonZeroU32::new(1).unwrap(),
+            next_transition_id: NonZeroU32::new(1).unwrap(),
             places: Vec::new(),
             transitions: Vec::new(),
             preset_t: HashMap::new(),
@@ -109,7 +96,9 @@ impl NetBuilder {
         }
     }
 
-    /// Adds one place and returns its stable key.
+    /// Adds one place and returns a handle to it.
+    ///
+    /// This handle is stable across removals and remains valid in the built `Net`.
     ///
     /// # Panics
     ///
@@ -119,20 +108,22 @@ impl NetBuilder {
         self.next_place_id = self
             .next_place_id
             .checked_add(1)
-            .expect("nets with more than 2^32 places are not supported");
-        let pk = Place::from_raw(id);
+            .expect("nets with more than u32::MAX places are not supported");
+        let pk = Place(id);
         self.places.push(pk);
         self.preset_p.insert(pk, HashSet::new());
         self.postset_p.insert(pk, HashSet::new());
         pk
     }
 
-    /// Adds `N` places and returns their keys.
+    /// Adds `N` places simultaneously and returns their handles in an array.
     pub fn add_places<const N: usize>(&mut self) -> [Place; N] {
         std::array::from_fn(|_| self.add_place())
     }
 
-    /// Adds one transition and returns its stable key.
+    /// Adds one transition and returns handle to it.
+    ///
+    /// This handle is stable across removals and remains valid in the built `Net`.
     ///
     /// # Panics
     ///
@@ -142,15 +133,15 @@ impl NetBuilder {
         self.next_transition_id = self
             .next_transition_id
             .checked_add(1)
-            .expect("transition key id overflow");
-        let tk = Transition::from_raw(id);
+            .expect("nets with more than u32::MAX transitions are not supported");
+        let tk = Transition(id);
         self.transitions.push(tk);
         self.preset_t.insert(tk, HashSet::new());
         self.postset_t.insert(tk, HashSet::new());
         tk
     }
 
-    /// Adds `N` transitions and returns their keys.
+    /// Adds `N` transitions simultaneously and returns their handles in an array.
     pub fn add_transitions<const N: usize>(&mut self) -> [Transition; N] {
         std::array::from_fn(|_| self.add_transition())
     }
@@ -168,7 +159,10 @@ impl NetBuilder {
                     (Some(postset), Some(preset)) => {
                         let added_to_post = postset.insert(t);
                         let added_to_pre = preset.insert(p);
-                        debug_assert_eq!(added_to_post, added_to_pre, "Adjacency map desynchronization detected");
+                        debug_assert_eq!(
+                            added_to_post, added_to_pre,
+                            "adjacency map desynchronization detected"
+                        );
                         added_to_post
                     }
                     // One or both of the nodes do not exist
@@ -182,7 +176,10 @@ impl NetBuilder {
                     (Some(postset), Some(preset)) => {
                         let added_to_post = postset.insert(p);
                         let added_to_pre = preset.insert(t);
-                        debug_assert_eq!(added_to_post, added_to_pre, "Adjacency map desynchronization detected");
+                        debug_assert_eq!(
+                            added_to_post, added_to_pre,
+                            "adjacency map desynchronization detected"
+                        );
                         added_to_post
                     }
                     // One or both of the nodes do not exist
@@ -192,27 +189,80 @@ impl NetBuilder {
         }
     }
 
-    /// Adds several alternating arcs at once; see [`IntoArcs`].
+    /// Adds several arcs at once.
+    ///
+    /// This method accepts any type which implements `IntoArcs`, namely
+    /// tuples of alternating `Place` and `Transition` with length between 3 and 12.
+    /// It will add an arc for every successive pair.
+    ///
+    /// # Returns
+    /// `true` if all arcs were added; `false` if any arc was already present.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use petrivet::Net;
+    /// let mut b = Net::builder();
+    /// let [p1, p2, p3] = b.add_places();
+    /// let [t1, t2, t3] = b.add_transitions();
+    ///
+    /// assert!(b.add_arcs((p1, t1, p2, t2, p3, t3, p1)));
+    /// assert_eq!(b.arc_count(), 6);
+    /// // All the following arcs should have been added by the above statement
+    /// assert!(!b.add_arc((p1, t1)));
+    /// assert!(!b.add_arc((t1, p2)));
+    /// assert!(!b.add_arc((p2, t2)));
+    /// assert!(!b.add_arc((t2, p3)));
+    /// assert!(!b.add_arc((p3, t3)));
+    /// assert!(!b.add_arc((t3, p1)));
+    /// ```
     pub fn add_arcs<A: IntoArcs>(&mut self, arcs: A) -> bool {
         arcs.into_arcs().all(|a| self.add_arc(a))
     }
 
-    /// Removes a place and every arc incident on it. Returns `false` if that key was not active.
+    /// Removes a place and all its incident arcs from the net.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use petrivet::Net;
+    /// let mut b = Net::builder();
+    /// let [p1, p2, p3] = b.add_places();
+    /// let [t1, t2] = b.add_transitions();
+    /// b.add_arcs((p1, t1, p2, t2, p3));
+    /// assert_eq!(b.place_count(), 3);
+    /// assert_eq!(b.arc_count(), 4);
+    /// assert!(b.remove_place(p2));
+    /// assert_eq!(b.place_count(), 2);
+    /// assert_eq!(b.arc_count(), 2);
+    /// ```
     pub fn remove_place(&mut self, place: Place) -> bool {
-        let Some(inputs) = self.preset_p.remove(&place) else {
+        let Some(preset) = self.preset_p.remove(&place) else {
             return false;
         };
-        let outputs = self.postset_p.remove(&place).unwrap_or_default();
+        let postset = self
+            .postset_p
+            .remove(&place)
+            .expect("adjacency map desynchronization detected");
 
-        for &t in &inputs {
-            self.postset_t.get_mut(&t).map(|s| s.remove(&place));
+        for &input_transition in &preset {
+            self.postset_t
+                .get_mut(&input_transition)
+                .expect("adjacency map desynchronization detected")
+                .remove(&place);
         }
-        for &t in &outputs {
-            self.preset_t.get_mut(&t).map(|s| s.remove(&place));
+        for &output_transition in &postset {
+            self.preset_t
+                .get_mut(&output_transition)
+                .expect("adjacency map desynchronization detected")
+                .remove(&place);
         }
-        if let Some(pos) = self.places.iter().position(|&k| k == place) {
-            self.places.swap_remove(pos);
-        }
+        let pos = self
+            .places
+            .iter()
+            .position(|&k| k == place)
+            .expect("adjacency map desynchronization detected");
+        self.places.swap_remove(pos);
         true
     }
 
@@ -239,20 +289,14 @@ impl NetBuilder {
     pub fn remove_arc<A: Into<Arc>>(&mut self, arc: A) -> bool {
         match arc.into() {
             Arc::PlaceToTransition(p, t) => {
-                let removed = self
-                    .preset_t
-                    .get_mut(&t)
-                    .is_some_and(|s| s.remove(&p));
+                let removed = self.preset_t.get_mut(&t).is_some_and(|s| s.remove(&p));
                 if removed {
                     self.postset_p.get_mut(&p).map(|s| s.remove(&t));
                 }
                 removed
             }
             Arc::TransitionToPlace(t, p) => {
-                let removed = self
-                    .postset_t
-                    .get_mut(&t)
-                    .is_some_and(|s| s.remove(&p));
+                let removed = self.postset_t.get_mut(&t).is_some_and(|s| s.remove(&p));
                 if removed {
                     self.preset_p.get_mut(&p).map(|s| s.remove(&t));
                 }
@@ -261,14 +305,23 @@ impl NetBuilder {
         }
     }
 
+    /// Returns the number of places currently in the builder.
     #[must_use]
     pub const fn place_count(&self) -> usize {
         self.places.len()
     }
 
+    /// Returns the number of transitions currently in the builder.
     #[must_use]
     pub const fn transition_count(&self) -> usize {
         self.transitions.len()
+    }
+
+    /// Returns the number of arcs currently in the builder.
+    #[must_use]
+    pub fn arc_count(&self) -> usize {
+        self.preset_t.values().map(HashSet::len).sum::<usize>()
+            + self.postset_t.values().map(HashSet::len).sum::<usize>()
     }
 
     /// Active places.
@@ -284,12 +337,12 @@ impl NetBuilder {
     /// Iterates every directed arc currently in the builder.
     pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
         iter::chain(
-            self.preset_t.iter().flat_map(|(t, preset)| {
-                preset.iter().map(move |&p| Arc::PlaceToTransition(p, *t))
-            }),
-            self.postset_t.iter().flat_map(|(t, post)| {
-                post.iter().map(move |&p| Arc::TransitionToPlace(*t, p))
-            }),
+            self.preset_t
+                .iter()
+                .flat_map(|(t, preset)| preset.iter().map(move |&p| Arc::PlaceToTransition(p, *t))),
+            self.postset_t
+                .iter()
+                .flat_map(|(t, post)| post.iter().map(move |&p| Arc::TransitionToPlace(*t, p))),
         )
     }
 
@@ -303,8 +356,12 @@ impl NetBuilder {
         }
 
         crate::net::class::classify(
-            &self.preset_t, &self.postset_t, &self.preset_p, &self.postset_p
-        ).ok_or(NetError::NotConnected)
+            &self.preset_t,
+            &self.postset_t,
+            &self.preset_p,
+            &self.postset_p,
+        )
+        .ok_or(NetError::NotConnected)
     }
 
     /// Consumes the builder and returns a validated [`Net`] with dense indices and bandwidth reduction applied.
@@ -312,33 +369,37 @@ impl NetBuilder {
     /// # Errors
     /// Returns [`NetError`] if the net is degenerate or disconnected.
     pub fn build(self) -> Result<Net, NetError> {
+        // Save these in the net to make this conversion lossless and allow round-tripping
+        // through `NetBuilder::from` without losing handle validity.
+        let next_place_id = self.next_place_id;
+        let next_transition_id = self.next_transition_id;
+
+        // Classify the net in its current state, which also serves as a validation step to ensure it is not degenerate or disconnected.
         let class = self.classify()?;
 
         // Perform bandwidth reduction using the Reverse Cuthill-McKee algorithm.
         // This is a heuristic that tries to order nodes so that arcs mostly connect nearby indices,
         // which improves cache locality for traversal and state space exploration.
-        let (ordered_places, ordered_transitions) =
-            compute_rcm_ordering(&self.places, &self.transitions, &self.preset_t, &self.postset_t);
+        // TODO: benchmark the impact of this on various algorithms and consider making it optional if it turns out to be a net slowdown for small nets.
+        let (ordered_places, ordered_transitions) = compute_rcm_ordering(
+            &self.places,
+            &self.transitions,
+            &self.preset_t,
+            &self.postset_t,
+        );
 
-        // Map public handles to dense, cache-optimized indices
-        let place_to_index = ordered_places
-            .iter()
-            .copied()
-            .zip(0..)
-            .collect();
+        // Create lookup tables for node handles to their assigned dense indices
+        let place_to_index = ordered_places.iter().copied().zip(0..).collect();
+        let transition_to_index = ordered_transitions.iter().copied().zip(0..).collect();
 
-        let transition_to_index = ordered_transitions
-            .iter()
-            .copied()
-            .zip(0..)
-            .collect();
-
+        // Condense the sparse, cache-inefficient hash maps to dense slice-based adjacency lists using the computed orderings and index maps.
         let preset_t = map_neighbors(&ordered_transitions, &self.preset_t, &place_to_index);
         let postset_t = map_neighbors(&ordered_transitions, &self.postset_t, &place_to_index);
         let preset_p = map_neighbors(&ordered_places, &self.preset_p, &transition_to_index);
         let postset_p = map_neighbors(&ordered_places, &self.postset_p, &transition_to_index);
 
-        let dense_net = DenseNet {
+        // Construct the dense analysis core of the net
+        let core = DenseNet {
             class,
             preset_t,
             postset_t,
@@ -347,12 +408,14 @@ impl NetBuilder {
         };
 
         Ok(Net {
-            core: dense_net,
-            place_to_index,
-            transition_to_index,
-            index_to_place: ordered_places,
-            index_to_transition: ordered_transitions,
-            labels: None, // todo: add labels builder
+            core,
+            next_place_id,
+            next_transition_id,
+            place_indices: place_to_index,
+            transition_indices: transition_to_index,
+            ordered_places: ordered_places,
+            ordered_transitions: ordered_transitions,
+            labels: None,   // todo: add labels builder
             graphics: None, // todo: add graphics builder
         })
     }
@@ -361,13 +424,13 @@ impl NetBuilder {
 /// Converts a sparse adjacency map (from builder) to a dense
 /// adjacency list (for Net) using the provided index map.
 /// The `ordered_nodes` slice defines the order of nodes in the dense net,
-/// and the `sparse_adjacency` map provides the original adjacency using builder keys.
-/// The `dense_index_map` translates builder keys to their corresponding dense indices.
+/// and the `sparse_adjacency` map provides the original adjacency using node handles.
+/// The `dense_index_map` translates node handles to their corresponding dense indices.
 fn map_neighbors<N, M, Idx>(
     ordered_nodes: &[N],
     sparse_adjacency: &HashMap<N, HashSet<M>>,
     dense_index_map: &HashMap<M, Idx>,
-) -> Box<[SortedSet<Idx>]>
+) -> Box<[UniqueSortedSlice<Idx>]>
 where
     N: Eq + Hash,
     M: Eq + Hash,
@@ -386,7 +449,7 @@ where
                         .expect("Neighbor key must exist in dense index map")
                 })
                 .collect();
-            SortedSet::new(indices)
+            UniqueSortedSlice::new(indices)
         })
         .collect()
 }
@@ -405,14 +468,8 @@ fn compute_rcm_ordering(
 
     // 1. Establish dense temporary indices mapping
     // Places -> [0 .. P), Transitions -> [P .. P + T)
-    let p_map: HashMap<Place, PlaceIdx> = places.iter()
-        .copied()
-        .zip(0..)
-        .collect();
-    let t_map: HashMap<Transition, TransitionIdx> = transitions.iter()
-        .copied()
-        .zip(0..)
-        .collect();
+    let p_map: HashMap<Place, PlaceIdx> = places.iter().copied().zip(0..).collect();
+    let t_map: HashMap<Transition, TransitionIdx> = transitions.iter().copied().zip(0..).collect();
 
     // 2. Build the unified undirected adjacency list.
     //
@@ -441,7 +498,7 @@ fn compute_rcm_ordering(
     let degrees: Vec<usize> = adj.iter().map(Vec::len).collect();
     for neighbors in &mut adj {
         neighbors.sort_unstable(); // Required before dedup
-        neighbors.dedup();         // Merge arcs if a place is in both •t and t•
+        neighbors.dedup(); // Merge arcs if a place is in both •t and t•
         neighbors.sort_unstable_by_key(|&n| degrees[n]); // The critical RCM requirement
     }
 
@@ -471,7 +528,8 @@ fn compute_rcm_ordering(
             depth += 1;
         }
 
-        let min_degree_node = current_level.into_iter()
+        let min_degree_node = current_level
+            .into_iter()
             .min_by_key(|&n| degrees[n])
             .unwrap_or(start);
 
@@ -523,39 +581,35 @@ fn compute_rcm_ordering(
         }
     }
 
-    (ordered_places.into_boxed_slice(), ordered_transitions.into_boxed_slice())
+    (
+        ordered_places.into_boxed_slice(),
+        ordered_transitions.into_boxed_slice(),
+    )
 }
 
 /// Convert a built `Net` back into a `NetBuilder` for editing.
 impl From<Net> for NetBuilder {
     fn from(net: Net) -> Self {
-        let next_place_id = net.places()
-            .map(Place::into_raw)
-            .max()
-            .unwrap_or(0)
-            .checked_add(1)
-            .expect("Node ID overflow: cannot build from a net containing u32::MAX");
-
-        let next_transition_id = net.transitions()
-            .map(Transition::into_raw)
-            .max()
-            .unwrap_or(0)
-            .checked_add(1)
-            .expect("Node ID overflow: cannot build from a net containing u32::MAX");
+        let next_place_id = net.next_place_id;
+        let next_transition_id = net.next_transition_id;
 
         let places = net.places().collect();
         let transitions = net.transitions().collect();
 
-        let mut preset_t = net.transitions()
+        let mut preset_t = net
+            .transitions()
             .map(|t| (t, HashSet::new()))
             .collect::<HashMap<_, _>>();
-        let mut postset_t = net.transitions()
+        let mut postset_t = net
+            .transitions()
             .map(|t| (t, HashSet::new()))
             .collect::<HashMap<_, _>>();
-        let mut preset_p = net.places()
+        let mut preset_p = net
+            .places()
             .map(|p| (p, HashSet::new()))
             .collect::<HashMap<_, _>>();
-        let mut postset_p = net.places()
+        let mut postset_p = net
+            .places()
             .map(|p| (p, HashSet::new()))
             .collect::<HashMap<_, _>>();
 
@@ -629,8 +683,8 @@ impl_into_arcs_for_tuples!(a b c d e f g h i j k l);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::NetClass;
     use crate::Arc;
+    use crate::net::NetClass;
 
     #[test]
     fn build_simple_net() {
@@ -836,7 +890,18 @@ mod tests {
         assert_eq!(b2.transition_count(), 2);
 
         let rebuilt = b2.build().expect("round-trip should produce valid net");
-        assert_eq!(rebuilt, original);
+        assert_eq!(rebuilt.next_place_id, original.next_place_id);
+        assert_eq!(rebuilt.next_transition_id, original.next_transition_id);
+        assert_eq!(rebuilt.ordered_places, original.ordered_places);
+        assert_eq!(rebuilt.ordered_transitions, original.ordered_transitions);
+        assert_eq!(rebuilt.place_indices, original.place_indices);
+        assert_eq!(rebuilt.transition_indices, original.transition_indices);
+        assert_eq!(rebuilt.core.class, original.core.class);
+        assert_eq!(rebuilt.core.preset_t, original.core.preset_t);
+        assert_eq!(rebuilt.core.postset_t, original.core.postset_t);
+        assert_eq!(rebuilt.core.preset_p, original.core.preset_p);
+        assert_eq!(rebuilt.core.postset_p, original.core.postset_p);
+        // todo: also guarantee labels and graphics will round-trip once those builders are implemented
     }
 
     #[test]
@@ -908,8 +973,14 @@ mod tests {
         b.add_arc((t0, p1));
 
         assert!(b.remove_arc((p0, t0)));
-        assert!(!b.arcs().any(|a| matches!(a, Arc::PlaceToTransition(pp, tt) if pp == p0 && tt == t0)));
-        assert!(b.arcs().any(|a| matches!(a, Arc::TransitionToPlace(tt, pp) if tt == t0 && pp == p1)));
+        assert!(
+            !b.arcs()
+                .any(|a| matches!(a, Arc::PlaceToTransition(pp, tt) if pp == p0 && tt == t0))
+        );
+        assert!(
+            b.arcs()
+                .any(|a| matches!(a, Arc::TransitionToPlace(tt, pp) if tt == t0 && pp == p1))
+        );
     }
 
     #[test]
@@ -961,7 +1032,7 @@ mod tests {
         b.add_arc((p, t));
         b.add_arc((t, p));
         let net = b.build().unwrap();
-        let p_idx = net.place_to_index[&p];
-        assert_eq!(net.index_to_place[p_idx], p);
+        let p_idx = net.place_indices[&p];
+        assert_eq!(net.ordered_places[p_idx], p);
     }
 }

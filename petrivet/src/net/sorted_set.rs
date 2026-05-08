@@ -19,9 +19,9 @@ use std::hash::Hash;
 /// net.preset_t(t).contains(&p)                         // p ∈ •t
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub struct SortedSet<T>(pub(crate) Box<[T]>);
+pub struct UniqueSortedSlice<T>(pub(crate) Box<[T]>);
 
-impl<T: Ord> SortedSet<T> {
+impl<T: Ord> UniqueSortedSlice<T> {
     pub(crate) fn new(data: Vec<T>) -> Self where T: Hash {
         let mut data = data
             .into_iter()
@@ -74,20 +74,20 @@ impl<T: Ord> SortedSet<T> {
     }
 }
 
-impl<T> std::ops::Deref for SortedSet<T> {
+impl<T> std::ops::Deref for UniqueSortedSlice<T> {
     type Target = [T];
     fn deref(&self) -> &[T] {
         &self.0
     }
 }
 
-impl<T: PartialEq, const N: usize> PartialEq<[T; N]> for SortedSet<T> {
+impl<T: PartialEq, const N: usize> PartialEq<[T; N]> for UniqueSortedSlice<T> {
     fn eq(&self, other: &[T; N]) -> bool {
         *self.0 == *other
     }
 }
 
-impl<'a, T> IntoIterator for &'a SortedSet<T> {
+impl<'a, T> IntoIterator for &'a UniqueSortedSlice<T> {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;
     fn into_iter(self) -> Self::IntoIter {

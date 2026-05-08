@@ -28,7 +28,6 @@ pub mod semi_decision;
 pub mod model;
 pub mod siphon_trap;
 pub mod incidence;
-pub mod backwards_coverability;
 
 impl<N: AsRef<Net>> System<N> {
 
@@ -41,8 +40,8 @@ impl<N: AsRef<Net>> System<N> {
             &self.core.net.as_ref().core,
             &self.core.current_marking
         ).map(|(siphon, trap, trap_is_marked)| {
-            let siphon = siphon.into_iter().map(|p_idx| self.core.net.as_ref().index_to_place[p_idx]).collect();
-            let trap = trap.into_iter().map(|p_idx| self.core.net.as_ref().index_to_place[p_idx]).collect();
+            let siphon = siphon.into_iter().map(|p_idx| self.core.net.as_ref().ordered_places[p_idx]).collect();
+            let trap = trap.into_iter().map(|p_idx| self.core.net.as_ref().ordered_places[p_idx]).collect();
             SiphonTrapPair { siphon, trap, trap_is_marked }
         }).collect();
         CommonerHackCriterionResult { siphon_trap_pairs }

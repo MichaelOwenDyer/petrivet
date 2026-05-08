@@ -377,7 +377,7 @@ impl<N: AsRef<Net>> System<N> {
     /// This is a read-only query. To fire one of these, use [`try_fire`](Self::try_fire)
     /// or [`choose_and_fire`](Self::choose_and_fire).
     pub fn enabled_transitions(&self) -> impl Iterator<Item = Transition> + '_ {
-        self.core.enabled_transitions().map(|idx| self.net().index_to_transition[idx])
+        self.core.enabled_transitions().map(|idx| self.net().ordered_transitions[idx])
     }
 
     /// Whether the system is in a deadlock state (no transitions are enabled).

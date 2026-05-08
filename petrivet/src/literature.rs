@@ -408,8 +408,8 @@
 #[cfg(doc)]
 use crate::analysis::model::{CommonerHackCriterionResult, SNetLivenessEvidence, TNetLivenessEvidence};
 #[cfg(doc)]
-use crate::analysis::{semi_decision, structural};
+use crate::analysis::semi_decision;
 #[cfg(doc)]
-use crate::analysis::structural::{IncidenceMatrix, Invariants, SComponent};
+use crate::analysis::incidence::IncidenceMatrix;
 #[cfg(doc)]
 use crate::LivenessLevel;

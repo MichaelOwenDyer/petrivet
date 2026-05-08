@@ -14,7 +14,7 @@ use crate::net::idx::{DenseNet, PlaceIdx, TransitionIdx};
 /// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (uses the transposed convention; our N = Murata's Aᵀ)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IncidenceMatrix {
-    data: Vec<i32>,
+    data: Box<[i32]>,
     rows: usize,
     cols: usize,
 }
@@ -25,7 +25,7 @@ impl IncidenceMatrix {
     pub(crate) fn new(net: &DenseNet) -> Self {
         let rows = net.place_count() as usize;
         let cols = net.transition_count() as usize;
-        let mut data = vec![0; rows * cols];
+        let mut data = vec![0; rows * cols].into_boxed_slice();
         for (t, preset, postset) in net.transition_io() {
             for &p in preset {
                 data[p * cols + t] -= 1;

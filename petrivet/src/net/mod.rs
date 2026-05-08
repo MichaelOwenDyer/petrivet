@@ -13,7 +13,7 @@ pub mod system;
 pub mod marking;
 
 pub use nodes::{Place, Transition};
-pub use sorted_set::SortedSet;
+pub use sorted_set::UniqueSortedSlice;
 
 use crate::class::NetClass;
 use crate::{Marking, System};
@@ -25,11 +25,12 @@ use crate::pnml::labels::NetLabels;
 use crate::state_space::explorer::TokenOps;
 use marking::IdxMarking;
 use std::iter::Peekable;
+use std::num::NonZeroU32;
 
 pub(crate) mod idx {
     use crate::analysis::incidence::IncidenceMatrix;
     use crate::class::NetClass;
-    use crate::{analysis, SortedSet};
+    use crate::{analysis, UniqueSortedSlice};
 
     /// A place in a built [`Net`], identified by a dense index in `0 .. place_count`.
     ///
@@ -54,50 +55,17 @@ pub(crate) mod idx {
     pub struct DenseNet {
         /// Structural class of the net, cached at build time for efficient queries.
         pub class: NetClass,
-        /// Transition presets: for each transition t, the places in •t,
-        /// sorted by their internal dense index for efficient set operations.
-        pub preset_t: Box<[SortedSet<PlaceIdx>]>,
-        /// Transition postsets: for each transition t, the of places in t•.
-        pub postset_t: Box<[SortedSet<PlaceIdx>]>,
-        /// Place presets: for each place p, the sorted set of transitions in •p.
-        pub preset_p: Box<[SortedSet<TransitionIdx>]>,
-        /// Place postsets: for each place p, the sorted set of transitions in p•.
-        pub postset_p: Box<[SortedSet<TransitionIdx>]>,
+        /// Transition presets: for each transition t, the set of places in `•t`.
+        pub preset_t: Box<[UniqueSortedSlice<PlaceIdx>]>,
+        /// Transition postsets: for each transition t, the set of places in `t•`.
+        pub postset_t: Box<[UniqueSortedSlice<PlaceIdx>]>,
+        /// Place presets: for each place p, the set of transitions in `•p`.
+        pub preset_p: Box<[UniqueSortedSlice<TransitionIdx>]>,
+        /// Place postsets: for each place p, the set of transitions in `p•`.
+        pub postset_p: Box<[UniqueSortedSlice<TransitionIdx>]>,
     }
 
     impl DenseNet {
-        /// A net is a circuit if it is both an S-net and a T-net.
-        #[must_use]
-        pub const fn is_circuit(&self) -> bool {
-            self.class.is_circuit()
-        }
-
-        /// A net is an S-net, or state machine, if every transition has exactly one input and one output place.
-        #[must_use]
-        pub const fn is_state_machine(&self) -> bool {
-            self.class.is_state_machine()
-        }
-
-        /// A net is a T-net, or marked graph, if every place has exactly one input and one output transition.
-        #[must_use]
-        pub const fn is_marked_graph(&self) -> bool {
-            self.class.is_marked_graph()
-        }
-
-        /// A net is free-choice if for every two transitions t1, t2:
-        /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
-        #[must_use]
-        pub const fn is_free_choice_net(&self) -> bool {
-            self.class.is_free_choice()
-        }
-
-        /// A net is asymmetric-choice if for every two places s1, s2:
-        /// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
-        #[must_use]
-        pub const fn is_asymmetric_choice_net(&self) -> bool {
-            self.class.is_asymmetric_choice()
-        }
-
         /// Iterator over all internal places.
         pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
             0..self.place_count() as usize
@@ -121,7 +89,7 @@ pub(crate) mod idx {
         }
 
         /// Returns an iterator over all transition indices and associated index presets and index postsets.
-        pub fn transition_io(&self) -> impl Iterator<Item = (TransitionIdx, &SortedSet<PlaceIdx>, &SortedSet<PlaceIdx>)> + '_ {
+        pub fn transition_io(&self) -> impl Iterator<Item = (TransitionIdx, &UniqueSortedSlice<PlaceIdx>, &UniqueSortedSlice<PlaceIdx>)> + '_ {
             self.transition_indices()
                 .zip(self.preset_t.iter().zip(self.postset_t.iter()))
                 .map(|(t, (preset, postset))| (t, preset, postset))
@@ -205,18 +173,6 @@ pub(crate) mod idx {
             ).is_some()
         }
     }
-
-    impl PartialEq for DenseNet {
-        fn eq(&self, other: &Self) -> bool {
-            self.class == other.class
-                && self.preset_t == other.preset_t
-                && self.postset_t == other.postset_t
-                && self.preset_p == other.preset_p
-                && self.postset_p == other.postset_p
-        }
-    }
-
-    impl Eq for DenseNet {}
 }
 
 pub trait IteratorExt: Iterator + Sized {
@@ -300,14 +256,20 @@ pub struct Net {
     /// Inner net structure, optimized for efficient analysis algorithms.
     pub(crate) core: DenseNet,
 
+    /// The next unused place ID in this net,
+    /// only relevant for converting the `Net` back to a `NetBuilder`.
+    pub(crate) next_place_id: NonZeroU32,
+    /// The next unused transition ID in this net,
+    /// only relevant for converting the `Net` back to a `NetBuilder`.
+    pub(crate) next_transition_id: NonZeroU32,
     /// Maps the public place handle to its internal dense index.
-    pub(crate) place_to_index: HashMap<Place, PlaceIdx>,
+    pub(crate) place_indices: HashMap<Place, PlaceIdx>,
     /// Maps the public transition handle to its internal dense index.
-    pub(crate) transition_to_index: HashMap<Transition, TransitionIdx>,
+    pub(crate) transition_indices: HashMap<Transition, TransitionIdx>,
     /// Maps internal dense place indices back to their public handles.
-    pub(crate) index_to_place: Box<[Place]>,
+    pub(crate) ordered_places: Box<[Place]>,
     /// Maps internal dense transition indices back to their public handles.
-    pub(crate) index_to_transition: Box<[Transition]>,
+    pub(crate) ordered_transitions: Box<[Transition]>,
 
     /// The annotations on the net.
     /// Boxed so that it only adds a single pointer's worth of overhead to the Net struct.
@@ -328,7 +290,7 @@ impl Net {
     pub(crate) fn to_idx_marking<T: TokenOps>(&self, api_marking: Marking<T>) -> IdxMarking<T> {
         let mut marking = IdxMarking::zeros(self.place_count());
         api_marking.into_iter().for_each(|(place, count)| {
-            if let Some(&dense) = self.place_to_index.get(&place) {
+            if let Some(&dense) = self.place_indices.get(&place) {
                 marking[dense] = count;
             }
         });
@@ -367,43 +329,43 @@ impl Net {
     /// A net is a circuit if it is both an S-net and a T-net.
     #[must_use]
     pub const fn is_circuit(&self) -> bool {
-        self.core.is_circuit()
+        self.core.class.is_circuit()
     }
 
     /// A net is an S-net, or state machine, if every transition has exactly one input and one output place.
     #[must_use]
     pub const fn is_state_machine(&self) -> bool {
-        self.core.is_state_machine()
+        self.core.class.is_state_machine()
     }
 
     /// A net is a T-net, or marked graph, if every place has exactly one input and one output transition.
     #[must_use]
     pub const fn is_marked_graph(&self) -> bool {
-        self.core.is_marked_graph()
+        self.core.class.is_marked_graph()
     }
 
     /// A net is free-choice if for every two transitions t1, t2:
     /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
     #[must_use]
     pub const fn is_free_choice_net(&self) -> bool {
-        self.core.is_free_choice_net()
+        self.core.class.is_free_choice()
     }
 
     /// A net is asymmetric-choice if for every two places s1, s2:
     /// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
     #[must_use]
     pub const fn is_asymmetric_choice_net(&self) -> bool {
-        self.core.is_asymmetric_choice_net()
+        self.core.class.is_asymmetric_choice()
     }
 
     /// Iterator over all places.
     pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
-        self.index_to_place.iter().copied()
+        self.ordered_places.iter().copied()
     }
 
     /// Iterator over all places.
     pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
-        self.index_to_transition.iter().copied()
+        self.ordered_transitions.iter().copied()
     }
 
     /// Number of places in the net.
@@ -440,32 +402,32 @@ impl Net {
 
     /// Returns the transitions which deposit tokens onto the given place (•p).
     pub fn place_preset(&self, place: &Place) -> impl Iterator<Item = Transition> + '_ {
-        self.place_to_index.get(place).map(|&idx| {
-            self.core.preset_p[idx].iter().map(|&idx| self.index_to_transition[idx])
+        self.place_indices.get(place).map(|&idx| {
+            self.core.preset_p[idx].iter().map(|&idx| self.ordered_transitions[idx])
         })
             .unwrap() // todo: return empty for unknown place?
     }
 
     /// Returns the transitions which consume tokens from the given place (p•).
     pub fn place_postset(&self, place: &Place) -> impl Iterator<Item = Transition> + '_ {
-        self.place_to_index.get(place).map(|&idx| {
-            self.core.postset_p[idx].iter().map(|&idx| self.index_to_transition[idx])
+        self.place_indices.get(place).map(|&idx| {
+            self.core.postset_p[idx].iter().map(|&idx| self.ordered_transitions[idx])
         })
             .unwrap()
     }
 
     /// Returns the places from which the given transition consumes tokens (•t).
     pub fn transition_preset(&self, transition: &Transition) -> impl Iterator<Item = Place> + '_ {
-        self.transition_to_index.get(transition).map(|&idx| {
-            self.core.preset_t[idx].iter().map(|&idx| self.index_to_place[idx])
+        self.transition_indices.get(transition).map(|&idx| {
+            self.core.preset_t[idx].iter().map(|&idx| self.ordered_places[idx])
         })
             .unwrap()
     }
 
     /// Returns the places onto which the given transition produces tokens (t•).
     pub fn transition_postset(&self, transition: &Transition) -> impl Iterator<Item = Place> + '_ {
-        self.transition_to_index.get(transition).map(|&idx| {
-            self.core.postset_t[idx].iter().map(|&idx| self.index_to_place[idx])
+        self.transition_indices.get(transition).map(|&idx| {
+            self.core.postset_t[idx].iter().map(|&idx| self.ordered_places[idx])
         })
             .unwrap()
     }
@@ -474,13 +436,13 @@ impl Net {
     pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
         self.core.arcs().map(|idx_arc| match idx_arc {
             idx::IdxArc::PlaceToTransition(p_idx, t_idx) => {
-                let place = self.index_to_place[p_idx];
-                let transition = self.index_to_transition[t_idx];
+                let place = self.ordered_places[p_idx];
+                let transition = self.ordered_transitions[t_idx];
                 Arc::PlaceToTransition(place, transition)
             },
             idx::IdxArc::TransitionToPlace(t_idx, p_idx) => {
-                let transition = self.index_to_transition[t_idx];
-                let place = self.index_to_place[p_idx];
+                let transition = self.ordered_transitions[t_idx];
+                let place = self.ordered_places[p_idx];
                 Arc::TransitionToPlace(transition, place)
             },
         })
@@ -489,13 +451,13 @@ impl Net {
     /// Translate a [`Place`] to its dense [`PlaceIdx`] index.
     #[must_use]
     pub(crate) fn place_index(&self, key: Place) -> Option<&PlaceIdx> {
-        self.place_to_index.get(&key)
+        self.place_indices.get(&key)
     }
 
     /// Translate a [`Transition`] to its dense [`TransitionIdx`] index.
     #[must_use]
     pub(crate) fn transition_index(&self, key: Transition) -> Option<&TransitionIdx> {
-        self.transition_to_index.get(&key)
+        self.transition_indices.get(&key)
     }
 
     /// Checks if the net is strongly connected.
@@ -517,23 +479,11 @@ impl Net {
     /// which would cause this place to become unbounded.
     #[must_use]
     pub fn is_place_structurally_bounded(&self, place: &Place) -> bool {
-        self.place_to_index
+        self.place_indices
             .get(place)
             .is_some_and(|p_idx| self.core.is_place_structurally_bounded(p_idx))
     }
 }
-
-impl PartialEq for Net {
-    fn eq(&self, other: &Self) -> bool {
-        self.core == other.core
-            && self.place_to_index == other.place_to_index
-            && self.transition_to_index == other.transition_to_index
-            && self.index_to_place == other.index_to_place
-            && self.index_to_transition == other.index_to_transition
-    }
-}
-
-impl Eq for Net {}
 
 impl AsRef<Net> for Net {
     fn as_ref(&self) -> &Net {

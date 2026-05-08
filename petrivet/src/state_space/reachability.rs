@@ -118,7 +118,7 @@ impl<'a> ReachabilityExplorer<'a> {
             let new_marking = self.core.fire(src_idx, t);
             let is_new = self.core.register(src_idx, t, new_marking.clone());
             return Some(ReachabilityStep {
-                transition: self.core.state_space.net.index_to_transition[t],
+                transition: self.core.state_space.net.ordered_transitions[t],
                 marking: self.core.state_space.net.to_marking(new_marking),
                 is_new,
             });
@@ -215,7 +215,7 @@ impl<'a> ReachabilityExplorer<'a> {
         let &target_idx = self.core.state_space.seen.get(&target)?;
         self.core.state_space.path_from_initial_to(target_idx).map(|path| {
             path.into_iter()
-                .map(|t_idx| self.core.state_space.net.index_to_transition[t_idx])
+                .map(|t_idx| self.core.state_space.net.ordered_transitions[t_idx])
                 .collect()
         })
     }
@@ -385,7 +385,7 @@ impl<'a> ReachabilityGraph<'a> {
             .and_then(|&target_idx| self.state_space.path_from_initial_to(target_idx))
             .map(|path| {
                 path.into_iter()
-                    .map(|t_idx| self.state_space.net.index_to_transition[t_idx])
+                    .map(|t_idx| self.state_space.net.ordered_transitions[t_idx])
                     .collect()
             })
     }

@@ -35,7 +35,7 @@ impl<T: Default + Eq + Hash> FromIterator<(Place, T)> for Marking<T> {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect::<Box<_>>();
-        x.sort_unstable_by_key(|(p, _)| p.into_raw());
+        x.sort_unstable_by_key(|&(Place(id), _)| id);
         Marking(x)
     }
 }
