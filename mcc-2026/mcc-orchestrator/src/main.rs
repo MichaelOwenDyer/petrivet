@@ -595,13 +595,13 @@ INPUT_DIR="${BK_INPUT:-.}"
 EXAMINATION="${BK_EXAMINATION:-}"
 
 if [ -z "$EXAMINATION" ]; then
-  echo "CANNOT COMPUTE"
+  echo "DO_NOT_COMPETE"
   exit 0
 fi
 
 TOOL_PATH="$TOOL_DIR/petrivet-mcc"
 if [ ! -x "$TOOL_PATH" ]; then
-  echo "CANNOT COMPUTE"
+  echo "DO_NOT_COMPETE"
   exit 0
 fi
 

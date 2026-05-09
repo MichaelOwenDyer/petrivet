@@ -158,8 +158,8 @@ fn format_techniques(techniques: &[Technique]) -> String {
 }
 
 /// A single `FORMULA …` line for `GlobalProperties` and the formula-driven
-/// examinations. `value = None` is the protocol's `CANNOT COMPUTE`; the
-/// Submission Manual forbids `DO NOT COMPETE` at this granularity (that
+/// examinations. `value = None` is the protocol's `CANNOT_COMPUTE`; the
+/// Submission Manual forbids `DO_NOT_COMPETE` at this granularity (that
 /// keyword is reserved for whole-subcategory opt-outs).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BooleanFormulaReport<'a> {
@@ -176,7 +176,7 @@ impl fmt::Display for BooleanFormulaReport<'_> {
                 let bool_str = if value { "TRUE" } else { "FALSE" };
                 write!(f, "FORMULA {} {bool_str} TECHNIQUES {techs}", self.formula)
             }
-            None => write!(f, "FORMULA {} CANNOT COMPUTE", self.formula),
+            None => write!(f, "FORMULA {} CANNOT_COMPUTE", self.formula),
         }
     }
 }

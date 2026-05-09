@@ -118,61 +118,27 @@ fn run_state_space(input_dir: &Path) -> Result<(), ParticipationError> {
     Ok(())
 }
 
-/// `ReachabilityDeadlock`: build the reachability graph (short-circuiting
-/// on ω) and ask `has_reachable_deadlock`.
-///
-/// Deliberately not pre-running the Commoner-Hack siphon/trap check:
-/// minimal-siphon enumeration is exponential and on nets that *do*
-/// have deadlocks — which is the only time we care, since CHC failing
-/// is inconclusive — that work is fully wasted because we still have
-/// to build the RG. Where CHC pays off is in *proving* liveness, see
-/// `run_liveness`.
-///
-/// For unbounded nets we report `CANNOT COMPUTE`. Deadlock-freedom is
-/// in fact decidable for general P/T nets via backward reachability
-/// (BACK2 in the lecture notes); petrivet does not yet implement that.
+/// `ReachabilityDeadlock`: return true if there is any reachable deadlock marking.
 fn run_reachability_deadlock(input_dir: &Path) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
-    let rg = system
-        .build_reachability_or_coverability()
-        .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
-    emit_global(
+    print_boolean_result(
         Examination::ReachabilityDeadlock.as_str(),
-        rg.has_reachable_deadlock(),
+        system.has_reachable_deadlock_marking(),
         DEFAULT_TECHNIQUES,
     );
     Ok(())
 }
 
-/// `OneSafe` answer ladder:
-///
-/// 1. **Structural place bounds.** If `find_positive_place_subvariant`
-///    pins every place at ≤ 1 token, we are done. Polynomial-time,
-///    no exploration.
-/// 2. **Short-circuiting RG walk** on a structurally bounded net:
-///    `has_reachable_unsafe_marking` stops at the first marking that
-///    holds ≥ 2 tokens in any place (FALSE witness).
-/// 3. **Full RG fallback** when boundedness is unknown structurally:
-///    we still attempt the explicit RG via the coverability path; if
-///    exploration aborts on ω we emit `CANNOT COMPUTE`.
 fn run_one_safe(input_dir: &Path) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
     let name = Examination::OneSafe.as_str();
 
     if system.is_structurally_one_safe() {
-        emit_global(name, true, STRUCTURAL_TECHNIQUES);
+        print_boolean_result(name, true, STRUCTURAL_TECHNIQUES);
         return Ok(());
     }
 
-    if system.net().is_structurally_bounded() {
-        emit_global(name, !system.has_reachable_unsafe_marking(), DEFAULT_TECHNIQUES);
-        return Ok(());
-    }
-
-    let rg = system
-        .build_reachability_or_coverability()
-        .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
-    emit_global(name, rg.is_one_safe(), DEFAULT_TECHNIQUES);
+    print_boolean_result(name, !system.has_reachable_unsafe_marking(), DEFAULT_TECHNIQUES);
     Ok(())
 }
 
@@ -184,14 +150,14 @@ fn run_liveness(input_dir: &Path) -> Result<(), ParticipationError> {
     let name = Examination::Liveness.as_str();
 
     if system.net().is_free_choice_net() && system.commoner_hack_criterion().is_satisfied() {
-        emit_global(name, true, STRUCTURAL_TECHNIQUES);
+        print_boolean_result(name, true, STRUCTURAL_TECHNIQUES);
         return Ok(());
     }
 
     let rg = system
         .build_reachability_or_coverability()
         .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
-    emit_global(name, rg.is_live(), DEFAULT_TECHNIQUES);
+    print_boolean_result(name, rg.is_live(), DEFAULT_TECHNIQUES);
     Ok(())
 }
 
@@ -206,17 +172,12 @@ fn run_global_property_via_rg(
     let rg = system
         .build_reachability_or_coverability()
         .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
-    emit_global(formula_name, answer(&rg), DEFAULT_TECHNIQUES);
+    print_boolean_result(formula_name, answer(&rg), DEFAULT_TECHNIQUES);
     Ok(())
 }
 
-fn emit_global(formula: &str, value: bool, techniques: &[Technique]) {
-    let report = BooleanFormulaReport {
-        formula,
-        value: Some(value),
-        techniques,
-    };
-    println!("{report}");
+fn print_boolean_result(formula: &str, value: bool, techniques: &[Technique]) {
+    println!("{}", BooleanFormulaReport { formula, value: Some(value), techniques });
 }
 
 fn load_system(input_dir: &Path) -> Result<PetriNet<Net>, ParticipationError> {

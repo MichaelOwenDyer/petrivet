@@ -205,6 +205,11 @@ impl<T: TokenOps> StateGraph<'_, T> {
         &self.graph[idx]
     }
 
+    /// Returns a reference to the initial marking.
+    pub(crate) fn initial_marking(&self) -> &IdxMarking<T> {
+        &self.graph[self.initial_idx]
+    }
+
     /// Find a path from initial to target using A*.
     pub(crate) fn path_from_initial_to(&self, target: NodeIndex) -> Option<Box<[TransitionIdx]>> {
         if target == self.initial_idx {

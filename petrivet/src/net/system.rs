@@ -89,7 +89,7 @@ impl<N: AsRef<Net>> DensePetriNet<N> {
 
     /// Dense-index firing for internal use by the state-space explorer.
     pub(crate) fn is_enabled(&self, t: TransitionIdx) -> bool {
-        self.net().core.preset_t[t].iter().all(|&p| self.current_marking[p] >= 1)
+        self.net().core.is_enabled_in(t, &self.current_marking)
     }
 
     /// Returns the set of currently enabled transitions.
@@ -329,7 +329,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// [`Net::is_structurally_bounded`]: crate::Net::is_structurally_bounded
     pub fn has_reachable_unsafe_marking(&self) -> bool {
         self.explore_reachability(ExplorationOrder::BreadthFirst)
-            .any_marking_satisfies(|m| m.iter().any(|(_, &t)| t > 1))
+            .any_marking_satisfies(|m| m.iter().any(|&t| t > 1))
+    }
+
+    /// Returns true if state space enumeration encounters any deadlock marking.
+    pub fn has_reachable_deadlock_marking(&self) -> bool {
+        self.explore_reachability(ExplorationOrder::BreadthFirst)
+            .any_marking_satisfies(|m| self.net().core.is_deadlock(m))
     }
 
     /// True iff structural analysis alone proves the net 1-safe under the

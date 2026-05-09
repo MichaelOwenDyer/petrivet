@@ -49,6 +49,7 @@ use crate::net::{Net, Transition};
 use crate::state_space::explorer::StateGraph;
 use crate::state_space::{explorer::StateSpaceExplorer, CoverabilityGraph, ExplorationOrder};
 use crate::{Marking, Place};
+use crate::net::idx::TransitionIdx;
 
 /// An incremental exploration handle for a Petri net's reachability graph.
 ///
@@ -103,6 +104,21 @@ impl<'a> ReachabilityExplorer<'a> {
         let marking = sys.core.current_marking.clone();
         Self {
             core: StateSpaceExplorer::new(net, marking, order),
+        }
+    }
+
+    /// Advance exploration by one step.
+    ///
+    /// Returns `None` when the frontier is exhausted (fully explored).
+    pub(crate) fn explore_next_inner(&mut self) -> Option<(TransitionIdx, IdxMarking, bool)> {
+        loop {
+            let (src_idx, t_idx) = self.core.pop_frontier()?;
+            if !self.core.is_enabled(src_idx, t_idx) {
+                continue;
+            }
+            let new_marking = self.core.fire(src_idx, t_idx);
+            let is_new = self.core.register(src_idx, t_idx, new_marking.clone());
+            return Some((t_idx, new_marking, is_new));
         }
     }
 
@@ -254,16 +270,16 @@ impl<'a> ReachabilityExplorer<'a> {
     /// building the full reachability graph and querying it afterwards;
     /// on nets where the answer is "no" the cost is identical (a full
     /// exploration).
-    pub fn any_marking_satisfies(
+    pub(crate) fn any_marking_satisfies(
         &mut self,
-        mut predicate: impl FnMut(&Marking) -> bool,
+        mut predicate: impl FnMut(&IdxMarking) -> bool,
     ) -> bool {
-        let initial = self.initial_marking();
-        if predicate(&initial) {
+        let initial = self.core.state_space.initial_marking();
+        if predicate(initial) {
             return true;
         }
-        while let Some(step) = self.explore_next() {
-            if step.is_new && predicate(&step.marking) {
+        while let Some((_t_idx, marking, is_new)) = self.explore_next_inner() {
+            if is_new && predicate(&marking) {
                 return true;
             }
         }

@@ -31,6 +31,7 @@ pub(crate) mod idx {
     use crate::analysis::incidence::IncidenceMatrix;
     use crate::class::NetClass;
     use crate::{analysis, UniqueSortedSlice};
+    use crate::marking::IdxMarking;
 
     /// A place in a built [`Net`], identified by a dense index in `0 .. place_count`.
     ///
@@ -118,6 +119,17 @@ pub(crate) mod idx {
                         postset.iter().map(move |&t_idx| IdxArc::PlaceToTransition(p_idx, t_idx)),
                     )
                 })
+        }
+
+        /// Returns true if the provided transition is enabled at the given marking,
+        /// i.e. if all places in its preset have at least one token in the marking.
+        pub(crate) fn is_enabled_in(&self, t: TransitionIdx, marking: &IdxMarking) -> bool {
+            self.preset_t[t].iter().all(|&p| marking[p] >= 1)
+        }
+
+        /// Returns true if the given marking enables no transitions in the net.
+        pub(crate) fn is_deadlock(&self, marking: &IdxMarking) -> bool {
+            self.transition_indices().all(|t| !self.is_enabled_in(t, marking))
         }
 
         /// Computes the incidence matrix N of the net.
