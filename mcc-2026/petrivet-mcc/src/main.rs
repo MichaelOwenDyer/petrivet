@@ -171,7 +171,7 @@ fn run_one_safe(input_dir: &Path) -> Result<(), ParticipationError> {
 
     let rg = system
         .build_reachability_or_coverability()
-        .map_err(|_unbounded_graph| ParticipationError::CannotCompute)?;
+        .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
     emit_global(name, rg.is_one_safe(), DEFAULT_TECHNIQUES);
     Ok(())
 }
