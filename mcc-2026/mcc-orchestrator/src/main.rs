@@ -48,7 +48,7 @@ impl Paths {
             ));
         }
 
-        let submission_kit_dir = orchestrator_dir.join("SubmissionKit");
+        let submission_kit_dir = orchestrator_dir.join("../SubmissionKit");
         let runtime_cache_dir = orchestrator_dir.join("cache").join("runtime");
         let artifacts_dir = orchestrator_dir.join("artifacts");
 
