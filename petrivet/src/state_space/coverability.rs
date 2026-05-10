@@ -449,7 +449,7 @@ mod tests {
         let [t0, t1] = b.add_transitions();
         b.add_arcs((p0, t0, p1, t1, p0));
         let net = b.build().expect("valid net");
-        (net.with_marking([(p0, 1)]), p0, p1)
+        (net.with_initial_marking([(p0, 1)]), p0, p1)
     }
 
     /// Unbounded: t0 consumes from p0 and produces to both p0 and p1
@@ -460,7 +460,7 @@ mod tests {
         b.add_arcs((p0, t0, p0));
         b.add_arc((t0, p1));
         let net = b.build().expect("valid net");
-        (net.with_marking([(p0, 1)]), p0, p1)
+        (net.with_initial_marking([(p0, 1)]), p0, p1)
     }
 
     /// Self-loop with 0 tokens: immediate deadlock
@@ -470,7 +470,7 @@ mod tests {
         let [t0] = b.add_transitions();
         b.add_arcs((p0, t0, p0));
         let net = b.build().expect("valid net");
-        net.with_marking([])
+        net.with_initial_marking([])
     }
 
     #[test]
@@ -609,7 +609,7 @@ mod tests {
         b.add_arc((t1, p0));
         b.add_arc((t1, p2));
         let net = b.build().expect("valid net");
-        let sys = net.with_marking([(p0, 1)]);
+        let sys = net.with_initial_marking([(p0, 1)]);
         let cg = sys.build_coverability_graph();
 
         assert!(!cg.is_bounded());
@@ -632,7 +632,7 @@ mod tests {
         b.add_arc((t2, p0));
         let net = b.build().expect("valid net");
         assert_eq!(net.class(), NetClass::Circuit);
-        let sys = net.with_marking([(p0, 2)]);
+        let sys = net.with_initial_marking([(p0, 2)]);
 
         let cg = sys.build_coverability_graph();
         assert!(cg.is_bounded());
@@ -657,7 +657,7 @@ mod tests {
         b.add_arcs((p0, t0, p_shared, t2, p0));
         b.add_arcs((p1, t1, p_shared, t3, p1));
         let net = b.build().expect("valid net");
-        let sys = net.with_marking([(p0, 1), (p1, 1)]);
+        let sys = net.with_initial_marking([(p0, 1), (p1, 1)]);
         let cg = sys.build_coverability_graph();
 
         assert!(cg.is_bounded());
@@ -676,7 +676,7 @@ mod tests {
         b.add_arc((t0, p1));
         b.add_arc((t0, p2));
         let net = b.build().expect("valid net");
-        let sys = net.with_marking([(p0, 1)]);
+        let sys = net.with_initial_marking([(p0, 1)]);
         let cg = sys.build_coverability_graph();
 
         assert!(!cg.is_bounded());
@@ -719,7 +719,7 @@ mod tests {
 
         let net = b.build().expect("valid net");
         assert_eq!(net.class(), NetClass::AsymmetricChoice);
-        let sys = net.with_marking([(idle1, 1), (idle2, 1), (mutex, 1)]);
+        let sys = net.with_initial_marking([(idle1, 1), (idle2, 1), (mutex, 1)]);
         let cg = sys.build_coverability_graph();
 
         assert!(cg.is_bounded());

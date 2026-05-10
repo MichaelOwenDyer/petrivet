@@ -9,11 +9,11 @@
 //! [`NetBuilder::from`] rebuilds a builder from a built [`Net`] using the net’s stored keys so
 //! handles remain usable across round-trips.
 
-use crate::Arc;
 use crate::class::NetClass;
 use crate::net::idx::{DenseNet, PlaceIdx, TransitionIdx};
 use crate::net::nodes::{Place, Transition};
 use crate::net::{Net, Node, UniqueSortedSlice};
+use crate::Arc;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::hash::Hash;
@@ -683,8 +683,8 @@ impl_into_arcs_for_tuples!(a b c d e f g h i j k l);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Arc;
     use crate::net::NetClass;
+    use crate::Arc;
 
     #[test]
     fn build_simple_net() {

@@ -328,7 +328,7 @@ impl Net {
     }
 
     /// Creates a system by combining this net with the given marking.
-    pub fn with_marking(self, initial_marking: impl Into<Marking>) -> PetriNet<Self> {
+    pub fn with_initial_marking(self, initial_marking: impl Into<Marking>) -> PetriNet<Self> {
         PetriNet::new(self, initial_marking)
     }
 

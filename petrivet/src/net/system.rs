@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn basic_firing() {
         let (net, p0, t0, p1, _t1) = two_place_cycle();
-        let mut sys = net.with_marking([(p0, 1)]);
+        let mut sys = net.with_initial_marking([(p0, 1)]);
         assert_eq!(sys.current_marking(), [(p0, 1)].into());
         assert!(sys.is_enabled(t0));
         sys.try_fire(t0).unwrap();
@@ -587,14 +587,14 @@ mod tests {
     #[test]
     fn try_fire_not_enabled() {
         let (net, p0, _t0, _p1, t1) = two_place_cycle();
-        let mut sys = net.with_marking([(p0, 1)]);
+        let mut sys = net.with_initial_marking([(p0, 1)]);
         assert!(sys.try_fire(t1).is_err());
     }
 
     #[test]
     fn fire_any_deadlock() {
         let (net, _p0, _t0, _p1, _t1) = two_place_cycle();
-        let mut sys = net.with_marking([]);
+        let mut sys = net.with_initial_marking([]);
         assert!(sys.is_deadlocked());
         assert!(sys.fire_any().is_none());
     }
@@ -602,7 +602,7 @@ mod tests {
     #[test]
     fn choose_and_fire_first() {
         let (net, p0, t0, p1, _t1) = two_place_cycle();
-        let mut sys = net.with_marking([(p0, 1)]);
+        let mut sys = net.with_initial_marking([(p0, 1)]);
         let fired = sys.choose_and_fire(|enabled| enabled.first());
         assert_eq!(fired, Some(t0));
         assert_eq!(sys.current_marking(), [(p1, 1)].into());
@@ -611,7 +611,7 @@ mod tests {
     #[test]
     fn choose_and_fire_specific() {
         let (net, p0, _t0, p1, t1) = two_place_cycle();
-        let mut sys = net.with_marking([(p1, 1)]);
+        let mut sys = net.with_initial_marking([(p1, 1)]);
         let fired = sys.choose_and_fire(|enabled| {
             enabled.iter().find(|et| *et == t1)
         });
@@ -622,7 +622,7 @@ mod tests {
     #[test]
     fn choose_and_fire_none_enabled() {
         let (net, _p0, _t0, _p1, _t1) = two_place_cycle();
-        let mut sys = net.with_marking([]);
+        let mut sys = net.with_initial_marking([]);
         let fired = sys.choose_and_fire(|enabled| enabled.first());
         assert_eq!(fired, None);
     }
@@ -630,7 +630,7 @@ mod tests {
     #[test]
     fn choose_and_fire_user_declines() {
         let (net, p0, _t0, _p1, _t1) = two_place_cycle();
-        let mut sys = net.with_marking([(p0, 1)]);
+        let mut sys = net.with_initial_marking([(p0, 1)]);
         let fired = sys.choose_and_fire(|_enabled| None);
         assert_eq!(fired, None);
         assert_eq!(sys.current_marking(), [(p0, 1)].into());
@@ -639,7 +639,7 @@ mod tests {
     #[test]
     fn enabled_transitions_query() {
         let (net, p0, t0, p1, t1) = two_place_cycle();
-        let sys = net.with_marking([(p0, 1), (p1, 1)]);
+        let sys = net.with_initial_marking([(p0, 1), (p1, 1)]);
         let enabled = sys.enabled_transitions().collect::<Box<_>>();
         assert!(enabled.contains(&t0));
         assert!(enabled.contains(&t1));
@@ -648,7 +648,7 @@ mod tests {
     #[test]
     fn into_parts() {
         let (net, p0, t0, p1, _t1) = two_place_cycle();
-        let mut sys = net.with_marking([(p0, 1)]);
+        let mut sys = net.with_initial_marking([(p0, 1)]);
         sys.try_fire(t0).unwrap();
         let (_, _, current) = sys.into_parts();
         assert_eq!(current.as_ref(), &[(p1, 1)]);
@@ -658,21 +658,21 @@ mod tests {
     fn cycle_is_structurally_bounded() {
         let (net, p0, _t0, _p1, _t1) = two_place_cycle();
         assert!(net.is_structurally_bounded());
-        let sys = net.with_marking([(p0, 1)]);
+        let sys = net.with_initial_marking([(p0, 1)]);
         assert!(sys.is_bounded());
     }
 
     #[test]
     fn cycle_is_live() {
         let (net, p0, _t0, _p1, _t1) = two_place_cycle();
-        let sys = net.with_marking([(p0, 1)]);
+        let sys = net.with_initial_marking([(p0, 1)]);
         assert!(sys.is_live());
     }
 
     #[test]
     fn deadlocked_cycle_not_live() {
         let (net, _p0, _t0, _p1, _t1) = two_place_cycle();
-        let sys = net.with_marking([]);
+        let sys = net.with_initial_marking([]);
         assert!(!sys.is_live());
     }
 
@@ -680,7 +680,7 @@ mod tests {
     fn dead_transition_detection() {
         let (net, _p0, t0, _p1, t1) = two_place_cycle();
         // With [0, 0], both transitions are dead (never fireable)
-        let sys = net.with_marking([]);
+        let sys = net.with_initial_marking([]);
         let liveness = sys.analyze_liveness();
         assert!(liveness.transition_level(t0).is_some_and(|l| l.is_dead()));
         assert!(liveness.transition_level(t1).is_some_and(|l| l.is_dead()));
@@ -689,7 +689,7 @@ mod tests {
     #[test]
     fn alive_transitions_not_dead() {
         let (net, p0, t0, _p1, t1) = two_place_cycle();
-        let sys = net.with_marking([(p0, 1)]);
+        let sys = net.with_initial_marking([(p0, 1)]);
         let liveness = sys.analyze_liveness();
         assert!(liveness.transition_level(t0).is_some_and(|l| !l.is_dead()));
         assert!(liveness.transition_level(t1).is_some_and(|l| !l.is_dead()));
@@ -705,7 +705,7 @@ mod tests {
         b.add_arc((t0, p1));
         let net = b.build().expect("valid net");
         assert!(!net.is_structurally_bounded());
-        let sys = net.with_marking([(p0, 1)]);
+        let sys = net.with_initial_marking([(p0, 1)]);
         assert!(!sys.is_bounded());
     }
 
@@ -713,7 +713,7 @@ mod tests {
     fn s_net_reachability_dispatches() {
         let (net, p0, _t0, p1, _t1)= two_place_cycle();
         assert!(net.is_state_machine());
-        let sys = net.with_marking([(p0, 1)]);
+        let sys = net.with_initial_marking([(p0, 1)]);
         assert!(sys.is_reachable([(p1, 1)].into()));
         assert!(sys.is_reachable([(p0, 1)].into()));
         assert!(!sys.is_reachable([(p0, 2)].into()));
@@ -732,7 +732,7 @@ mod tests {
         b.add_arc((t1, p1));
         let net = b.build().unwrap();
         assert!(net.is_marked_graph());
-        let sys = net.with_marking([(p0, 1), (p1, 1)]);
+        let sys = net.with_initial_marking([(p0, 1), (p1, 1)]);
         assert!(sys.is_reachable([(p2, 1)].into()));
         assert!(sys.is_reachable([(p0, 1), (p1, 1)].into()));
         assert!(!sys.is_reachable([(p1, 1)].into()));
@@ -750,7 +750,7 @@ mod tests {
         let net = b.build().unwrap();
         assert!(!net.is_state_machine());
         assert!(!net.is_marked_graph());
-        let sys = net.with_marking([(p0, 1)]);
+        let sys = net.with_initial_marking([(p0, 1)]);
         assert!(sys.is_reachable([(p0, 1)].into()));
         assert!(sys.is_reachable([(p1, 1)].into()));
     }
