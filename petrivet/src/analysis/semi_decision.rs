@@ -396,7 +396,7 @@ mod tests {
         let t0 = b.add_transition();
         b.add_arc((t0, p0));
         let net = b.build().unwrap();
-        let p0 = net.place_indices[&p0];
+        let p0 = net.mapping.place_idx(p0).expect("place in built net");
         assert!(find_positive_place_subvariant(&net.core).is_none());
         assert!(find_semipositive_place_subvariant(&net.core, |&idx| idx == p0).is_none());
     }

@@ -242,7 +242,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn current_tokens(&self, p: Place) -> u32 {
         self.core.net()
             .place_index(p)
-            .map_or(0, |&p_idx| self.core.current_marking[p_idx])
+            .map_or(0, |p_idx| self.core.current_marking[p_idx])
     }
 
     /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
@@ -366,7 +366,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// at least one token.
     #[must_use]
     pub fn is_enabled(&self, t: Transition) -> bool {
-        self.net().transition_index(t).is_some_and(|&idx| self.core.is_enabled(idx))
+        self.net().transition_index(t).is_some_and(|idx| self.core.is_enabled(idx))
     }
 
     /// Returns the set of currently enabled transitions.
@@ -374,7 +374,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// This is a read-only query. To fire one of these, use [`try_fire`](Self::try_fire)
     /// or [`choose_and_fire`](Self::choose_and_fire).
     pub fn enabled_transitions(&self) -> impl Iterator<Item = Transition> + '_ {
-        self.core.enabled_transitions().map(|idx| self.net().ordered_transitions[idx])
+        self.core.enabled_transitions().map(|idx| self.net().mapping.transition_key(idx))
     }
 
     /// Whether the system is in a deadlock state (no transitions are enabled).
@@ -391,7 +391,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn try_fire(&mut self, t: Transition) -> Result<(), NotEnabled> {
         self.core.net.as_ref()
             .transition_index(t)
-            .copied()
             .ok_or(())
             .and_then(|t_idx| self.core.try_fire(t_idx))
             .map_err(|()| NotEnabled(t))
@@ -459,7 +458,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// The caller must guarantee the transition is enabled. Underflow will
     /// panic in debug mode and wrap in release mode.
     pub fn fire_unchecked(&mut self, t: Transition) {
-        if let Some(&idx) = self.net().transition_index(t) {
+        if let Some(idx) = self.net().transition_index(t) {
             for &p in &self.core.net.as_ref().core.preset_t[idx] {
                 self.core.current_marking[p] -= 1;
             }

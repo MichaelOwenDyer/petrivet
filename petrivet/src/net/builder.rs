@@ -27,6 +27,7 @@
 
 use crate::class::NetClass;
 use crate::net::idx::{DenseNet, PlaceIdx, TransitionIdx};
+use crate::net::mapping::DenseMapping;
 use crate::net::nodes::{Place, Transition};
 use crate::net::{Net, Node, UniqueSortedSlice};
 use crate::Arc;
@@ -470,14 +471,18 @@ impl NetBuilder {
             postset_p,
         };
 
+        let mapping = DenseMapping::new(
+            place_to_index,
+            transition_to_index,
+            ordered_places,
+            ordered_transitions,
+        );
+
         Ok(Net {
             core,
             next_place_id,
             next_transition_id,
-            place_indices: place_to_index,
-            transition_indices: transition_to_index,
-            ordered_places: ordered_places,
-            ordered_transitions: ordered_transitions,
+            mapping,
             labels: None,   // todo: add labels builder
             graphics: None, // todo: add graphics builder
         })
@@ -955,10 +960,7 @@ mod tests {
         let rebuilt = b2.build().expect("round-trip should produce valid net");
         assert_eq!(rebuilt.next_place_id, original.next_place_id);
         assert_eq!(rebuilt.next_transition_id, original.next_transition_id);
-        assert_eq!(rebuilt.ordered_places, original.ordered_places);
-        assert_eq!(rebuilt.ordered_transitions, original.ordered_transitions);
-        assert_eq!(rebuilt.place_indices, original.place_indices);
-        assert_eq!(rebuilt.transition_indices, original.transition_indices);
+        assert_eq!(rebuilt.mapping, original.mapping);
         assert_eq!(rebuilt.core.class, original.core.class);
         assert_eq!(rebuilt.core.preset_t, original.core.preset_t);
         assert_eq!(rebuilt.core.postset_t, original.core.postset_t);
@@ -1095,7 +1097,7 @@ mod tests {
         b.add_arc((p, t));
         b.add_arc((t, p));
         let net = b.build().unwrap();
-        let p_idx = net.place_indices[&p];
-        assert_eq!(net.ordered_places[p_idx], p);
+        let p_idx = net.mapping.place_idx(p).expect("built net contains p");
+        assert_eq!(net.mapping.place_key(p_idx), p);
     }
 }

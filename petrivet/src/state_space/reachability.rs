@@ -134,7 +134,7 @@ impl<'a> ReachabilityExplorer<'a> {
             let new_marking = self.core.fire(src_idx, t);
             let is_new = self.core.register(src_idx, t, new_marking.clone());
             return Some(ReachabilityStep {
-                transition: self.core.state_space.net.ordered_transitions[t],
+                transition: self.core.state_space.net.mapping.transition_key(t),
                 marking: self.core.state_space.net.to_marking(new_marking),
                 is_new,
             });
@@ -231,7 +231,7 @@ impl<'a> ReachabilityExplorer<'a> {
         let &target_idx = self.core.state_space.seen.get(&target)?;
         self.core.state_space.path_from_initial_to(target_idx).map(|path| {
             path.into_iter()
-                .map(|t_idx| self.core.state_space.net.ordered_transitions[t_idx])
+                .map(|t_idx| self.core.state_space.net.mapping.transition_key(t_idx))
                 .collect()
         })
     }
@@ -401,7 +401,7 @@ impl<'a> ReachabilityGraph<'a> {
             .and_then(|&target_idx| self.state_space.path_from_initial_to(target_idx))
             .map(|path| {
                 path.into_iter()
-                    .map(|t_idx| self.state_space.net.ordered_transitions[t_idx])
+                    .map(|t_idx| self.state_space.net.mapping.transition_key(t_idx))
                     .collect()
             })
     }
@@ -465,7 +465,7 @@ impl<'a> ReachabilityGraph<'a> {
     pub fn place_bound(&self, p: Place) -> u32 {
         self.state_space.net.place_index(p).map_or(
             0,
-            |&idx| {
+            |idx| {
                 self.markings_inner()
                     .map(|marking| marking[idx])
                     .max()

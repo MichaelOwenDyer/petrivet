@@ -104,7 +104,7 @@ impl<'a> CoverabilityExplorer<'a> {
     pub fn explore_next(&mut self) -> Option<CoverabilityStep> {
         self.explore_next_inner().map(|step_idx| {
             CoverabilityStep {
-                transition: self.explorer.state_space.net.ordered_transitions[step_idx.transition_idx],
+                transition: self.explorer.state_space.net.mapping.transition_key(step_idx.transition_idx),
                 marking: self.explorer.state_space.net.to_marking(step_idx.marking),
                 is_new: step_idx.is_new,
             }
@@ -252,7 +252,7 @@ impl<'a> CoverabilityExplorer<'a> {
         self.find_cover_inner(&target).map(|(marking, firing_sequence)| {
             CoverabilityProof {
                 firing_sequence: firing_sequence.into_iter()
-                    .map(|t_idx| self.explorer.state_space.net.ordered_transitions[t_idx])
+                    .map(|t_idx| self.explorer.state_space.net.mapping.transition_key(t_idx))
                     .collect(),
                 covering_marking: self.explorer.state_space.net.to_marking(marking),
             }
@@ -359,7 +359,7 @@ impl<'a> CoverabilityGraph<'a> {
     pub fn place_bound(&self, p: Place) -> Omega {
         self.state_space.net.place_index(p).map_or(
             Omega::Finite(0),
-            |&p_idx| {
+            |p_idx| {
                 self.markings_inner()
                     .map(|marking| marking[p_idx])
                     .max()
@@ -387,7 +387,7 @@ impl<'a> CoverabilityGraph<'a> {
                     .path_from_initial_to(idx)
                     .expect("marking is in graph")
                     .into_iter()
-                    .map(|t_idx| self.state_space.net.ordered_transitions[t_idx])
+                    .map(|t_idx| self.state_space.net.mapping.transition_key(t_idx))
                     .collect();
                 let covering_marking = self.state_space.net.to_marking(marking.clone());
                 CoverabilityProof {
