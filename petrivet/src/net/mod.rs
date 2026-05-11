@@ -4,6 +4,9 @@
 //! - A finite set of places S
 //! - A finite set of transitions T
 //! - A flow relation F ⊆ (S × T) ∪ (T × S)
+//!
+//! [`Net`] is the public façade; the packed graph and crate-internal dense ranks live
+//! in the private `net::idx` module (`DenseNet`, `PlaceIdx`, `TransitionIdx`).
 
 pub mod builder;
 pub mod class;
@@ -261,18 +264,17 @@ impl From<Transition> for Node {
 /// - F ⊆ (S × T) ∪ (T × S) is the flow relation.
 ///
 /// The public API uses [`Place`] and [`Transition`] exclusively.
-/// Dense indices ([`PlaceIdx`] / [`TransitionIdx`]) are `pub(crate)` for
+/// Dense indices (`PlaceIdx` / `TransitionIdx` in `net::idx`) are `pub(crate)` for
 /// internal analysis code.
 #[derive(Debug, Clone)]
 pub struct Net {
     /// Inner net structure, optimized for efficient analysis algorithms.
     pub(crate) core: DenseNet,
 
-    /// The next unused place ID in this net,
-    /// only relevant for converting the `Net` back to a `NetBuilder`.
+    /// Monotonic counter used when converting this [`Net`] back to a [`builder::NetBuilder`]
+    /// so new nodes continue to receive unused ids. Ids are never reused for removed nodes.
     pub(crate) next_place_id: NonZeroU32,
-    /// The next unused transition ID in this net,
-    /// only relevant for converting the `Net` back to a `NetBuilder`.
+    /// Same role as [`Self::next_place_id`] for transitions.
     pub(crate) next_transition_id: NonZeroU32,
     /// Maps the public place handle to its internal dense index.
     pub(crate) place_indices: HashMap<Place, PlaceIdx>,

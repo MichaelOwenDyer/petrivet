@@ -10,14 +10,6 @@
 
 //! Petrivet: a Rust library for modeling, simulating, and analyzing Petri nets.
 //!
-//! # Public API model
-//!
-//! [`Place`] and [`Transition`] are the authoritative public identifiers
-//! for net elements.  All public APIs accept or return these opaque handles.
-//! Dense internal indices (`Place`, `Transition`) are implementation details
-//! used by analysis algorithms inside the crate; they are not part of the
-//! normal user journey.
-//!
 //! # Quick Start
 //!
 //! ```

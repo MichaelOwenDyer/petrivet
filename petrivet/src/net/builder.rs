@@ -1,13 +1,29 @@
-//! Builder for constructing Petri nets with stable node identity.
+//! Builder for constructing Petri nets.
 //!
-//! While you edit, places and transitions are [`Place`] and [`Transition`] values minted by
-//! the builder. They stay valid until you remove that node from *this* builder. When
-//! you call [`NetBuilder::build`], surviving keys are assigned dense indices and the resulting
-//! [`Net`] stores both directions of the mapping so you can move between keys and [`PlaceIdx`] /
-//! [`TransitionIdx`] without maintaining parallel tables yourself.
+//! As you edit, the builder mints [`Place`] and [`Transition`] values. Those
+//! handles denote **stable identity**: IDs are monotonic and **never reused**, so
+//! a key always refers to the same conceptual node across the lifetime of your
+//! program, including if you convert a [`Net`] back into a [`NetBuilder`] and
+//! make further edits.
 //!
-//! [`NetBuilder::from`] rebuilds a builder from a built [`Net`] using the net’s stored keys so
-//! handles remain usable across round-trips.
+//! Separately, **membership** in the graph you are editing is determined by whether
+//! the node is still present: if you remove a place or transition, its handle
+//! remains the same unique identity (ids are never reused), but the node is no longer
+//! part of the builder’s *live* structure. New nodes are always created with fresh
+//! handles via [`add_place`](NetBuilder::add_place) /
+//! [`add_transition`](NetBuilder::add_transition).
+//! There is currently no way to add a node back into the net after it has been removed;
+//! instead, you would need to add a new node with a new handle.
+//!
+//! When you call [`NetBuilder::build`], every member place and transition is assigned
+//! dense index in `0 .. n`. The exact assignment is an internal implementation detail,
+//! but is currently determined by a bandwidth reduction heuristic (Reverse Cuthill-McKee)
+//! applied to the builder’s sparse adjacency structure. This is intended to improve cache
+//! locality for traversal and state space exploration algorithms on the built net,
+//! but the performance difference has not been benchmarked yet.
+//!
+//! The net stores the bidirectional mapping between public keys and the crate-internal
+//! indices and the public API is an adapter over the internal dense representation.
 
 use crate::class::NetClass;
 use crate::net::idx::{DenseNet, PlaceIdx, TransitionIdx};
@@ -98,7 +114,10 @@ impl NetBuilder {
 
     /// Adds one place and returns a handle to it.
     ///
-    /// This handle is stable across removals and remains valid in the built `Net`.
+    /// The returned [`Place`] is a **stable identity** which remains valid
+    /// for the duration of the program and is never reused.
+    /// After [`NetBuilder::build`], the handle maps into the built [`Net`]
+    /// if this place is still in the net at build time.
     ///
     /// # Panics
     ///
@@ -123,7 +142,10 @@ impl NetBuilder {
 
     /// Adds one transition and returns handle to it.
     ///
-    /// This handle is stable across removals and remains valid in the built `Net`.
+    /// The returned [`Transition`] is a **stable identity** which remains valid
+    /// for the duration of the program and is never reused.
+    /// After [`NetBuilder::build`], the handle maps into the built [`Net`]
+    /// if this transition is still in the net at build time.
     ///
     /// # Panics
     ///
@@ -220,7 +242,10 @@ impl NetBuilder {
         arcs.into_arcs().all(|a| self.add_arc(a))
     }
 
-    /// Removes a place and all its incident arcs from the net.
+    /// Removes a [`Place`] and all its incident arcs from the net.
+    ///
+    /// The [`Place`] handle keeps its identity but no longer
+    /// refers to a node in this builder.
     ///
     /// # Examples
     ///
@@ -267,6 +292,24 @@ impl NetBuilder {
     }
 
     /// Removes a transition and every arc incident on it.
+    ///
+    /// The `transition` handle keeps its identity (ids are never reused) but no longer
+    /// refers to a live node in this builder.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use petrivet::Net;
+    /// let mut b = Net::builder();
+    /// let [p1, p2] = b.add_places();
+    /// let [t1, t2, t3] = b.add_transitions();
+    /// b.add_arcs((t1, p1, t2, p2, t3));
+    /// assert_eq!(b.transition_count(), 3);
+    /// assert_eq!(b.arc_count(), 4);
+    /// assert!(b.remove_transition(p2));
+    /// assert_eq!(b.transition_count(), 2);
+    /// assert_eq!(b.arc_count(), 2);
+    /// ```
     pub fn remove_transition(&mut self, transition: Transition) -> bool {
         let Some(inputs) = self.preset_t.remove(&transition) else {
             return false;
@@ -285,20 +328,40 @@ impl NetBuilder {
         true
     }
 
-    /// Removes a directed arc if it exists.
+    /// Removes a directed arc if it exists. Returns `true` if the arc was present and removed;
+    /// `false` if the arc was not present or either the place or transition does not exist in the net.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use petrivet::Net;
+    /// let mut b = Net::builder();
+    /// let [p1, p2] = b.add_places();
+    /// let [t1, t2, t3] = b.add_transitions();
+    /// b.add_arcs((t1, p1, t2, p2, t3));
+    /// assert_eq!(b.transition_count(), 3);
+    /// assert_eq!(b.arc_count(), 4);
+    /// assert!(b.remove_arc((t2, p2)));
+    /// assert_eq!(b.transition_count(), 3);
+    /// assert_eq!(b.arc_count(), 3);
+    /// ```
     pub fn remove_arc<A: Into<Arc>>(&mut self, arc: A) -> bool {
         match arc.into() {
             Arc::PlaceToTransition(p, t) => {
                 let removed = self.preset_t.get_mut(&t).is_some_and(|s| s.remove(&p));
                 if removed {
-                    self.postset_p.get_mut(&p).map(|s| s.remove(&t));
+                    self.postset_p.get_mut(&p)
+                        .expect("adjacency map desynchronization detected")
+                        .remove(&t);
                 }
                 removed
             }
             Arc::TransitionToPlace(t, p) => {
                 let removed = self.postset_t.get_mut(&t).is_some_and(|s| s.remove(&p));
                 if removed {
-                    self.preset_p.get_mut(&p).map(|s| s.remove(&t));
+                    self.preset_p.get_mut(&p)
+                        .expect("adjacency map desynchronization detected")
+                        .remove(&t);
                 }
                 removed
             }
@@ -324,17 +387,17 @@ impl NetBuilder {
             + self.postset_t.values().map(HashSet::len).sum::<usize>()
     }
 
-    /// Active places.
+    /// Iterates all places currently in the net.
     pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
         self.places.iter().copied()
     }
 
-    /// Active transitions.
+    /// Iterates all transitions currently in the net.
     pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
         self.transitions.iter().copied()
     }
 
-    /// Iterates every directed arc currently in the builder.
+    /// Iterates all arcs currently in the net.
     pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
         iter::chain(
             self.preset_t
