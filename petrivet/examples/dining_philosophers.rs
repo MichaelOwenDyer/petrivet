@@ -18,10 +18,10 @@
 //!
 //! Run: `cargo run --example dining_philosophers`
 
-use petrivet::net::builder::NetBuilder;
-use petrivet::state_space::ReachabilityGraph;
-use petrivet::net::system::PetriNet;
-use petrivet::Marking;
+use petrivet::api::builder::NetBuilder;
+use petrivet::api::state_space::ReachabilityGraph;
+use petrivet::marking::Marking;
+use petrivet::PetriNet;
 
 const N: usize = 4;
 
@@ -64,7 +64,7 @@ fn main() {
     let net = net.build().expect("valid net");
     println!("Structural class: {}\n", net.class());
 
-    let initial: Marking = thinking.into_iter()
+    let initial: Marking<u32> = thinking.into_iter()
         .chain(forks)
         .map(|p| (p, 1))
         .collect();
@@ -93,7 +93,7 @@ fn main() {
 
     let sys = PetriNet::new(&net, initial.clone());
     let rg = ReachabilityGraph::build(&sys);
-    println!("Reachable states: {}", rg.state_count());
+    println!("Reachable states: {}", rg.marking_count());
     println!("Edges: {}", rg.transition_count());
     println!("Deadlock-free: {}", rg.is_deadlock_free());
 

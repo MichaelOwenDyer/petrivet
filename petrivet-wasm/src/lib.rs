@@ -17,19 +17,19 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use petrivet::analysis::model::{
+use petrivet::api::model::{
     BoundednessAnalysisMethod, CoverabilityResult, DeadlockAnalysisMethod, LivenessMethod,
     NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof,
 };
-use petrivet::net::marking::Omega;
-use petrivet::net::builder::NetBuilder;
-use petrivet::net::class::NetClass;
-use petrivet::pnml::labels::NetLabels;
-use petrivet::net::{Arc as PetriArc, Net, Place, Transition};
-use petrivet::pnml::PnmlDocument;
-use petrivet::net::system::PetriNet;
+use petrivet::api::builder::NetBuilder;
+use petrivet::api::class::NetClass;
+use petrivet::api::marking::Omega;
+use petrivet::api::net::system::PetriNet;
+use petrivet::api::net::{Marking, Net, Place, Transition};
+use petrivet::api::pnml::graphics::PnmlGraphics;
+use petrivet::api::pnml::labels::NetLabels;
+use petrivet::api::pnml::PnmlDocument;
 use wasm_bindgen::prelude::*;
-use petrivet::Marking;
 
 mod types;
 use types::*;
@@ -45,7 +45,7 @@ use types::*;
 #[wasm_bindgen]
 pub struct WasmSystem {
     system: PetriNet<Rc<Net>>,
-    initial_marking: Marking,
+    initial_marking: Marking<u32>,
     labels: Option<NetLabels>,
     graphics: Option<PnmlGraphics>,
     place_keys: Vec<Place>,
@@ -95,7 +95,7 @@ impl WasmSystem {
 impl WasmSystem {
     fn from_parts(
         system: PetriNet<Rc<Net>>,
-        initial_marking: Marking,
+        initial_marking: Marking<u32>,
         labels: Option<NetLabels>,
         graphics: Option<PnmlGraphics>,
     ) -> Self {
@@ -1012,9 +1012,9 @@ fn omega_to_wasm(omega: Omega) -> WasmOmega {
 }
 
 fn liveness_level_to_wasm(
-    level: petrivet::analysis::model::LivenessLevel,
+    level: petrivet::api::model::LivenessLevel,
 ) -> WasmLivenessLevel {
-    use petrivet::analysis::model::LivenessLevel;
+    use petrivet::api::model::LivenessLevel;
     match level {
         LivenessLevel::L0 => WasmLivenessLevel::L0,
         LivenessLevel::L1 => WasmLivenessLevel::L1,

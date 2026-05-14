@@ -2,7 +2,8 @@ mod protocol;
 
 use std::path::{Path, PathBuf};
 
-use petrivet::{Net, ReachabilityGraph, PetriNet};
+use petrivet::{Net, PetriNet};
+use petrivet::api::state_space::reachability::ReachabilityGraph;
 use protocol::{
     BooleanFormulaReport, Examination, ParticipationError, RunContext, StateSpaceReport, Technique,
 };
@@ -108,7 +109,7 @@ fn run_state_space(input_dir: &Path) -> Result<(), ParticipationError> {
         .build_reachability_or_coverability()
         .map_err(|_| ParticipationError::DoNotCompete)?;
     let report = StateSpaceReport {
-        states: rg.state_count(),
+        states: rg.marking_count(),
         transitions: rg.transition_count(),
         max_tokens_per_marking: rg.max_token_per_marking(),
         max_tokens_in_place: rg.max_token_in_any_place(),

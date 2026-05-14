@@ -25,12 +25,11 @@
 //! The net stores the bidirectional mapping between public keys and the crate-internal
 //! indices and the public API is an adapter over the internal dense representation.
 
-use crate::class::NetClass;
-use crate::net::idx::{DenseNet, PlaceIdx, TransitionIdx};
-use crate::net::mapping::DenseMapping;
-use crate::net::nodes::{Place, Transition};
-use crate::net::{Net, Node, UniqueSortedSlice};
-use crate::Arc;
+use crate::core::unique_sorted_slice::UniqueSortedSlice;
+use crate::core::{DenseNet, PlaceIdx, TransitionIdx};
+use crate::api::class::NetClass;
+use crate::api::mapping::DenseMapping;
+use crate::{Arc, Net, Node, Place, Transition};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::hash::Hash;
@@ -419,7 +418,7 @@ impl NetBuilder {
             return Err(NetError::Degenerate);
         }
 
-        crate::net::class::classify(
+        crate::api::class::classify(
             &self.preset_t,
             &self.postset_t,
             &self.preset_p,
@@ -751,8 +750,7 @@ impl_into_arcs_for_tuples!(a b c d e f g h i j k l);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::net::NetClass;
-    use crate::Arc;
+    use crate::api::class::NetClass;
 
     #[test]
     fn build_simple_net() {
@@ -1098,6 +1096,6 @@ mod tests {
         b.add_arc((t, p));
         let net = b.build().unwrap();
         let p_idx = net.mapping.place_idx(p).expect("built net contains p");
-        assert_eq!(net.mapping.place_key(p_idx), p);
+        assert_eq!(net.mapping.place(p_idx), p);
     }
 }

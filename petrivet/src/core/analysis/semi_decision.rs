@@ -17,9 +17,9 @@
 //! # Example
 //!
 //! ```
-//! use petrivet::net::builder::NetBuilder;
-//! use petrivet::net::marking::IdxMarking;
-//! use petrivet::net::system::PetriNet;
+//! use petrivet::api::builder::NetBuilder;
+//! use petrivet::api::marking::IdxMarking;
+//! use petrivet::api::net::system::PetriNet;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -38,8 +38,8 @@
 //! assert!(!result.is_reachable());
 //! ```
 
-use crate::net::marking::IdxMarking;
-use crate::net::idx::{DenseNet, PlaceIdx};
+use crate::core::marking::IdxMarking;
+use crate::core::{DenseNet, PlaceIdx};
 use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel, Variable, VariableDefinition};
 
 /// Checks the marking equation M = M₀ + N · x for a non-negative rational solution x,
@@ -59,10 +59,10 @@ use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, Solv
 /// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation)
 ///   (state equation as necessary condition)
 #[must_use]
-pub(crate) fn find_marking_equation_rational_solution(
+pub fn find_marking_equation_rational_solution(
     net: &DenseNet,
-    initial: &IdxMarking,
-    target: &IdxMarking,
+    initial: &IdxMarking<u32>,
+    target: &IdxMarking<u32>,
 ) -> Option<Box<[f64]>> {
     find_marking_equation_solution(
         net,
@@ -89,10 +89,10 @@ pub(crate) fn find_marking_equation_rational_solution(
 /// References:
 /// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation): the firing count vector must be a non-negative integer
 #[must_use]
-pub(crate) fn find_marking_equation_integer_solution(
+pub fn find_marking_equation_integer_solution(
     net: &DenseNet,
-    initial_marking: &IdxMarking,
-    target: &IdxMarking,
+    initial_marking: &IdxMarking<u32>,
+    target: &IdxMarking<u32>,
 ) -> Option<Box<[u32]>> {
     // Safe because we are using integer variables
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -108,8 +108,8 @@ pub(crate) fn find_marking_equation_integer_solution(
 #[must_use]
 fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
     net: &DenseNet,
-    initial: &IdxMarking,
-    target: &IdxMarking,
+    initial: &IdxMarking<u32>,
+    target: &IdxMarking<u32>,
     variable_def: &VariableDefinition,
     extract: F,
 ) -> Option<Box<[T]>> {
@@ -163,10 +163,10 @@ fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
 ///
 /// Still a necessary condition only (LP relaxation of the marking equation).
 #[must_use]
-pub(crate) fn find_covering_equation_rational_solution(
+pub fn find_covering_equation_rational_solution(
     net: &DenseNet,
-    initial: &IdxMarking,
-    threshold: &IdxMarking,
+    initial: &IdxMarking<u32>,
+    threshold: &IdxMarking<u32>,
 ) -> Option<Box<[f64]>> {
     find_covering_equation_solution(
         net,
@@ -187,10 +187,10 @@ pub(crate) fn find_covering_equation_rational_solution(
 /// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation) (state equation is a necessary condition)
 /// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (firing count vector must be integer)
 #[must_use]
-pub(crate) fn find_covering_equation_integer_solution(
+pub fn find_covering_equation_integer_solution(
     net: &DenseNet,
-    initial_marking: &IdxMarking,
-    target: &IdxMarking,
+    initial_marking: &IdxMarking<u32>,
+    target: &IdxMarking<u32>,
 ) -> Option<Box<[u32]>> {
     // Safe because we are using integer variables
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -206,8 +206,8 @@ pub(crate) fn find_covering_equation_integer_solution(
 #[must_use]
 fn find_covering_equation_solution<T, F: Fn(f64) -> T>(
     net: &DenseNet,
-    initial: &IdxMarking,
-    threshold: &IdxMarking,
+    initial: &IdxMarking<u32>,
+    threshold: &IdxMarking<u32>,
     variable_def: &VariableDefinition,
     extract: F,
 ) -> Option<Box<[T]>> {
@@ -262,7 +262,7 @@ fn find_covering_equation_solution<T, F: Fn(f64) -> T>(
 /// across firings, guaranteeing boundedness under any initial marking.
 ///
 /// **Property hierarchy** (each implies the next):
-/// 1. S-invariant coverage → conservativeness (see [`Invariants::is_covered_by_s_invariants`](super::structural::Invariants::is_covered_by_s_invariants))
+/// 1. S-invariant coverage → conservativeness (see [`Invariants::is_covered_by_s_invariants`](crate::analysis::Invariants::is_covered_by_s_invariants))
 /// 2. Structural boundedness (this check) → bounded for every M₀
 ///
 /// References:
@@ -275,7 +275,7 @@ fn find_covering_equation_solution<T, F: Fn(f64) -> T>(
 /// returns the weight vector y. Given a specific initial marking M₀,
 /// per-place upper bounds can be derived: `M[p] ≤ ⌊(y·M₀) / y[p]⌋`.
 #[must_use]
-pub(crate) fn find_positive_place_subvariant(
+pub fn find_positive_place_subvariant(
     net: &DenseNet
 ) -> Option<Box<[f64]>> {
     find_semipositive_place_subvariant(net, |_| true)
@@ -294,7 +294,7 @@ pub(crate) fn find_positive_place_subvariant(
 /// Feasible → place is structurally bounded; Infeasible → structurally
 /// unbounded (there exists an initial marking under which it is unbounded).
 #[must_use]
-pub(crate) fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
+pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
     net: &DenseNet,
     mut covering: F,
 ) -> Option<Box<[f64]>> {
@@ -340,9 +340,9 @@ pub(crate) fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
 
 #[cfg(test)]
 mod tests {
-    use crate::Net;
     use super::*;
-    use crate::net::builder::NetBuilder;
+    use crate::api::builder::NetBuilder;
+    use crate::api::net::Net;
 
     fn two_place_cycle() -> Net {
         let mut b = NetBuilder::new();

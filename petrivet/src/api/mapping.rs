@@ -1,10 +1,13 @@
 //! Bidirectional mapping between public [`Place`] / [`Transition`] handles and dense
-//! ranks (`0 .. n`) for a single built [`super::Net`].
+//! ranks (`0 .. n`) for a single built [`Net`].
 
 use std::collections::HashMap;
 
-use super::idx::{PlaceIdx, TransitionIdx};
-use super::nodes::{Place, Transition};
+use crate::core::marking::IdxMarking;
+use crate::core::state_space::TokenOps;
+use crate::core::{PlaceIdx, TransitionIdx};
+use crate::api::marking::Marking;
+use crate::{Place, Transition};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DenseMapping {
@@ -15,7 +18,7 @@ pub struct DenseMapping {
 }
 
 impl DenseMapping {
-    pub(crate) fn new(
+    pub fn new(
         place_to_dense: HashMap<Place, PlaceIdx>,
         transition_to_dense: HashMap<Transition, TransitionIdx>,
         ordered_places: Box<[Place]>,
@@ -39,34 +42,63 @@ impl DenseMapping {
 
     /// Dense rank for `place` in this built net, if it is a member of this snapshot.
     #[must_use]
-    pub(crate) fn place_idx(&self, place: Place) -> Option<PlaceIdx> {
+    pub fn place_idx(&self, place: Place) -> Option<PlaceIdx> {
         self.place_to_dense.get(&place).copied()
     }
 
     /// Public handle for place dense rank `idx`.
     #[must_use]
-    pub(crate) fn place_key(&self, idx: PlaceIdx) -> Place {
+    pub fn place(&self, idx: PlaceIdx) -> Place {
         self.ordered_places[idx]
+    }
+
+    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
+        self.ordered_places.iter().copied()
+    }
+
+    /// Number of places in the net.
+    #[must_use]
+    pub fn place_count(&self) -> u32 {
+        u32::try_from(self.ordered_places.len()).expect("cannot be built with more than u32::MAX places")
     }
 
     /// Dense rank for `transition` in this built net, if it is a member of this snapshot.
     #[must_use]
-    pub(crate) fn transition_idx(&self, transition: Transition) -> Option<TransitionIdx> {
+    pub fn transition_idx(&self, transition: Transition) -> Option<TransitionIdx> {
         self.transition_to_dense.get(&transition).copied()
     }
 
     /// Public handle for transition dense rank `idx`.
     #[must_use]
-    pub(crate) fn transition_key(&self, idx: TransitionIdx) -> Transition {
+    pub fn transition(&self, idx: TransitionIdx) -> Transition {
         self.ordered_transitions[idx]
     }
 
-    pub(crate) fn places(&self) -> impl Iterator<Item = Place> + '_ {
-        self.ordered_places.iter().copied()
+    pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
+        self.ordered_transitions.iter().copied()
     }
 
-    pub(crate) fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
-        self.ordered_transitions.iter().copied()
+    /// Number of transitions in the net.
+    #[must_use]
+    pub fn transition_count(&self) -> u32 {
+        u32::try_from(self.ordered_transitions.len()).expect("cannot be built with more u32::MAX transitions")
+    }
+
+    /// Convert an internal index marking to a public marking.
+    pub fn marking<T: TokenOps>(&self, idx_marking: IdxMarking<T>) -> Marking<T> {
+        Marking(self.places().zip(idx_marking).filter(|(_, t)| t != &T::zero()).collect())
+    }
+
+    /// Convert a public marking to an internal index marking.
+    /// If the marking contains places not in the net, they are ignored.
+    pub fn idx_marking<T: TokenOps>(&self, marking: Marking<T>) -> IdxMarking<T> {
+        let mut idx_marking = IdxMarking::zeros(self.place_count());
+        marking.into_iter().for_each(|(place, count)| {
+            if let Some(dense) = self.place_idx(place) {
+                idx_marking[dense] = count;
+            }
+        });
+        idx_marking
     }
 }
 
@@ -92,9 +124,9 @@ mod tests {
         );
         assert_eq!(m.place_idx(p0), Some(0));
         assert_eq!(m.place_idx(p1), Some(1));
-        assert_eq!(m.place_key(0), p0);
-        assert_eq!(m.place_key(1), p1);
+        assert_eq!(m.place(0), p0);
+        assert_eq!(m.place(1), p1);
         assert_eq!(m.transition_idx(t0), Some(0));
-        assert_eq!(m.transition_key(0), t0);
+        assert_eq!(m.transition(0), t0);
     }
 }

@@ -1,0 +1,159 @@
+use crate::core::analysis::incidence::IncidenceMatrix;
+use crate::core::analysis::semi_decision;
+use crate::core::marking::IdxMarking;
+use crate::core::unique_sorted_slice::UniqueSortedSlice;
+use crate::api::class::NetClass;
+
+/// A place in a built [`Net`], identified by a dense index in `0 .. place_count`.
+///
+/// This is a crate-internal handle used by analysis algorithms. External users
+/// interact with [`Place`] instead.
+pub type PlaceIdx = usize;
+
+/// A transition in a built [`DenseNet`], identified by a dense index in `0 .. transition_count`.
+///
+/// This is a crate-internal handle used by analysis algorithms. External users
+/// interact with [`Transition`] instead.
+pub type TransitionIdx = usize;
+
+/// Arc using internal dense indices for places and transitions.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum IdxArc {
+    PlaceToTransition(PlaceIdx, TransitionIdx),
+    TransitionToPlace(TransitionIdx, PlaceIdx),
+}
+
+/// The structure of a Net compressed into a packed format optimized for analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DenseNet {
+    /// Structural class of the net, cached at build time for efficient queries.
+    pub class: NetClass,
+    /// Transition presets: for each transition t, the set of places in `•t`.
+    pub preset_t: Box<[UniqueSortedSlice<PlaceIdx>]>,
+    /// Transition postsets: for each transition t, the set of places in `t•`.
+    pub postset_t: Box<[UniqueSortedSlice<PlaceIdx>]>,
+    /// Place presets: for each place p, the set of transitions in `•p`.
+    pub preset_p: Box<[UniqueSortedSlice<TransitionIdx>]>,
+    /// Place postsets: for each place p, the set of transitions in `p•`.
+    pub postset_p: Box<[UniqueSortedSlice<TransitionIdx>]>,
+}
+
+impl DenseNet {
+    /// Iterator over all internal places.
+    pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
+        0..self.place_count() as usize
+    }
+
+    /// Number of places in the net.
+    #[must_use]
+    pub fn place_count(&self) -> u32 {
+        u32::try_from(self.preset_p.len()).expect("cannot be built with more than u32::MAX places")
+    }
+
+    /// Number of transitions in the net.
+    #[must_use]
+    pub fn transition_count(&self) -> u32 {
+        u32::try_from(self.preset_t.len()).expect("cannot be built with more than u32::MAX transitions")
+    }
+
+    /// Iterator over all internal transitions.
+    pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
+        0..self.transition_count() as usize
+    }
+
+    /// Returns an iterator over all transition indices and associated index presets and index postsets.
+    pub fn transition_io(&self) -> impl Iterator<Item = (TransitionIdx, &UniqueSortedSlice<PlaceIdx>, &UniqueSortedSlice<PlaceIdx>)> + '_ {
+        self.transition_indices()
+            .zip(self.preset_t.iter().zip(self.postset_t.iter()))
+            .map(|(t, (preset, postset))| (t, preset, postset))
+    }
+
+    /// Number of nodes in the net (places + transitions).
+    #[must_use]
+    pub fn node_count(&self) -> usize {
+        self.preset_p.len() + self.preset_t.len()
+    }
+
+    /// Number of arcs in the net.
+    #[must_use]
+    pub fn arc_count(&self) -> usize {
+        std::iter::zip(&self.preset_p, &self.postset_p)
+            .map(|(pre, post)| pre.len() + post.len())
+            .sum()
+    }
+
+    pub fn arcs(&self) -> impl Iterator<Item = IdxArc> + '_ {
+        self.place_indices()
+            .zip(self.preset_p.iter().zip(self.postset_p.iter()))
+            .flat_map(|(p_idx, (preset, postset))| {
+                std::iter::chain(
+                    preset.iter().map(move |&t_idx| IdxArc::TransitionToPlace(t_idx, p_idx)),
+                    postset.iter().map(move |&t_idx| IdxArc::PlaceToTransition(p_idx, t_idx)),
+                )
+            })
+    }
+
+    /// Returns true if the provided transition is enabled at the given marking,
+    /// i.e. if all places in its preset have at least one token in the marking.
+    pub fn is_enabled_in(&self, t: TransitionIdx, marking: &IdxMarking<u32>) -> bool {
+        self.preset_t[t].iter().all(|&p| marking[p] >= 1)
+    }
+
+    /// Returns true if the given marking enables no transitions in the net.
+    pub fn is_deadlock(&self, marking: &IdxMarking<u32>) -> bool {
+        self.transition_indices().all(|t| !self.is_enabled_in(t, marking))
+    }
+
+    /// Computes the incidence matrix N of the net.
+    #[must_use]
+    pub fn incidence_matrix(&self) -> IncidenceMatrix {
+        IncidenceMatrix::new(self)
+    }
+
+    /// Checks if the net is strongly connected using Kosaraju's algorithm.
+    #[must_use]
+    pub fn is_strongly_connected(&self) -> bool {
+        use petgraph::graph::NodeIndex;
+        let mut graph = petgraph::Graph::<(), ()>::with_capacity(self.node_count(), self.arc_count());
+        let p_indices: Box<[NodeIndex]> = self.place_indices()
+            .map(|_| graph.add_node(()))
+            .collect();
+        let t_indices: Box<[NodeIndex]> = self.transition_indices()
+            .map(|_| graph.add_node(()))
+            .collect();
+        self.transition_io()
+            .flat_map(|(t_idx, preset, postset)| {
+                let transition_node = t_indices[t_idx];
+                let preset = preset.iter()
+                    .map(|&p_idx| p_indices[p_idx])
+                    .map(move |place_node| (place_node, transition_node));
+                let postset = postset.iter()
+                    .map(|&p_idx| p_indices[p_idx])
+                    .map(move |place_node| (transition_node, place_node));
+                std::iter::chain(preset, postset)
+            })
+            .for_each(|(from, to)| {
+                graph.add_edge(from, to, ());
+            });
+        petgraph::algo::kosaraju_scc(&graph).len() == 1
+    }
+
+    /// Checks if the net is structurally bounded.
+    /// This means that there exists no initial marking
+    /// which would cause any place in the net to become unbounded.
+    #[must_use]
+    pub fn is_structurally_bounded(&self) -> bool {
+        semi_decision::find_positive_place_subvariant(self).is_some()
+    }
+
+    /// Checks if a single place is structurally bounded.
+    /// This means that there exists no initial marking
+    /// which would cause this place to become unbounded.
+    #[must_use]
+    pub fn is_place_structurally_bounded(&self, place: &PlaceIdx) -> bool {
+        semi_decision::find_semipositive_place_subvariant(
+            self,
+            |p| p == place
+        ).is_some()
+    }
+}

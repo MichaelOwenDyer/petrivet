@@ -13,9 +13,9 @@
 //! # Quick Start
 //!
 //! ```
-//! use petrivet::{CoverabilityExplorer, ExplorationOrder};
-//! use petrivet::net::builder::NetBuilder;
-//! use petrivet::net::system::PetriNet;
+//! use petrivet::{CoverabilityExplorer };
+//! use petrivet::api::builder::NetBuilder;
+//! use petrivet::api::net::system::PetriNet;
 //!
 //! let mut net = NetBuilder::new();
 //! let [p0, p1] = net.add_places();
@@ -40,17 +40,10 @@
 //! }
 //! ```
 
-pub mod net;
-pub mod state_space;
-pub mod analysis;
 pub mod literature;
-#[cfg(feature = "pnml")]
-pub mod pnml;
+pub mod api;
+pub(crate) mod core;
 
-pub use analysis::model::LivenessLevel;
-pub use net::marking::*;
-pub use net::*;
-pub use state_space::coverability::*;
-pub use state_space::explorer::*;
-pub use state_space::reachability::*;
-pub use net::system::PetriNet;
+pub use api::net::{Arc, Net, Node, Place, Transition};
+pub use api::system::PetriNet;
+pub use api::*;

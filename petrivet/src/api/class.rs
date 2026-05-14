@@ -1,6 +1,6 @@
-use crate::{Node, Place, Transition};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::{fmt, iter};
+use crate::api::net::{Node, Place, Transition};
 
 /// TODO: Add examples of each class of net with doctests asserting the classification correctly identifies the class.
 /// Structural classification of a Petri net.
@@ -44,7 +44,7 @@ pub enum NetClass {
     /// iff J = (y, ..., y) for some y ∈ Q.
     ///
     /// ```
-    /// use petrivet::class::NetClass;
+    /// use petrivet::api::class::NetClass;
     /// use petrivet::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3] = b.add_places();
@@ -105,7 +105,7 @@ pub enum NetClass {
     /// Credit for this example goes to [Murata Figure 4]. // todo cite properly
     ///
     /// ```
-    /// use petrivet::class::NetClass;
+    /// use petrivet::api::class::NetClass;
     /// use petrivet::Net;
     /// let mut b = Net::builder();
     /// let [bal_0, bal_5, bal_10, bal_15, bal_20] = b.add_places();
@@ -208,7 +208,7 @@ pub enum NetClass {
     ///   M<sub>0</sub> <sup>σ</sup>→ M such that |σ| ≤ b * n(n-1)/2, where n = |T| is the number of transitions.
     ///
     /// ```
-    /// use petrivet::class::NetClass;
+    /// use petrivet::api::class::NetClass;
     /// use petrivet::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3, p4, p5] = b.add_places();
@@ -314,7 +314,7 @@ pub enum NetClass {
     /// `M'` reachable from `M` such that `M'(s) > 0`.
     ///
     /// ```
-    /// use petrivet::class::NetClass;
+    /// use petrivet::api::class::NetClass;
     /// use petrivet::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();
@@ -351,7 +351,7 @@ pub enum NetClass {
     /// [Ackermann-complete](https://en.wikipedia.org/wiki/Ackermann_function) [Czerwiński and Orlikowski 2021].
     ///
     /// ```
-    /// use petrivet::class::NetClass;
+    /// use petrivet::api::class::NetClass;
     /// use petrivet::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();

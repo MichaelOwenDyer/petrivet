@@ -38,13 +38,13 @@
 //! inscriptions or color declarations would produce structurally wrong nets.
 
 use super::{net, net_type, nupn::NupnMetadata, PageObject, PnmlDocument};
-use crate::net::builder::{NetBuilder, NetError};
-use crate::pnml::labels::NetLabels;
-use crate::net::{Arc, Net, Place, Transition};
-use crate::pnml::graphics::PnmlGraphics;
-use crate::net::system::PetriNet;
-use crate::Marking;
+use crate::api::builder::{NetBuilder, NetError};
+use crate::api::pnml::labels::NetLabels;
+use crate::api::net::{Arc, Net, Place, Transition};
+use crate::api::pnml::graphics::PnmlGraphics;
+use crate::api::system::PetriNet;
 use std::collections::HashMap;
+use crate::api::marking::Marking;
 
 /// Errors that can occur when converting a [`super::PnmlNet`] PNML model into a
 /// native petrivet [`PetriNet`].
@@ -111,7 +111,7 @@ impl From<NetError> for PnmlConversionError {
 #[derive(Debug)]
 pub enum PetriNetKind {
     /// A fully converted P/T net system, ready for simulation and analysis.
-    PtNet(PetriNet<Net>),
+    PtNet(Box<PetriNet<Net>>),
 
     /// The net's type URI is recognised but not yet supported by this library.
     /// The raw PNML data model is available via [`PnmlDocument`] if
@@ -283,7 +283,7 @@ fn convert_pt_net(
     }
 
     // Initial marking: index by the dense Place handle.
-    let initial_marking: Marking = flat.places
+    let initial_marking: Marking<u32> = flat.places
         .iter()
         .filter_map(|p| {
             p.initial_marking.as_ref().and_then(|m| m.text).map(|count| {
@@ -433,7 +433,7 @@ impl net::PnmlNet {
         match self.net_type.as_str() {
             net_type::PT_NET => {
                 let sys = convert_pt_net(self)?;
-                Ok(PetriNetKind::PtNet(sys))
+                Ok(PetriNetKind::PtNet(Box::new(sys)))
             }
             other => Ok(PetriNetKind::Unsupported {
                 uri: other.to_owned(),

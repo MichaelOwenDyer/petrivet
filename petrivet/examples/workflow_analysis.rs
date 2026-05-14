@@ -34,10 +34,9 @@
 //!
 //! Run: `cargo run --example workflow_analysis`
 
-use petrivet::net::builder::NetBuilder;
-use petrivet::net::system::PetriNet;
-use petrivet::state_space::ExplorationOrder;
-use petrivet::ReachabilityGraph;
+use petrivet::builder::NetBuilder;
+use petrivet::state_space::{ExplorationOrder, ReachabilityGraph};
+use petrivet::system::PetriNet;
 
 fn main() {
     println!("=== PCB Assembly Line Analysis ===\n");
@@ -154,13 +153,13 @@ fn main() {
     println!("\n--- Reachability Graph ---\n");
 
     let rg = ReachabilityGraph::build(&sys);
-    println!("States: {}, Edges: {}", rg.state_count(), rg.transition_count());
+    println!("States: {}, Edges: {}", rg.marking_count(), rg.transition_count());
     println!("Deadlock-free: {}", rg.is_deadlock_free());
 
     if !rg.is_deadlock_free() {
         println!("Deadlocks found:");
         for dl in rg.deadlocks() {
-            println!("  {:?}", dl);
+            println!("  {dl:?}");
         }
     }
 
@@ -172,14 +171,14 @@ fn main() {
     println!("Starting incremental exploration...");
 
     let mut new_states = 0;
-    for step in explorer.iter().take(20) {
+    for step in explorer.explore_iter().take(20) {
         if step.is_new {
             new_states += 1;
         }
     }
     println!(
         "After 20 steps: {} states discovered ({} new), fully explored: {}",
-        explorer.state_count(),
+        explorer.marking_count(),
         new_states,
         explorer.is_fully_explored()
     );
@@ -188,8 +187,8 @@ fn main() {
     explorer.explore_all();
     println!(
         "After full exploration: {} states, {} edges",
-        explorer.state_count(),
-        explorer.edge_count()
+        explorer.marking_count(),
+        explorer.transition_count()
     );
 
     // Promote to ReachabilityGraph for analysis

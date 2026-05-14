@@ -1,5 +1,5 @@
-use crate::net::idx::{DenseNet, PlaceIdx};
-use crate::net::marking::IdxMarking;
+use crate::core::marking::IdxMarking;
+use crate::core::{DenseNet, PlaceIdx};
 use good_lp::Variable;
 use std::collections::HashSet;
 
@@ -12,7 +12,7 @@ use std::collections::HashSet;
 /// iteratively remove any place p where some transition t ∈ •p has no
 /// input place in the current set. Runs in O(|S|² · |T|²).
 #[must_use]
-pub(crate) fn maximal_siphon_in<S: std::hash::BuildHasher>(
+pub fn maximal_siphon_in<S: std::hash::BuildHasher>(
     net: &DenseNet,
     mut subset: HashSet<PlaceIdx, S>,
 ) -> HashSet<PlaceIdx, S> {
@@ -46,7 +46,7 @@ pub(crate) fn maximal_siphon_in<S: std::hash::BuildHasher>(
 /// Uses the dual of the shrinking algorithm: iteratively remove any place p
 /// where some transition t ∈ p• has no output place in the current set.
 #[must_use]
-pub(crate) fn maximal_trap_in<S: std::hash::BuildHasher>(
+pub fn maximal_trap_in<S: std::hash::BuildHasher>(
     net: &DenseNet,
     mut maximal_trap: HashSet<PlaceIdx, S>
 ) -> HashSet<PlaceIdx, S> {
@@ -79,9 +79,7 @@ pub(crate) fn maximal_trap_in<S: std::hash::BuildHasher>(
 
 /// Finds all minimal siphons of a net as sets of [`PlaceIdx`].
 #[must_use]
-pub(crate) fn minimal_siphons(
-    net: &DenseNet
-) -> Box<[HashSet<PlaceIdx>]> {
+pub fn minimal_siphons(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
     let mut results: Vec<HashSet<PlaceIdx>> = Vec::new();
     let mut stack: Vec<HashSet<PlaceIdx>> = vec![net.place_indices().collect()];
     let mut visited: HashSet<Vec<PlaceIdx>> = HashSet::new();
@@ -131,9 +129,7 @@ pub(crate) fn minimal_siphons(
 /// in a trap, the trap can never become unmarked again.
 #[must_use]
 #[expect(unused)]
-pub(crate) fn minimal_traps(
-    net: &DenseNet
-) -> Box<[HashSet<PlaceIdx>]> {
+pub fn minimal_traps(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
     let all_places: HashSet<PlaceIdx> = net.place_indices().collect();
     let mut results: Vec<HashSet<PlaceIdx>> = Vec::new();
     let mut stack: Vec<HashSet<PlaceIdx>> = vec![all_places];
@@ -185,7 +181,7 @@ pub(crate) fn minimal_traps(
 /// approach for small nets but more systematic.
 #[must_use]
 #[expect(unused)]
-pub(crate) fn minimal_siphons_ilp(
+pub fn minimal_siphons_ilp(
     net: &DenseNet
 ) -> Box<[HashSet<PlaceIdx>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
@@ -252,7 +248,7 @@ pub(crate) fn minimal_siphons_ilp(
 /// Finds all minimal traps using ILP enumeration.
 #[must_use]
 #[expect(unused)]
-pub(crate) fn minimal_traps_ilp(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
+pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
     if net.place_count() == 0 {
@@ -340,8 +336,8 @@ pub(crate) fn minimal_traps_ilp(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
 /// # Examples
 ///
 /// ```
-/// use petrivet::net::builder::NetBuilder;
-/// use petrivet::net::marking::IdxMarking;
+/// use petrivet::api::builder::NetBuilder;
+/// use petrivet::api::marking::IdxMarking;
 /// use petrivet::analysis::structural::{minimal_siphons, commoner_hack_criterion_inner};
 ///
 /// let mut b = NetBuilder::new();
@@ -365,9 +361,9 @@ pub(crate) fn minimal_traps_ilp(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
 ///   "A free-choice net (N, M₀) is live iff every siphon in N contains a marked trap."
 /// - [Primer, Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc) (Commoner/Hack Criterion)
 /// - [Primer, Algorithm 6.19](crate::literature#algorithm-619--maximal-siphontrap-in-a-subset) (maximal siphon/trap in a subset)
-pub(crate) fn commoner_hack_criterion(
+pub fn commoner_hack_criterion(
     net: &DenseNet,
-    marking: &IdxMarking,
+    marking: &IdxMarking<u32>,
 ) -> impl Iterator<Item = (HashSet<PlaceIdx>, HashSet<PlaceIdx>, bool)> {
     minimal_siphons(net)
         .into_iter()

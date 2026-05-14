@@ -28,11 +28,10 @@
 //!
 //! Run: `cargo run --example mutex`
 
-use std::collections::HashMap;
-use petrivet::net::builder::NetBuilder;
-use petrivet::net::{Place, Transition};
-use petrivet::net::system::PetriNet;
+use petrivet::builder::NetBuilder;
 use petrivet::Net;
+use petrivet::{PetriNet, Place, Transition};
+use std::collections::HashMap;
 
 fn main() {
     println!("=== Mutual Exclusion Protocol ===\n");

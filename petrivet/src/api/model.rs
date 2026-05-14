@@ -1,6 +1,6 @@
 //! Structured analysis results with evidence.
 //!
-//! Each `analyze_*` method on [`System`](crate::system::PetriNet) returns a result
+//! Each `analyze_*` method on [`System`](crate::api::system::PetriNet) returns a result
 //! struct with two parts:
 //!
 //! 1. **Uniform fields**: always valid regardless of which method was used.
@@ -18,9 +18,22 @@
 //! All public APIs in this module use [`Place`] and [`Transition`] as the
 //! authoritative identifiers. Dense internal indices are implementation details.
 
-use crate::net::{Place, Transition};
-use crate::{Marking, Omega, OmegaMarking};
+use crate::api::marking::{Marking, Omega, OmegaMarking};
+use crate::{Place, Transition};
 use std::collections::HashSet;
+
+/// A siphon is a set of places D such that •D ⊆ D•.
+///
+/// In other words, every transition that produces to D also consumes from D.
+/// This is significant because it means once a siphon is unmarked,
+/// it can never be marked again (all transitions which could mark it are dead).
+pub type Siphon = HashSet<Place>;
+
+/// A trap is a set of places Q such that Q• ⊆ •Q.
+///
+/// In other words, every transition that consumes from Q also produces to Q.
+/// This is significant because it means once a trap is marked, it can never be unmarked again.
+pub type Trap = HashSet<Place>;
 
 /// Result of the Commoner/Hack criterion check.
 ///
@@ -50,19 +63,6 @@ impl CommonerHackCriterionResult {
     }
 }
 
-/// A siphon is a set of places D such that •D ⊆ D•.
-///
-/// In other words, every transition that produces to D also consumes from D.
-/// This is significant because it means once a siphon is unmarked,
-/// it can never be marked again (all transitions which could mark it are dead).
-pub type Siphon = HashSet<Place>;
-
-/// A trap is a set of places Q such that Q• ⊆ •Q.
-///
-/// In other words, every transition that consumes from Q also produces to Q.
-/// This is significant because it means once a trap is marked, it can never be unmarked again.
-pub type Trap = HashSet<Place>;
-
 
 /// A minimal siphon and the maximal trap found within it,
 /// and whether that trap is marked.
@@ -85,7 +85,7 @@ pub struct SiphonTrapPair {
 #[derive(Debug, Clone)]
 pub struct BoundednessAnalysis {
     /// All places in the net paired with their bounds. The order is not guaranteed.
-    pub(crate) bounds: Box<[(Place, Omega)]>,
+    pub bounds: OmegaMarking,
     /// How the result was obtained.
     pub method: BoundednessAnalysisMethod,
 }
@@ -101,13 +101,8 @@ impl BoundednessAnalysis {
     ///
     /// Returns `None` if the key does not belong to the analysed net.
     #[must_use]
-    pub fn place_bound(&self, pk: Place) -> Option<Omega> {
-        self.bounds.iter().find(|(k, _)| *k == pk).map(|(_, b)| *b)
-    }
-
-    /// Per-place bounds as `(Place, Omega)` pairs in dense-index order.
-    pub fn place_bounds_iter(&self) -> impl Iterator<Item = (Place, Omega)> + '_ {
-        self.bounds.iter().copied()
+    pub fn place_bound(&self, place: Place) -> Omega {
+        self.bounds.get(place)
     }
 }
 
@@ -314,7 +309,7 @@ pub enum LivenessMethod {
 }
 
 /// A reachable marking which does not enable any transition in the net.
-pub type Deadlock = Marking;
+pub type Deadlock = Marking<u32>;
 
 /// Evidence for a deadlock-freedom result.
 #[derive(Debug, Clone)]
