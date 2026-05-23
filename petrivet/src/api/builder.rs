@@ -25,11 +25,11 @@
 //! The net stores the bidirectional mapping between public keys and the crate-internal
 //! indices and the public API is an adapter over the internal dense representation.
 
-use crate::core::unique_sorted_slice::UniqueSortedSlice;
-use crate::core::{DenseNet, PlaceIdx, TransitionIdx};
 use crate::api::class::NetClass;
 use crate::api::mapping::DenseMapping;
-use crate::{Arc, Net, Node, Place, Transition};
+use crate::api::{Arc, Net, Node, Place, Transition};
+use crate::core::net::{DenseNet, PlaceIdx, TransitionIdx};
+use crate::core::unique_sorted_slice::UniqueSortedSlice;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::hash::Hash;
@@ -478,7 +478,7 @@ impl NetBuilder {
         );
 
         Ok(Net {
-            core_net,
+            dense_net: core_net,
             next_place_id,
             next_transition_id,
             mapping,
@@ -959,11 +959,11 @@ mod tests {
         assert_eq!(rebuilt.next_place_id, original.next_place_id);
         assert_eq!(rebuilt.next_transition_id, original.next_transition_id);
         assert_eq!(rebuilt.mapping, original.mapping);
-        assert_eq!(rebuilt.core_net.class, original.core_net.class);
-        assert_eq!(rebuilt.core_net.preset_t, original.core_net.preset_t);
-        assert_eq!(rebuilt.core_net.postset_t, original.core_net.postset_t);
-        assert_eq!(rebuilt.core_net.preset_p, original.core_net.preset_p);
-        assert_eq!(rebuilt.core_net.postset_p, original.core_net.postset_p);
+        assert_eq!(rebuilt.dense_net.class, original.dense_net.class);
+        assert_eq!(rebuilt.dense_net.preset_t, original.dense_net.preset_t);
+        assert_eq!(rebuilt.dense_net.postset_t, original.dense_net.postset_t);
+        assert_eq!(rebuilt.dense_net.preset_p, original.dense_net.preset_p);
+        assert_eq!(rebuilt.dense_net.postset_p, original.dense_net.postset_p);
         // todo: also guarantee labels and graphics will round-trip once those builders are implemented
     }
 

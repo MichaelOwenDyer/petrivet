@@ -1,4 +1,4 @@
-use crate::core::{DenseNet, PlaceIdx, TransitionIdx};
+use crate::core::net::{DenseNet, PlaceIdx, TransitionIdx};
 
 /// The incidence matrix N of a Petri net.
 ///

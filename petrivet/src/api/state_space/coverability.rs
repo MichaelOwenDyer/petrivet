@@ -73,12 +73,11 @@
 //! [`ReachabilityGraph::build`] directly. For unbounded nets or when you
 //! need fine-grained control, use [`ReachabilityExplorer`].
 
+use crate::api::marking::Marking;
+use crate::api::state_space::reachability::ReachabilityGraph;
+use crate::api::state_space::{ExplorationOrder, ExplorationStep, StateGraph, StateGraphExplorer};
+use crate::api::{Net, PetriNet};
 use crate::core::state_space::coverability::IdxOmegaMarking;
-use crate::marking::Marking;
-use crate::state_space::{ExplorationOrder, ExplorationStep, ReachabilityGraph, StateGraph, StateGraphExplorer};
-use crate::{Net, PetriNet};
-use std::fmt;
-
 pub use crate::core::state_space::coverability::Omega;
 
 /// An ω-marking: a marking where token counts can either be a finite number or `ω`.
@@ -178,8 +177,8 @@ impl<'a> CoverabilityExplorer<'a> {
     /// resumed if desired.
     #[allow(clippy::result_large_err)]
     pub fn build_reachability_or_coverability(mut self) -> Result<ReachabilityGraph<'a>, Self> {
-        while let Some((_transition_idx, node_idx, _is_new)) = self.core.explore_next() {
-            if !self.core.state_space.marking_at(node_idx).is_finite() {
+        while let Some((_transition_idx, node_idx, is_new)) = self.core.explore_next() {
+            if is_new && !self.core.state_space.marking_at(node_idx).is_finite() {
                 // short-circuit if we encounter a marking with ω
                 return Err(self);
             }
@@ -203,8 +202,8 @@ impl<'a> CoverabilityExplorer<'a> {
     }
 }
 
-impl fmt::Debug for CoverabilityExplorer<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Debug for CoverabilityExplorer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CoverabilityExplorer")
             .field("markings", &self.marking_count())
             .field("transitions", &self.transition_count())

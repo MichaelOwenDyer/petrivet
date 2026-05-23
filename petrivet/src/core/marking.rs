@@ -1,5 +1,5 @@
+use crate::core::net::PlaceIdx;
 use crate::core::state_space::TokenOps;
-use crate::core::PlaceIdx;
 use std::cmp::Ordering;
 use std::ops::{Index, IndexMut};
 use std::{iter, vec};
@@ -42,6 +42,12 @@ impl<T: TokenOps> IdxMarking<T> {
             .filter(|&(_, tokens)| tokens != &T::zero())
             .map(|(idx, _)| idx)
     }
+
+    /// Creates a marking with `n_places` places, all initialized to zero tokens.
+    #[must_use]
+    pub fn zeros(n_places: u32) -> Self {
+        Self(vec![T::zero(); n_places as usize].into_boxed_slice())
+    }
 }
 
 impl<T: Ord + Clone> IdxMarking<T> {
@@ -61,15 +67,6 @@ impl<T> IntoIterator for IdxMarking<T> {
     type IntoIter = vec::IntoIter<T>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
-    }
-}
-
-impl<T: Default + Clone> IdxMarking<T> {
-    /// Creates a marking with the default value for each place.
-    /// For `u32` this is 0; for `Omega` this is `Omega::Finite(0)`.
-    #[must_use]
-    pub fn zeros(n_places: u32) -> Self {
-        Self(vec![T::default(); n_places as usize].into_boxed_slice())
     }
 }
 

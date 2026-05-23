@@ -1,4 +1,4 @@
-use petrivet::PetriNet;
+use petrivet::api::PetriNet;
 
 fn main() {
     let path = concat!(

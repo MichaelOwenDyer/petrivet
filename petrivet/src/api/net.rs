@@ -7,12 +7,12 @@
 
 use crate::api::builder;
 use crate::api::class::NetClass;
-use crate::core::{DenseNet, IdxArc};
 use crate::api::mapping::DenseMapping;
 use crate::api::marking::Marking;
 use crate::api::pnml::graphics::PnmlGraphics;
 use crate::api::pnml::labels::NetLabels;
-use crate::PetriNet;
+use crate::api::PetriNet;
+use crate::core::net::{DenseNet, IdxArc};
 use std::num::NonZeroU32;
 
 /// A place in a net, often represented visually by a circle.
@@ -61,7 +61,7 @@ impl From<Transition> for Node {
 pub struct Net {
     /// Inner net structure, optimized for efficient analysis algorithms.
     #[allow(clippy::struct_field_names)]
-    pub(crate) core_net: DenseNet,
+    pub(crate) dense_net: DenseNet,
 
     /// Monotonic counter used when converting this [`Net`] back to a [`builder::NetBuilder`]
     /// so new nodes continue to receive unused ids. Ids are never reused for removed nodes.
@@ -106,39 +106,39 @@ impl Net {
     /// Returns the structural class of this net (cached at build time).
     #[must_use]
     pub const fn class(&self) -> NetClass {
-        self.core_net.class
+        self.dense_net.class
     }
 
     /// A net is a circuit if it is both an S-net and a T-net.
     #[must_use]
     pub const fn is_circuit(&self) -> bool {
-        self.core_net.class.is_circuit()
+        self.dense_net.class.is_circuit()
     }
 
     /// A net is an S-net, or state machine, if every transition has exactly one input and one output place.
     #[must_use]
     pub const fn is_state_machine(&self) -> bool {
-        self.core_net.class.is_state_machine()
+        self.dense_net.class.is_state_machine()
     }
 
     /// A net is a T-net, or marked graph, if every place has exactly one input and one output transition.
     #[must_use]
     pub const fn is_marked_graph(&self) -> bool {
-        self.core_net.class.is_marked_graph()
+        self.dense_net.class.is_marked_graph()
     }
 
     /// A net is free-choice if for every two transitions t1, t2:
     /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
     #[must_use]
     pub const fn is_free_choice_net(&self) -> bool {
-        self.core_net.class.is_free_choice()
+        self.dense_net.class.is_free_choice()
     }
 
     /// A net is asymmetric-choice if for every two places s1, s2:
     /// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
     #[must_use]
     pub const fn is_asymmetric_choice_net(&self) -> bool {
-        self.core_net.class.is_asymmetric_choice()
+        self.dense_net.class.is_asymmetric_choice()
     }
 
     /// Iterator over all places.
@@ -154,25 +154,25 @@ impl Net {
     /// Number of places in the net.
     #[must_use]
     pub fn place_count(&self) -> u32 {
-        self.core_net.place_count()
+        self.dense_net.place_count()
     }
 
     /// Number of transitions in the net.
     #[must_use]
     pub fn transition_count(&self) -> u32 {
-        self.core_net.transition_count()
+        self.dense_net.transition_count()
     }
 
     /// Number of nodes in the net (places + transitions).
     #[must_use]
     pub fn node_count(&self) -> usize {
-        self.core_net.node_count()
+        self.dense_net.node_count()
     }
 
     /// Number of arcs in the net.
     #[must_use]
     pub fn arc_count(&self) -> usize {
-        self.core_net.arc_count()
+        self.dense_net.arc_count()
     }
 
     /// Iterator over all nodes (places then transitions) as [`Node`].
@@ -194,7 +194,7 @@ impl Net {
             .place_idx(*place)
             .into_iter()
             .flat_map(|idx| {
-                self.core_net.preset_p[idx]
+                self.dense_net.preset_p[idx]
                     .iter()
                     .map(|&t_idx| self.mapping.transition(t_idx))
             })
@@ -211,7 +211,7 @@ impl Net {
             .place_idx(*place)
             .into_iter()
             .flat_map(|idx| {
-                self.core_net.postset_p[idx]
+                self.dense_net.postset_p[idx]
                     .iter()
                     .map(|&t_idx| self.mapping.transition(t_idx))
             })
@@ -228,7 +228,7 @@ impl Net {
             .transition_idx(*transition)
             .into_iter()
             .flat_map(|idx| {
-                self.core_net.preset_t[idx]
+                self.dense_net.preset_t[idx]
                     .iter()
                     .map(|&p_idx| self.mapping.place(p_idx))
             })
@@ -245,7 +245,7 @@ impl Net {
             .transition_idx(*transition)
             .into_iter()
             .flat_map(|idx| {
-                self.core_net.postset_t[idx]
+                self.dense_net.postset_t[idx]
                     .iter()
                     .map(|&p_idx| self.mapping.place(p_idx))
             })
@@ -253,7 +253,7 @@ impl Net {
 
     /// Iterates over all [`Arc`]s in the net in unspecified order.
     pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
-        self.core_net.arcs().map(|idx_arc| match idx_arc {
+        self.dense_net.arcs().map(|idx_arc| match idx_arc {
             IdxArc::PlaceToTransition(p_idx, t_idx) => {
                 let place = self.mapping.place(p_idx);
                 let transition = self.mapping.transition(t_idx);
@@ -270,7 +270,7 @@ impl Net {
     /// Checks if the net is strongly connected.
     #[must_use]
     pub fn is_strongly_connected(&self) -> bool {
-        self.core_net.is_strongly_connected()
+        self.dense_net.is_strongly_connected()
     }
 
     /// Checks if the net is structurally bounded.
@@ -278,7 +278,7 @@ impl Net {
     /// which would cause any place in the net to become unbounded.
     #[must_use]
     pub fn is_structurally_bounded(&self) -> bool {
-        self.core_net.is_structurally_bounded()
+        self.dense_net.is_structurally_bounded()
     }
 
     /// Checks if a single place is structurally bounded.
@@ -288,7 +288,7 @@ impl Net {
     pub fn is_place_structurally_bounded(&self, place: &Place) -> bool {
         self.mapping
             .place_idx(*place)
-            .is_some_and(|p_idx| self.core_net.is_place_structurally_bounded(&p_idx))
+            .is_some_and(|p_idx| self.dense_net.is_place_structurally_bounded(&p_idx))
     }
 }
 
@@ -300,7 +300,7 @@ impl AsRef<Net> for Net {
 
 #[cfg(test)]
 mod tests {
-    use crate::Net;
+    use crate::api::Net;
 
     fn example_net() -> Net {
         let mut net = Net::builder();

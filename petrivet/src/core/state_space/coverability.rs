@@ -1,11 +1,12 @@
-use crate::core::{marking, TransitionIdx};
+use crate::core::marking;
 use crate::core::marking::IdxMarking;
+use crate::core::net::TransitionIdx;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, TokenOps};
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::iter;
-use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef;
 
 /// A token count that is either finite or ω (unbounded).
 ///
@@ -228,8 +229,7 @@ impl DenseStateGraphExplorer<'_, Omega> {
 #[cfg(test)]
 mod tests {
     use crate::core::marking::IdxMarking;
-    use crate::core::state_space::coverability::IdxOmegaMarking;
-    use crate::state_space::Omega;
+    use crate::core::state_space::coverability::{IdxOmegaMarking, Omega};
     use std::cmp::Ordering;
 
     #[test]

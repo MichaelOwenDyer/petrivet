@@ -5,6 +5,7 @@
 //! unbounded symbol ω, and [`OmegaMarking`] is a type alias for `Marking<Omega>`.
 
 use crate::api::net::Place;
+use crate::core::state_space::TokenOps;
 use crate::core::unique_sorted_slice::UniqueSortedSlice;
 use std::iter::Sum;
 use std::ops::Index;
@@ -22,10 +23,10 @@ pub struct Marking<T> {
     pub(crate) support: UniqueSortedSlice<(Place, T)>,
 }
 
-impl<T: Default + PartialEq> FromIterator<(Place, T)> for Marking<T> {
+impl<T: TokenOps> FromIterator<(Place, T)> for Marking<T> {
     fn from_iter<I: IntoIterator<Item = (Place, T)>>(iter: I) -> Self {
         let mut vec: Vec<(Place, T)> = iter.into_iter()
-            .filter(|(_, t)| *t != T::default())
+            .filter(|(_, t)| *t != T::zero())
             .collect();
         vec.sort_unstable_by_key(|elem| elem.0.0);
         vec.dedup_by_key(|elem| elem.0.0);
@@ -34,7 +35,7 @@ impl<T: Default + PartialEq> FromIterator<(Place, T)> for Marking<T> {
     }
 }
 
-impl<T: Default + PartialEq, const N: usize> From<[(Place, T); N]> for Marking<T> {
+impl<T: TokenOps, const N: usize> From<[(Place, T); N]> for Marking<T> {
     fn from(array: [(Place, T); N]) -> Self {
         Marking::from_iter(array)
     }

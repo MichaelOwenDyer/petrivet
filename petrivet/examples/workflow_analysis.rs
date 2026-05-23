@@ -34,9 +34,10 @@
 //!
 //! Run: `cargo run --example workflow_analysis`
 
-use petrivet::builder::NetBuilder;
-use petrivet::state_space::{ExplorationOrder, ReachabilityGraph};
-use petrivet::PetriNet;
+use petrivet::api::builder::NetBuilder;
+use petrivet::api::state_space::reachability::ReachabilityGraph;
+use petrivet::api::state_space::ExplorationOrder;
+use petrivet::api::PetriNet;
 
 fn main() {
     println!("=== PCB Assembly Line Analysis ===\n");

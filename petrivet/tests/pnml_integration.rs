@@ -9,9 +9,9 @@
 #![cfg(feature = "pnml")]
 
 use petrivet::api::pnml::convert::PetriNetKind;
-use petrivet::api::pnml::PnmlDocument;
 use petrivet::api::pnml::labels::NetLabels;
-use petrivet::{Net, PetriNet};
+use petrivet::api::pnml::PnmlDocument;
+use petrivet::api::{Net, PetriNet};
 
 fn load(path: &str) -> PnmlDocument {
     let xml = std::fs::read_to_string(path)

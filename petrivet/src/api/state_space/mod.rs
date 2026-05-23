@@ -3,16 +3,14 @@ pub mod reachability;
 
 use crate::api::mapping::DenseMapping;
 use crate::api::marking::Marking;
+use crate::api::{Net, PetriNet, Place, Transition};
 use crate::core::marking::IdxMarking;
 pub use crate::core::state_space::ExplorationOrder;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, TokenOps};
-use crate::{Net, PetriNet, Place, Transition};
-pub use coverability::*;
-pub use reachability::*;
 use std::iter::Sum;
 
 /// An in-progress exploration of the state graph of a Petri net.
-/// 
+///
 /// Edges are [`Transitions`](Transition), and nodes are [`Markings`](Marking) of token type `T`.
 #[derive(Clone)]
 pub struct StateGraphExplorer<'a, T: TokenOps> {
@@ -38,10 +36,10 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     where
         IdxMarking<T>: From<IdxMarking<u32>>
     {
-        let initial_marking = IdxMarking::from(sys.core_system.current_marking.clone());
+        let initial_marking = IdxMarking::from(sys.current_marking.clone());
         Self {
-            core: DenseStateGraphExplorer::new(&sys.net().core_net, initial_marking, order),
-            mapping: &sys.net().mapping,
+            core: DenseStateGraphExplorer::new(&sys.net.as_ref().dense_net, initial_marking, order),
+            mapping: &sys.net.as_ref().mapping,
         }
     }
 
@@ -111,7 +109,7 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
 }
 
 /// A fully explored state graph of a Petri net.
-/// 
+///
 /// Edges are [`Transitions`](Transition), and nodes are [`Markings`](Marking) of token type `T`.
 #[derive(Debug, Clone)]
 pub struct StateGraph<'a, T: TokenOps> {
@@ -177,7 +175,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
                     .markings()
                     .map(|marking| marking[p_idx])
                     .max()
-                    .unwrap_or_default()
+                    .unwrap_or_else(T::zero)
             }
         )
     }

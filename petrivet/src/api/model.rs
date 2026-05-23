@@ -19,9 +19,8 @@
 //! authoritative identifiers. Dense internal indices are implementation details.
 
 use crate::api::marking::Marking;
-use crate::state_space::coverability::OmegaMarking;
-use crate::state_space::Omega;
-use crate::{Place, Transition};
+use crate::api::state_space::coverability::{Omega, OmegaMarking};
+use crate::api::{Place, Transition};
 use std::collections::HashSet;
 
 /// A siphon is a set of places D such that •D ⊆ D•.

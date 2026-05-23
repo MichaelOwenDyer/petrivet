@@ -8,3 +8,6 @@ pub mod model;
 pub mod state_space;
 #[cfg(feature = "pnml")]
 pub mod pnml;
+
+pub use net::{Arc, Net, Node, Place, Transition};
+pub use system::PetriNet;

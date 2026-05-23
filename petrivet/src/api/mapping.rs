@@ -3,11 +3,11 @@
 
 use std::collections::HashMap;
 
-use crate::core::marking::IdxMarking;
-use crate::core::state_space::TokenOps;
-use crate::core::{PlaceIdx, TransitionIdx};
 use crate::api::marking::Marking;
-use crate::{Place, Transition};
+use crate::api::{Place, Transition};
+use crate::core::marking::IdxMarking;
+use crate::core::net::{PlaceIdx, TransitionIdx};
+use crate::core::state_space::TokenOps;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DenseMapping {
@@ -80,7 +80,9 @@ impl DenseMapping {
 
     /// Convert an internal index marking to a public marking.
     pub fn marking<T: TokenOps>(&self, idx_marking: IdxMarking<T>) -> Marking<T> {
-        self.places().zip(idx_marking).filter(|(_, t)| t != &T::zero()).collect()
+        self.places().zip(idx_marking)
+            .filter(|(_, t)| t != &T::zero())
+            .collect()
     }
 
     /// Convert a public marking to an internal index marking.

@@ -54,16 +54,18 @@
 //! sys.fire_any();
 //! ```
 
+use crate::api::mapping::DenseMapping;
 use crate::api::marking::Marking;
 use crate::api::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CommonerHackCriterionResult, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, SiphonTrapPair, UnreachabilityProof};
-use crate::api::state_space::coverability::{Omega, OmegaMarking};
-use crate::api::state_space::{CoverabilityExplorer, CoverabilityGraph, ReachabilityExplorer, ReachabilityGraph};
+use crate::api::state_space::coverability::{CoverabilityExplorer, CoverabilityGraph, Omega, OmegaMarking};
+use crate::api::state_space::reachability::{ReachabilityExplorer, ReachabilityGraph};
+use crate::api::{Net, Place, Transition};
 use crate::core::analysis::semi_decision;
 use crate::core::analysis::siphon_trap;
+use crate::core::marking::IdxMarking;
+use crate::core::net::DenseNet;
 use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::core::state_space::ExplorationOrder;
-use crate::core::system::DensePetriNet;
-use crate::{Net, Place, Transition};
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -77,7 +79,9 @@ use std::marker::PhantomData;
 /// **Note:** Analysis methods will use the **current** marking as the starting point.
 #[derive(Debug, Clone)]
 pub struct PetriNet<N: AsRef<Net> = Net> {
-    pub(crate) core_system: DensePetriNet<N>,
+    pub(crate) net: N,
+    pub(crate) initial_marking: IdxMarking<u32>,
+    pub(crate) current_marking: IdxMarking<u32>,
 }
 
 impl<N: AsRef<Net>> PetriNet<N> {
@@ -87,48 +91,59 @@ impl<N: AsRef<Net>> PetriNet<N> {
         let initial_marking = initial_marking.into();
         let initial_marking = net.as_ref().mapping.idx_marking(initial_marking);
         let current_marking = initial_marking.clone();
-        Self { core_system: DensePetriNet { net, initial_marking, current_marking } }
+        Self { net, initial_marking, current_marking }
     }
 
     /// Returns a reference to the underlying net.
     pub fn net(&self) -> &Net {
-        self.core_system.net.as_ref()
+        self.net.as_ref()
+    }
+
+    pub(crate) fn dense_net(&self) -> &DenseNet {
+        &self.net.as_ref().dense_net
+    }
+
+    pub(crate) fn mapping(&self) -> &DenseMapping {
+        &self.net.as_ref().mapping
     }
 
     /// Returns the current marking of the system.
     #[must_use]
     pub fn current_marking(&self) -> Marking<u32> {
-        let current_marking = self.core_system.current_marking.clone();
-        self.core_system.net().mapping.marking(current_marking)
+        let current_marking = self.current_marking.clone();
+        self.mapping().marking(current_marking)
     }
 
     /// Returns the initial marking of the system.
     pub fn initial_marking(&self) -> Marking<u32> {
-        let initial_marking = self.core_system.initial_marking.clone();
-        self.core_system.net().mapping.marking(initial_marking)
+        let initial_marking = self.initial_marking.clone();
+        self.mapping().marking(initial_marking)
     }
 
     /// Resets the current marking to the initial marking.
     /// Returns the marking before the reset.
     pub fn reset(&mut self) -> Marking<u32> {
-        let previous = self.core_system.reset();
-        self.core_system.net().mapping.marking(previous)
+        let previous = std::mem::replace(
+            &mut self.current_marking,
+            self.initial_marking.clone()
+        );
+        self.mapping().marking(previous)
     }
 
     /// Returns the token count at a place identified by its [`Place`].
     /// Returns 0 for places which do not exist in the net.
     #[must_use]
     pub fn current_tokens(&self, p: Place) -> u32 {
-        self.core_system.net()
+        self.net.as_ref()
             .mapping
             .place_idx(p)
-            .map_or(0, |p_idx| self.core_system.current_marking[p_idx])
+            .map_or(0, |p_idx| self.current_marking[p_idx])
     }
 
     /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
     #[must_use]
     pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
-        let (net, initial_marking, current_marking) = self.core_system.into_parts();
+        let PetriNet { net, initial_marking, current_marking } = self;
         let initial_marking = net.as_ref().mapping.marking(initial_marking);
         let current_marking = net.as_ref().mapping.marking(current_marking);
         (net, initial_marking, current_marking)
@@ -136,27 +151,27 @@ impl<N: AsRef<Net>> PetriNet<N> {
     
     /// Returns true if the underlying net is a [circuit](crate::api::class::NetClass::Circuit).
     pub fn is_circuit(&self) -> bool {
-        self.core_system.net().is_circuit()
+        self.net.as_ref().is_circuit()
     }
 
     /// Returns true if the underlying net is a [state machine](crate::api::class::NetClass::StateMachine).
     pub fn is_state_machine(&self) -> bool {
-        self.core_system.net().is_state_machine()
+        self.net.as_ref().is_state_machine()
     }
     
     /// Returns true if the underlying net is a [marked graph](crate::api::class::NetClass::MarkedGraph).
     pub fn is_marked_graph(&self) -> bool {
-        self.core_system.net().is_marked_graph()
+        self.net.as_ref().is_marked_graph()
     }
     
     /// Returns true if the underlying net is a [free-choice net](crate::api::class::NetClass::FreeChoice).
     pub fn is_free_choice_system(&self) -> bool {
-        self.core_system.net().is_free_choice_net()
+        self.net.as_ref().is_free_choice_net()
     }
     
     /// Returns true if the underlying net is an [asymmetric-choice net](crate::api::class::NetClass::AsymmetricChoice).
     pub fn is_asymmetric_choice_system(&self) -> bool {
-        self.core_system.net().is_asymmetric_choice_net()
+        self.net.as_ref().is_asymmetric_choice_net()
     }
 
     /// Returns a reachability explorer for this system, using the specified exploration order.
@@ -221,11 +236,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Returns true if state space enumeration encounters any deadlock marking.
     pub fn has_reachable_deadlock_marking(&self) -> bool {
-        let net = self.net();
         let mut explorer = self.explore_reachability(ExplorationOrder::BreadthFirst);
         explorer
             .core
-            .search(|m| net.core_net.is_deadlock(m))
+            .search(|m| self.dense_net().is_deadlock(m))
             .is_some()
     }
 
@@ -239,12 +253,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// [`find_positive_place_subvariant`]: semi_decision::find_positive_place_subvariant
     pub fn is_structurally_one_safe(&self) -> bool {
         use crate::core::analysis::semi_decision::find_positive_place_subvariant;
-        let net = self.core_system.net();
-        let Some(weights) = find_positive_place_subvariant(&net.core_net) else {
+        let Some(weights) = find_positive_place_subvariant(self.dense_net()) else {
             return false;
         };
         let weighted_sum: f64 = weights.iter()
-            .zip(self.core_system.initial_marking.iter())
+            .zip(self.initial_marking.iter())
             .map(|(&w, &m)| w * f64::from(m))
             .sum();
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -257,10 +270,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// at least one token.
     #[must_use]
     pub fn is_enabled(&self, t: Transition) -> bool {
-        self.net()
+        self.net.as_ref()
             .mapping
             .transition_idx(t)
-            .is_some_and(|idx| self.core_system.is_enabled(idx))
+            .is_some_and(|t_idx| self.dense_net().is_enabled_in(t_idx, &self.current_marking))
     }
 
     /// Returns the set of currently enabled transitions.
@@ -268,13 +281,17 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// This is a read-only query. To fire one of these, use [`try_fire`](Self::try_fire)
     /// or [`choose_and_fire`](Self::choose_and_fire).
     pub fn enabled_transitions(&self) -> impl Iterator<Item = Transition> + '_ {
-        self.core_system.enabled_transitions().map(|idx| self.net().mapping.transition(idx))
+        self.net.as_ref()
+            .dense_net
+            .transition_indices()
+            .filter(|&t_idx| self.dense_net().is_enabled_in(t_idx, &self.current_marking))
+            .map(|idx| self.mapping().transition(idx))
     }
 
     /// Whether the system is in a deadlock state (no transitions are enabled).
     #[must_use]
     pub fn is_deadlocked(&self) -> bool {
-        self.core_system.is_deadlocked()
+        self.enabled_transitions().next().is_none()
     }
 
     /// Check-and-fire a specific transition.
@@ -283,11 +300,18 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// # Errors
     /// Returns `Err(NotEnabled)` if it was not enabled.
     pub fn try_fire(&mut self, t: Transition) -> Result<(), NotEnabled> {
-        self.core_system.net.as_ref()
+        self.net.as_ref()
             .mapping
             .transition_idx(t)
             .ok_or(())
-            .and_then(|t_idx| self.core_system.try_fire(t_idx))
+            .and_then(|t_idx| {
+                if self.dense_net().is_enabled_in(t_idx, &self.current_marking) {
+                    self.fire_unchecked(t);
+                    Ok(())
+                } else {
+                    Err(())
+                }
+            })
             .map_err(|()| NotEnabled(t))
     }
 
@@ -296,8 +320,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns the transition that was fired, or `None` if no transition is
     /// enabled (deadlock).
     pub fn fire_any(&mut self) -> Option<Transition> {
-        let net = self.net();
-        let t = net.transitions().find(|&t| self.is_enabled(t))?;
+        let t = self.net.as_ref()
+            .transitions()
+            .find(|&t| self.is_enabled(t))?;
         self.fire_unchecked(t);
         Some(t)
     }
@@ -353,12 +378,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// The caller must guarantee the transition is enabled. Underflow will
     /// panic in debug mode and wrap in release mode.
     pub fn fire_unchecked(&mut self, t: Transition) {
-        if let Some(t_idx) = self.net().mapping.transition_idx(t) {
-            for &p_idx in &self.core_system.net.as_ref().core_net.preset_t[t_idx] {
-                self.core_system.current_marking[p_idx] -= 1;
+        if let Some(t_idx) = self.mapping().transition_idx(t) {
+            for &p_idx in &self.net.as_ref().dense_net.preset_t[t_idx] {
+                self.current_marking[p_idx] -= 1;
             }
-            for &p_idx in &self.core_system.net.as_ref().core_net.postset_t[t_idx] {
-                self.core_system.current_marking[p_idx] += 1;
+            for &p_idx in &self.net.as_ref().dense_net.postset_t[t_idx] {
+                self.current_marking[p_idx] += 1;
             }
         }
     }
@@ -371,11 +396,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// and a sufficient condition for deadlock-freedom in general nets.
     pub fn commoner_hack_criterion(&self) -> CommonerHackCriterionResult {
         let siphon_trap_pairs = siphon_trap::commoner_hack_criterion(
-            &self.core_system.net.as_ref().core_net,
-            &self.core_system.current_marking
+            self.dense_net(),
+            &self.current_marking
         ).map(|(siphon, trap, trap_is_marked)| {
-            let siphon = siphon.into_iter().map(|p_idx| self.core_system.net.as_ref().mapping.place(p_idx)).collect();
-            let trap = trap.into_iter().map(|p_idx| self.core_system.net.as_ref().mapping.place(p_idx)).collect();
+            let siphon = siphon.into_iter().map(|p_idx| self.mapping().place(p_idx)).collect();
+            let trap = trap.into_iter().map(|p_idx| self.mapping().place(p_idx)).collect();
             SiphonTrapPair { siphon, trap, trap_is_marked }
         }).collect();
         CommonerHackCriterionResult { siphon_trap_pairs }
@@ -389,17 +414,15 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// 2. Coverability graph: always terminates. Gives exact per-place bounds.
     #[must_use]
     pub fn analyze_boundedness(&self) -> BoundednessAnalysis {
-        let net = self.net();
-
         // todo: also consider checking for semi-positive subvariants for subsections of the net.
         //  but how to decide which places to check?
-        if let Some(place_weights) = semi_decision::find_positive_place_subvariant(&net.core_net) {
+        if let Some(place_weights) = semi_decision::find_positive_place_subvariant(&self.dense_net()) {
             // Esparza lecture notes proposition 4.3.8
             let weighted_sum: f64 = place_weights.iter()
-                .zip(self.core_system.initial_marking.iter())
+                .zip(self.initial_marking.iter())
                 .map(|(&weight, &tokens)| weight * f64::from(tokens))
                 .sum();
-            let bounds = net.places()
+            let bounds = self.net.as_ref().places()
                 .zip(place_weights.iter())
                 .map(|(place, &weight)| {
                     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -432,16 +455,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// 4. **General**: CG → RG → SCC analysis (exponential worst-case).
     #[must_use]
     pub fn analyze_liveness(&self) -> LivenessAnalysis {
-        let net = self.net();
-
         // TODO: Optimize for state machines and marked graphs
         //  by analyzing SCCs of the appropriate graph
 
-        if net.is_free_choice_net()
+        if self.is_free_choice_system()
             && let chc = self.commoner_hack_criterion()
             && chc.is_satisfied() {
             return LivenessAnalysis {
-                levels: net.transitions().zip(std::iter::repeat(LivenessLevel::L4)).collect(),
+                levels: self.net.as_ref().transitions().zip(std::iter::repeat(LivenessLevel::L4)).collect(),
                 method: LivenessMethod::FreeChoice(chc),
             };
         }
@@ -450,14 +471,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
             Ok(rg) => {
                 let levels = rg.liveness_levels();
                 LivenessAnalysis {
-                    levels: net.transitions().zip(levels).collect(),
+                    levels: self.net.as_ref().transitions().zip(levels).collect(),
                     method: LivenessMethod::ReachabilityGraphSCC,
                 }
             }
             Err(_cg) => {
                 // TODO: liveness for unbounded nets
                 LivenessAnalysis {
-                    levels: net.transitions().zip(std::iter::repeat(LivenessLevel::L0)).collect(),
+                    levels: self.net.as_ref().transitions().zip(std::iter::repeat(LivenessLevel::L0)).collect(),
                     method: LivenessMethod::Inconclusive,
                 }
             }
@@ -515,16 +536,15 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// `Inconclusive` rather than attempting infinite exploration.
     #[must_use]
     pub fn analyze_reachability(&self, target: Marking<u32>) -> ReachabilityResult {
-        let net = self.net();
-        let idx_target = net.mapping.idx_marking(target.clone());
+        let idx_target = self.mapping().idx_marking(target.clone());
 
-        if self.core_system.current_marking == idx_target {
+        if self.current_marking == idx_target {
             return ReachabilityProof::FiringSequence(Box::new([])).into();
         }
 
-        if net.is_state_machine() {
-            if net.is_strongly_connected() {
-                let initial_marking_sum = self.core_system.current_marking.iter().sum::<u32>();
+        if self.is_state_machine() {
+            if self.net.as_ref().is_strongly_connected() {
+                let initial_marking_sum = self.current_marking.iter().sum::<u32>();
                 let target_marking_sum = idx_target.iter().sum::<u32>();
                 return if initial_marking_sum == target_marking_sum {
                     ReachabilityProof::StronglyConnectedSNetTokenConservation {
@@ -535,35 +555,35 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 };
             }
             return semi_decision::find_marking_equation_rational_solution(
-                &net.core_net,
-                &self.core_system.current_marking,
+                self.dense_net(),
+                &self.current_marking,
                 &idx_target
             ).map_or_else(
                 || UnreachabilityProof::MarkingEquationNoRationalSolution.into(),
                 |solution| {
-                    let solution = net.transitions().zip(solution).collect();
+                    let solution = self.net.as_ref().transitions().zip(solution).collect();
                     ReachabilityProof::SNetMarkingEquationRationalSolution(solution).into()
                 }
             )
         }
 
-        if net.is_marked_graph() {
+        if self.is_marked_graph() {
             return semi_decision::find_marking_equation_integer_solution(
-                &net.core_net,
-                &self.core_system.current_marking,
+                self.dense_net(),
+                &self.current_marking,
                 &idx_target
             ).map_or_else(
                 || UnreachabilityProof::MarkingEquationNoIntegerSolution.into(),
                 |solution| {
-                    let solution = net.transitions().zip(solution).collect();
+                    let solution = self.net.as_ref().transitions().zip(solution).collect();
                     ReachabilityProof::TNetMarkingEquationIntegerSolution(solution).into()
                 }
             )
         }
 
         if semi_decision::find_marking_equation_rational_solution(
-            &net.core_net,
-            &self.core_system.current_marking,
+            self.dense_net(),
+            &self.current_marking,
             &idx_target,
         ).is_none() {
             return UnreachabilityProof::MarkingEquationNoRationalSolution.into();
@@ -571,8 +591,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
         // todo: only test ILP if the rational solution is already an integer solution
         if semi_decision::find_marking_equation_integer_solution(
-            &net.core_net,
-            &self.core_system.current_marking,
+            self.dense_net(),
+            &self.current_marking,
             &idx_target,
         ).is_none() {
             return UnreachabilityProof::MarkingEquationNoIntegerSolution.into();
@@ -612,19 +632,18 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// - [Esparza Lecture Notes, Theorem 3.2.8](crate::literature#theorem-328--coverability-characterization) (correctness, supplementary)
     #[must_use]
     pub fn analyze_coverability(&self, target: Marking<u32>) -> CoverabilityResult {
-        let net = self.net();
-        let target_idx_marking = net.mapping.idx_marking(target.clone());
+        let target_idx_marking = self.mapping().idx_marking(target.clone());
 
-        if self.core_system.current_marking >= target_idx_marking {
+        if self.current_marking >= target_idx_marking {
             return CoverabilityProof {
                 firing_sequence: Box::new([]),
-                covering_marking: net.mapping.marking(IdxOmegaMarking::from(self.core_system.current_marking.clone())),
+                covering_marking: self.mapping().marking(IdxOmegaMarking::from(self.current_marking.clone())),
             }.into();
         }
 
         if semi_decision::find_covering_equation_rational_solution(
-            &net.core_net,
-            &self.core_system.current_marking,
+            self.dense_net(),
+            &self.current_marking,
             &target_idx_marking
         ).is_none() {
             return NonCoverabilityProof::MarkingEquationNoRationalSolution.into();
@@ -632,8 +651,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
         // todo: only test ILP if the rational solution is not already an integer solution
         if semi_decision::find_covering_equation_integer_solution(
-            &net.core_net,
-            &self.core_system.current_marking,
+            self.dense_net(),
+            &self.current_marking,
             &target_idx_marking
         ).is_none() {
             return NonCoverabilityProof::MarkingEquationNoIntegerSolution.into();
@@ -794,7 +813,7 @@ impl std::error::Error for NotEnabled {}
 mod pnml {
     use crate::api::pnml::convert::PnmlConversionError;
     use crate::api::pnml::PnmlDocument;
-    use crate::{Net, PetriNet};
+    use crate::api::{Net, PetriNet};
     use std::error::Error;
     use std::fmt;
     use std::fmt::{Display, Formatter};

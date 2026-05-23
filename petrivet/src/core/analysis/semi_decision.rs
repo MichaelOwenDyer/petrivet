@@ -39,7 +39,7 @@
 //! ```
 
 use crate::core::marking::IdxMarking;
-use crate::core::{DenseNet, PlaceIdx};
+use crate::core::net::{DenseNet, PlaceIdx};
 use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel, Variable, VariableDefinition};
 
 /// Checks the marking equation M = M₀ + N · x for a non-negative rational solution x,
@@ -357,7 +357,7 @@ mod tests {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
         let m1 = IdxMarking::from([0u32, 1]);
-        let result = find_marking_equation_rational_solution(&net.core_net, &m0, &m1);
+        let result = find_marking_equation_rational_solution(&net.dense_net, &m0, &m1);
         assert!(result.is_some());
     }
 
@@ -366,14 +366,14 @@ mod tests {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
         let m1 = IdxMarking::from([2u32, 0]);
-        let result = find_marking_equation_rational_solution(&net.core_net, &m0, &m1);
+        let result = find_marking_equation_rational_solution(&net.dense_net, &m0, &m1);
         assert!(result.is_none());
     }
 
     #[test]
     fn cycle_structurally_bounded() {
         let net = two_place_cycle();
-        assert!(find_positive_place_subvariant(&net.core_net).is_some(), "cycle should be structurally bounded");
+        assert!(find_positive_place_subvariant(&net.dense_net).is_some(), "cycle should be structurally bounded");
     }
 
     #[test]
@@ -385,7 +385,7 @@ mod tests {
         b.add_arc((p0, t1));
         b.add_arc((t1, p1));
         b.add_arc((p1, t0));
-        let net = b.build().unwrap().core_net;
+        let net = b.build().unwrap().dense_net;
         assert!(find_positive_place_subvariant(&net).is_some(), "producer net should be proven bounded");
     }
 
@@ -397,8 +397,8 @@ mod tests {
         b.add_arc((t0, p0));
         let net = b.build().unwrap();
         let p0 = net.mapping.place_idx(p0).expect("place in built net");
-        assert!(find_positive_place_subvariant(&net.core_net).is_none());
-        assert!(find_semipositive_place_subvariant(&net.core_net, |&idx| idx == p0).is_none());
+        assert!(find_positive_place_subvariant(&net.dense_net).is_none());
+        assert!(find_semipositive_place_subvariant(&net.dense_net, |&idx| idx == p0).is_none());
     }
 
     #[test]
@@ -412,7 +412,7 @@ mod tests {
         b.add_arc((p1, t1));
         b.add_arc((p2, t1));
         b.add_arc((t1, p0));
-        let net = b.build().unwrap().core_net;
+        let net = b.build().unwrap().dense_net;
         assert!(find_positive_place_subvariant(&net).is_some());
     }
 
@@ -420,7 +420,7 @@ mod tests {
     fn marking_equation_identity() {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
-        let result = find_marking_equation_rational_solution(&net.core_net, &m0, &m0);
+        let result = find_marking_equation_rational_solution(&net.dense_net, &m0, &m0);
         assert!(result.is_some());
     }
 
@@ -428,7 +428,7 @@ mod tests {
     fn marking_equation_round_trip() {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
-        let result = find_marking_equation_rational_solution(&net.core_net, &m0, &m0);
+        let result = find_marking_equation_rational_solution(&net.dense_net, &m0, &m0);
         assert!(result.is_some());
         if let Some(x) = &result {
             assert!(x.iter().all(|&v| v >= -1e-9));
@@ -440,7 +440,7 @@ mod tests {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
         let target = IdxMarking::from([0u32, 1]);
-        let result = find_marking_equation_integer_solution(&net.core_net, &m0, &target);
+        let result = find_marking_equation_integer_solution(&net.dense_net, &m0, &target);
         assert!(result.is_some());
     }
 
@@ -449,7 +449,7 @@ mod tests {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
         let target = IdxMarking::from([2u32, 0]);
-        let result = find_marking_equation_integer_solution(&net.core_net, &m0, &target);
+        let result = find_marking_equation_integer_solution(&net.dense_net, &m0, &target);
         assert!(result.is_none());
     }
 
@@ -457,7 +457,7 @@ mod tests {
     fn ilp_identity() {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
-        let result = find_marking_equation_integer_solution(&net.core_net, &m0, &m0);
+        let result = find_marking_equation_integer_solution(&net.dense_net, &m0, &m0);
         assert!(result.is_some());
     }
 
@@ -466,7 +466,7 @@ mod tests {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
         let threshold = IdxMarking::from([0u32, 1]);
-        let result = find_covering_equation_rational_solution(&net.core_net, &m0, &threshold);
+        let result = find_covering_equation_rational_solution(&net.dense_net, &m0, &threshold);
         assert!(result.is_some());
     }
 
@@ -475,7 +475,7 @@ mod tests {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
         let threshold = IdxMarking::from([2u32, 0]);
-        let result = find_covering_equation_rational_solution(&net.core_net, &m0, &threshold);
+        let result = find_covering_equation_rational_solution(&net.dense_net, &m0, &threshold);
         assert!(result.is_none());
     }
 
@@ -486,9 +486,9 @@ mod tests {
         assert!(net.is_state_machine());
         let m0 = IdxMarking::from([1u32, 0]);
         // (0,1) is reachable: token moves from p0 to p1
-        assert!(find_marking_equation_rational_solution(&net.core_net, &m0, &IdxMarking::from([0u32, 1])).is_some());
+        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 1])).is_some());
         // Identity is always reachable
-        assert!(find_marking_equation_rational_solution(&net.core_net, &m0, &m0).is_some());
+        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &m0).is_some());
     }
 
     #[test]
@@ -496,9 +496,9 @@ mod tests {
         let net = two_place_cycle();
         let m0 = IdxMarking::from([1u32, 0]);
         // Token sum mismatch: 1 ≠ 2
-        assert!(find_marking_equation_rational_solution(&net.core_net, &m0, &IdxMarking::from([2u32, 0])).is_none());
+        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([2u32, 0])).is_none());
         // Token sum mismatch: 1 ≠ 0
-        assert!(find_marking_equation_rational_solution(&net.core_net, &m0, &IdxMarking::from([0u32, 0])).is_none());
+        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 0])).is_none());
     }
 
     #[test]
@@ -514,11 +514,11 @@ mod tests {
 
         let m0 = IdxMarking::from([1u32, 0, 0]);
         // (0, 0, 1) reachable: token flows down the chain
-        assert!(find_marking_equation_rational_solution(&net.core_net, &m0, &IdxMarking::from([0u32, 0, 1])).is_some());
+        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 0, 1])).is_some());
         // (0, 1, 0) reachable: token stops at p1
-        assert!(find_marking_equation_rational_solution(&net.core_net, &m0, &IdxMarking::from([0u32, 1, 0])).is_some());
+        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 1, 0])).is_some());
         // (1, 1, 0) NOT reachable: token sum 1 ≠ 2
-        assert!(find_marking_equation_rational_solution(&net.core_net, &m0, &IdxMarking::from([1u32, 1, 0])).is_none());
+        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([1u32, 1, 0])).is_none());
     }
 
     fn t_net_sync() -> Net {
@@ -539,9 +539,9 @@ mod tests {
         assert!(net.is_marked_graph());
         let m0 = IdxMarking::from([1u32, 1, 0]);
         // Fire t0: (1,1,0) → (0,0,1)
-        assert!(find_marking_equation_integer_solution(&net.core_net, &m0, &IdxMarking::from([0u32, 0, 1])).is_some());
+        assert!(find_marking_equation_integer_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 0, 1])).is_some());
         // Fire t0 then t1: back to (1,1,0)
-        assert!(find_marking_equation_integer_solution(&net.core_net, &m0, &m0).is_some());
+        assert!(find_marking_equation_integer_solution(&net.dense_net, &m0, &m0).is_some());
     }
 
     #[test]
@@ -549,8 +549,8 @@ mod tests {
         let net = t_net_sync();
         let m0 = IdxMarking::from([1u32, 1, 0]);
         // (1,0,0): violates marking equation (no integer solution)
-        assert!(find_marking_equation_integer_solution(&net.core_net, &m0, &IdxMarking::from([1u32, 0, 0])).is_none());
+        assert!(find_marking_equation_integer_solution(&net.dense_net, &m0, &IdxMarking::from([1u32, 0, 0])).is_none());
         // (2,2,0): would need negative firings of t0
-        assert!(find_marking_equation_integer_solution(&net.core_net, &m0, &IdxMarking::from([2u32, 2, 0])).is_none());
+        assert!(find_marking_equation_integer_solution(&net.dense_net, &m0, &IdxMarking::from([2u32, 2, 0])).is_none());
     }
 }

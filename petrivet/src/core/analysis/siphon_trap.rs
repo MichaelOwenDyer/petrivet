@@ -1,5 +1,5 @@
 use crate::core::marking::IdxMarking;
-use crate::core::{DenseNet, PlaceIdx};
+use crate::core::net::{DenseNet, PlaceIdx};
 use good_lp::Variable;
 use std::collections::HashSet;
 

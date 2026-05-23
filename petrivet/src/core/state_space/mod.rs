@@ -2,7 +2,7 @@ pub mod reachability;
 pub mod coverability;
 
 use crate::core::marking::IdxMarking;
-use crate::core::{DenseNet, TransitionIdx};
+use crate::core::net::{DenseNet, TransitionIdx};
 use petgraph::graph::NodeIndex;
 use petgraph::Graph;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -21,7 +21,7 @@ pub enum ExplorationOrder {
 /// Operations on a token count needed for state space exploration.
 ///
 /// Implemented for `u32` (reachability) and `Omega` (coverability).
-pub trait TokenOps: Clone + Copy + Eq + Ord + Hash + Default {
+pub trait TokenOps: Clone + Copy + Eq + Ord + Hash {
     fn zero() -> Self;
     fn one() -> Self;
     fn at_least_one(&self) -> bool;

@@ -1,9 +1,9 @@
+use crate::api::model::LivenessLevel;
+use crate::api::state_space::coverability::{CoverabilityGraph, Omega};
+use crate::api::state_space::{ExplorationOrder, ExplorationStep, StateGraph, StateGraphExplorer};
+use crate::api::{Net, PetriNet, Transition};
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::DenseStateGraph;
-use crate::api::state_space::{ExplorationOrder, ExplorationStep, StateGraphExplorer, StateGraph, CoverabilityGraph, Omega};
-use std::fmt;
-use crate::api::model::LivenessLevel;
-use crate::{Net, Transition, PetriNet};
 
 /// An incremental exploration handle for a Petri net's reachability graph.
 ///
@@ -94,8 +94,8 @@ impl<'a> ReachabilityExplorer<'a> {
     }
 }
 
-impl fmt::Debug for ReachabilityExplorer<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Debug for ReachabilityExplorer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReachabilityExplorer")
             .field("markings", &self.marking_count())
             .field("transitions", &self.transition_count())

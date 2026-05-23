@@ -1,7 +1,7 @@
-use petgraph::graph::NodeIndex;
 use crate::core::marking::IdxMarking;
+use crate::core::net::TransitionIdx;
 use crate::core::state_space::{DenseStateGraphExplorer, TokenOps};
-use crate::core::TransitionIdx;
+use petgraph::graph::NodeIndex;
 
 impl TokenOps for u32 {
     fn zero() -> Self { 0 }
