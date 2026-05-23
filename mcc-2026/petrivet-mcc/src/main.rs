@@ -150,7 +150,7 @@ fn run_liveness(input_dir: &Path) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
     let name = Examination::Liveness.as_str();
 
-    if system.net().is_free_choice_net() && system.commoner_hack_criterion().is_satisfied() {
+    if system.is_free_choice() && system.commoner_hack_criterion().is_satisfied() {
         print_boolean_result(name, true, STRUCTURAL_TECHNIQUES);
         return Ok(());
     }

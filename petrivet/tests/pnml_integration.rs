@@ -24,7 +24,7 @@ fn first_pt_net(doc: &PnmlDocument) -> (PetriNet<Net>, Box<NetLabels>) {
     let sys = doc.nets[0]
         .to_pt_system()
         .expect("conversion failed");
-    let labels = sys.net().labels.as_ref().unwrap().clone();
+    let labels = sys.labels.as_ref().unwrap().clone();
     (sys, labels)
 }
 
@@ -44,9 +44,9 @@ fn philo_topology() {
     let doc = load("tests/fixtures/philo.pnml");
     let (sys, labels) = first_pt_net(&doc);
 
-    assert_eq!(sys.net().place_count(), 30, "place count");
-    assert_eq!(sys.net().transition_count(), 30, "transition count");
-    assert_eq!(sys.net().arc_count(), 96, "arc count");
+    assert_eq!(sys.place_count(), 30, "place count");
+    assert_eq!(sys.transition_count(), 30, "transition count");
+    assert_eq!(sys.arc_count(), 96, "arc count");
     assert_eq!(labels.net_name(), Some("philo"));
 }
 
@@ -75,8 +75,8 @@ fn philo_all_place_and_transition_names_populated() {
     // A more granular per-node check lives in the convert.rs unit tests which
     // have pub(crate) access.
     assert!(labels.net_name().is_some(), "net name should be populated");
-    assert_eq!(sys.net().place_count(), 30);
-    assert_eq!(sys.net().transition_count(), 30);
+    assert_eq!(sys.place_count(), 30);
+    assert_eq!(sys.transition_count(), 30);
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn philo_is_bounded() {
     let (sys, _) = first_pt_net(&doc);
     // The philosophers net is structurally bounded (no place can accumulate
     // tokens indefinitely given any firing sequence).
-    assert!(sys.net().is_structurally_bounded(), "philosophers net should be structurally bounded");
+    assert!(sys.is_structurally_bounded(), "philosophers net should be structurally bounded");
 }
 
 // ── Token ring (token-ring.pnml) ──────────────────────────────────────────────
@@ -101,9 +101,9 @@ fn token_ring_topology() {
     let doc = load("tests/fixtures/token-ring.pnml");
     let (sys, labels) = first_pt_net(&doc);
 
-    assert_eq!(sys.net().place_count(), 18, "place count");
-    assert_eq!(sys.net().transition_count(), 15, "transition count");
-    assert_eq!(sys.net().arc_count(), 67, "arc count");
+    assert_eq!(sys.place_count(), 18, "place count");
+    assert_eq!(sys.transition_count(), 15, "transition count");
+    assert_eq!(sys.arc_count(), 67, "arc count");
     assert_eq!(labels.net_name(), Some("Token-ring"));
 }
 
@@ -135,7 +135,7 @@ fn token_ring_is_not_structurally_bounded() {
     // structural one.
     let doc = load("tests/fixtures/token-ring.pnml");
     let (sys, _) = first_pt_net(&doc);
-    assert!(!sys.net().is_structurally_bounded(), "token-ring has source places; not structurally bounded");
+    assert!(!sys.is_structurally_bounded(), "token-ring has source places; not structurally bounded");
 }
 
 // ── Swimming pool (swimming-pool.pnml / Piscine) ──────────────────────────────
@@ -151,9 +151,9 @@ fn pool_topology() {
     let doc = load("tests/fixtures/swimming-pool.pnml");
     let (sys, labels) = first_pt_net(&doc);
 
-    assert_eq!(sys.net().place_count(), 9, "place count");
-    assert_eq!(sys.net().transition_count(), 7, "transition count");
-    assert_eq!(sys.net().arc_count(), 20, "arc count");
+    assert_eq!(sys.place_count(), 9, "place count");
+    assert_eq!(sys.transition_count(), 7, "transition count");
+    assert_eq!(sys.arc_count(), 20, "arc count");
     assert_eq!(labels.net_name(), Some("Piscine"));
 }
 
@@ -172,7 +172,7 @@ fn pool_initial_marking() {
 fn pool_is_structurally_bounded() {
     let doc = load("tests/fixtures/swimming-pool.pnml");
     let (sys, _) = first_pt_net(&doc);
-    assert!(sys.net().is_structurally_bounded(), "swimming pool should be structurally bounded");
+    assert!(sys.is_structurally_bounded(), "swimming pool should be structurally bounded");
 }
 
 #[test]
@@ -208,9 +208,9 @@ fn mcc_champagne_h04_t1u_parses() {
     let doc = load("tests/fixtures/Champagne/PT/champagne_H04_T1U.pnml");
     let (sys, labels) = first_pt_net(&doc);
     assert_eq!(labels.net_name(), Some("champagne_H04_T1U"));
-    assert_eq!(sys.net().place_count(), 285);
-    assert_eq!(sys.net().transition_count(), 351);
-    assert_eq!(sys.net().arc_count(), 820);
+    assert_eq!(sys.place_count(), 285);
+    assert_eq!(sys.transition_count(), 351);
+    assert_eq!(sys.arc_count(), 820);
     let total_tokens: u32 = sys.initial_marking().iter().map(|(_, w)| *w).sum();
     assert_eq!(total_tokens, 1);
     let nupn = labels.nupn().expect("MCC Champagne carries NUPN");
@@ -230,7 +230,7 @@ fn mcc_cops_and_robers_circular_small_parses() {
         labels.net_name(),
         Some("CopsAndRobbers_Circular_Random_L005X001")
     );
-    assert!(sys.net().place_count() >= 8);
-    assert!(sys.net().transition_count() >= 1);
+    assert!(sys.place_count() >= 8);
+    assert!(sys.transition_count() >= 1);
     assert!(labels.nupn().is_none(), "this fixture has no NUPN block");
 }

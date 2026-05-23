@@ -130,14 +130,14 @@ impl Net {
     /// A net is free-choice if for every two transitions t1, t2:
     /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
     #[must_use]
-    pub const fn is_free_choice_net(&self) -> bool {
+    pub const fn is_free_choice(&self) -> bool {
         self.dense_net.class.is_free_choice()
     }
 
     /// A net is asymmetric-choice if for every two places s1, s2:
     /// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
     #[must_use]
-    pub const fn is_asymmetric_choice_net(&self) -> bool {
+    pub const fn is_asymmetric_choice(&self) -> bool {
         self.dense_net.class.is_asymmetric_choice()
     }
 

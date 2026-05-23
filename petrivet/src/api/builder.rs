@@ -870,8 +870,8 @@ mod tests {
         b.add_arc((t1, p3));
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::AsymmetricChoice);
-        assert!(net.is_asymmetric_choice_net());
-        assert!(!net.is_free_choice_net());
+        assert!(net.is_asymmetric_choice());
+        assert!(!net.is_free_choice());
     }
 
     #[test]
