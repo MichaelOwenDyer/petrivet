@@ -3,10 +3,11 @@ use std::hash::Hash;
 
 /// A deduplicated, sorted boxed slice.
 ///
-/// Constructed once from a `Vec<T>`: the constructor sorts and deduplicates
-/// in place, then freezes the result into a `Box<[T]>`. The invariant
-/// (strictly ascending order, no duplicates) is established at construction
-/// and cannot be violated afterward since there is no mutable access.
+/// Constructed once from an iterator of `T` values,
+/// which are collected into a `HashSet` to enforce uniqueness,
+/// then stored in a `Box<[T]>` sorted in ascending order.
+/// There is no mutable access to the inner data,
+/// so uniqueness and sortedness are guaranteed by construction.
 ///
 /// `Deref<Target = [T]>` provides transparent access to all slice methods.
 /// Set-relational operations (`is_subset_of`, `intersects`, etc.) exploit
@@ -19,19 +20,44 @@ use std::hash::Hash;
 /// net.preset_t(t).contains(&p)                         // p ∈ •t
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub struct UniqueSortedSlice<T>(pub(crate) Box<[T]>);
+pub struct UniqueSortedSlice<T>(Box<[T]>);
 
-impl<T: Ord> UniqueSortedSlice<T> {
-    pub(crate) fn new(data: Vec<T>) -> Self where T: Hash {
-        let mut data = data
+impl<T: Ord + Hash> FromIterator<T> for UniqueSortedSlice<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut data = iter
             .into_iter()
             .collect::<HashSet<_>>()
             .into_iter()
-            .collect::<Vec<_>>();
+            .collect::<Box<_>>();
         data.sort_unstable();
-        Self(data.into_boxed_slice())
+        Self(data)
     }
+}
 
+impl<T> std::ops::Deref for UniqueSortedSlice<T> {
+    type Target = [T];
+    fn deref(&self) -> &[T] {
+        &self.0
+    }
+}
+
+impl<T> IntoIterator for UniqueSortedSlice<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a UniqueSortedSlice<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<T: Ord> UniqueSortedSlice<T> {
     /// `self ⊆ other`. O(n + m) merge scan.
     #[must_use]
     pub fn is_subset_of(&self, other: &Self) -> bool {
@@ -74,28 +100,14 @@ impl<T: Ord> UniqueSortedSlice<T> {
     }
 }
 
-impl<T> std::ops::Deref for UniqueSortedSlice<T> {
-    type Target = [T];
-    fn deref(&self) -> &[T] {
-        &self.0
-    }
-}
-
-impl<T: PartialEq, const N: usize> PartialEq<[T; N]> for UniqueSortedSlice<T> {
-    fn eq(&self, other: &[T; N]) -> bool {
-        *self.0 == *other
-    }
-}
-
-impl<'a, T> IntoIterator for &'a UniqueSortedSlice<T> {
-    type Item = &'a T;
-    type IntoIter = std::slice::Iter<'a, T>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    // todo: write tests to assert sorting
+    use super::UniqueSortedSlice;
+
+    #[test]
+    fn test_uniqueness_and_sortedness() {
+        let s: UniqueSortedSlice<_> = vec![3, 1, 2, 2].into_iter().collect();
+        assert_eq!(&*s, &[1, 2, 3]);
+    }
+
 }

@@ -36,7 +36,7 @@
 
 use petrivet::builder::NetBuilder;
 use petrivet::state_space::{ExplorationOrder, ReachabilityGraph};
-use petrivet::system::PetriNet;
+use petrivet::PetriNet;
 
 fn main() {
     println!("=== PCB Assembly Line Analysis ===\n");

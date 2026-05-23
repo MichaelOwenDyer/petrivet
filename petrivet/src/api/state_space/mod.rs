@@ -35,9 +35,9 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     where
         IdxMarking<T>: From<IdxMarking<u32>>
     {
-        let initial_marking = IdxMarking::from(sys.core.current_marking.clone());
+        let initial_marking = IdxMarking::from(sys.core_system.current_marking.clone());
         Self {
-            core: DenseStateGraphExplorer::new(&sys.net().core, initial_marking, order),
+            core: DenseStateGraphExplorer::new(&sys.net().core_net, initial_marking, order),
             mapping: &sys.net().mapping,
         }
     }

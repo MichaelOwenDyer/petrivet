@@ -462,7 +462,7 @@ impl NetBuilder {
         let postset_p = map_neighbors(&ordered_places, &self.postset_p, &transition_to_index);
 
         // Construct the dense analysis core of the net
-        let core = DenseNet {
+        let core_net = DenseNet {
             class,
             preset_t,
             postset_t,
@@ -478,7 +478,7 @@ impl NetBuilder {
         );
 
         Ok(Net {
-            core,
+            core_net,
             next_place_id,
             next_transition_id,
             mapping,
@@ -506,7 +506,7 @@ where
     ordered_nodes
         .iter()
         .map(|node| {
-            let indices: Vec<Idx> = sparse_adjacency
+            sparse_adjacency
                 .get(node)
                 .expect("Node key must exist in sparse adjacency map")
                 .iter()
@@ -515,8 +515,7 @@ where
                         .get(neighbor)
                         .expect("Neighbor key must exist in dense index map")
                 })
-                .collect();
-            UniqueSortedSlice::new(indices)
+                .collect()
         })
         .collect()
 }
@@ -959,11 +958,11 @@ mod tests {
         assert_eq!(rebuilt.next_place_id, original.next_place_id);
         assert_eq!(rebuilt.next_transition_id, original.next_transition_id);
         assert_eq!(rebuilt.mapping, original.mapping);
-        assert_eq!(rebuilt.core.class, original.core.class);
-        assert_eq!(rebuilt.core.preset_t, original.core.preset_t);
-        assert_eq!(rebuilt.core.postset_t, original.core.postset_t);
-        assert_eq!(rebuilt.core.preset_p, original.core.preset_p);
-        assert_eq!(rebuilt.core.postset_p, original.core.postset_p);
+        assert_eq!(rebuilt.core_net.class, original.core_net.class);
+        assert_eq!(rebuilt.core_net.preset_t, original.core_net.preset_t);
+        assert_eq!(rebuilt.core_net.postset_t, original.core_net.postset_t);
+        assert_eq!(rebuilt.core_net.preset_p, original.core_net.preset_p);
+        assert_eq!(rebuilt.core_net.postset_p, original.core_net.postset_p);
         // todo: also guarantee labels and graphics will round-trip once those builders are implemented
     }
 

@@ -50,6 +50,7 @@ impl<T: TokenOps> IdxMarking<T> {
 }
 
 impl<T: Ord + Clone> IdxMarking<T> {
+    /// Returns the componentwise maximum of `self` and `other`.
     pub fn componentwise_max(mut acc: Self, other: &Self) -> Self {
         for (bound, tokens) in acc.0.iter_mut().zip(other.0.iter()) {
             if *bound < *tokens {
@@ -120,13 +121,23 @@ impl<T> FromIterator<T> for IdxMarking<T> {
     }
 }
 
+impl<T: Ord> IdxMarking<T> {
+    /// Returns true if this marking covers the other.
+    ///
+    /// In other words, `self` has at least as many tokens as `other` in every place,
+    /// and strictly more in at least one place.
+    pub fn covers(&self, other: &Self) -> bool {
+        self >= other
+    }
+}
+
 /// Covering relation on markings:
 /// M1 >= M2 iff M1(p) >= M2(p) for all places p.
 /// Two markings may be incomparable if some places are greater and others are lesser.
 impl<T: Ord> PartialOrd for IdxMarking<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         debug_assert_eq!(self.place_count(), other.place_count());
-        iter::zip(self.0.iter(), other.0.iter())
+        iter::zip(&self.0, &other.0)
             .map(|(a, b)| a.cmp(b))
             .try_fold(Ordering::Equal, merge_ordering)
     }

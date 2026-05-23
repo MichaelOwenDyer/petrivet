@@ -86,7 +86,7 @@ impl DenseMapping {
 
     /// Convert an internal index marking to a public marking.
     pub fn marking<T: TokenOps>(&self, idx_marking: IdxMarking<T>) -> Marking<T> {
-        Marking(self.places().zip(idx_marking).filter(|(_, t)| t != &T::zero()).collect())
+        self.places().zip(idx_marking).filter(|(_, t)| t != &T::zero()).collect()
     }
 
     /// Convert a public marking to an internal index marking.

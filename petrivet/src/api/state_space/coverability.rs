@@ -292,7 +292,7 @@ mod tests {
         let mut steps = 0;
         while let Some(step) = cg.explore_next() {
             steps += 1;
-            assert!(!step.marking.as_ref().iter().any(|&(_, o)| !o.is_finite()));
+            assert!(!step.marking.iter().any(|(_, o)| o.is_unbounded()));
         }
         assert!(cg.is_fully_explored());
         assert!(steps > 0);
@@ -305,7 +305,7 @@ mod tests {
         let mut cg = sys.explore_coverability(ExplorationOrder::BreadthFirst);
 
         while let Some(step) = cg.explore_next() {
-            if step.marking.as_ref().iter().any(|&(_, o)| o == Omega::Unbounded) {
+            if step.marking.iter().any(|(_, o)| o.is_unbounded()) {
                 break;
             }
         }
