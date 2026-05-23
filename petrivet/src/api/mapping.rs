@@ -78,12 +78,6 @@ impl DenseMapping {
         self.ordered_transitions.iter().copied()
     }
 
-    /// Number of transitions in the net.
-    #[must_use]
-    pub fn transition_count(&self) -> u32 {
-        u32::try_from(self.ordered_transitions.len()).expect("cannot be built with more u32::MAX transitions")
-    }
-
     /// Convert an internal index marking to a public marking.
     pub fn marking<T: TokenOps>(&self, idx_marking: IdxMarking<T>) -> Marking<T> {
         self.places().zip(idx_marking).filter(|(_, t)| t != &T::zero()).collect()

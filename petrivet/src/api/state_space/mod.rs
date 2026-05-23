@@ -1,19 +1,22 @@
 pub mod coverability;
 pub mod reachability;
 
+use crate::api::mapping::DenseMapping;
+use crate::api::marking::Marking;
 use crate::core::marking::IdxMarking;
 pub use crate::core::state_space::ExplorationOrder;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, TokenOps};
-use crate::api::mapping::DenseMapping;
-use crate::api::marking::Marking;
-use crate::{Net, Place, Transition, PetriNet};
+use crate::{Net, PetriNet, Place, Transition};
 pub use coverability::*;
 pub use reachability::*;
 use std::iter::Sum;
 
+/// An in-progress exploration of the state graph of a Petri net.
+/// 
+/// Edges are [`Transitions`](Transition), and nodes are [`Markings`](Marking) of token type `T`.
 #[derive(Clone)]
 pub struct StateGraphExplorer<'a, T: TokenOps> {
-    pub(crate) core: DenseStateGraphExplorer<'a, T>,
+    pub(super) core: DenseStateGraphExplorer<'a, T>,
     mapping: &'a DenseMapping,
 }
 
@@ -107,6 +110,9 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     }
 }
 
+/// A fully explored state graph of a Petri net.
+/// 
+/// Edges are [`Transitions`](Transition), and nodes are [`Markings`](Marking) of token type `T`.
 #[derive(Debug, Clone)]
 pub struct StateGraph<'a, T: TokenOps> {
     state_space: DenseStateGraph<'a, T>,

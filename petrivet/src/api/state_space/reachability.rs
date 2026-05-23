@@ -1,9 +1,8 @@
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::DenseStateGraph;
-use crate::api::state_space::{ExplorationOrder, ExplorationStep, StateGraphExplorer, StateGraph, CoverabilityGraph};
+use crate::api::state_space::{ExplorationOrder, ExplorationStep, StateGraphExplorer, StateGraph, CoverabilityGraph, Omega};
 use std::fmt;
 use crate::api::model::LivenessLevel;
-use crate::api::marking::Omega;
 use crate::{Net, Transition, PetriNet};
 
 /// An incremental exploration handle for a Petri net's reachability graph.

@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::hash::Hash;
 
 /// A deduplicated, sorted boxed slice.
@@ -22,15 +21,19 @@ use std::hash::Hash;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct UniqueSortedSlice<T>(Box<[T]>);
 
-impl<T: Ord + Hash> FromIterator<T> for UniqueSortedSlice<T> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut data = iter
-            .into_iter()
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect::<Box<_>>();
-        data.sort_unstable();
-        Self(data)
+impl<T: PartialEq + Ord> From<Vec<T>> for UniqueSortedSlice<T> {
+    fn from(mut v: Vec<T>) -> Self {
+        v.sort_unstable();
+        v.dedup(); // removes all duplicates since the vector is sorted
+        Self(v.into_boxed_slice())
+    }
+}
+
+impl<T> UniqueSortedSlice<T> {
+    /// Creates a new `UniqueSortedSlice`
+    /// from a boxed slice that is already guaranteed to be sorted and unique.
+    pub(crate) fn from_sorted_unique(data: Vec<T>) -> Self {
+        Self(data.into_boxed_slice())
     }
 }
 
@@ -106,7 +109,7 @@ mod tests {
 
     #[test]
     fn test_uniqueness_and_sortedness() {
-        let s: UniqueSortedSlice<_> = vec![3, 1, 2, 2].into_iter().collect();
+        let s: UniqueSortedSlice<_> = vec![3, 1, 2, 2].into();
         assert_eq!(&*s, &[1, 2, 3]);
     }
 

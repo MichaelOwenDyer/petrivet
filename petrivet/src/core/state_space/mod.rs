@@ -1,8 +1,9 @@
-use crate::core::marking::{IdxMarking, IdxOmegaMarking};
+pub mod reachability;
+pub mod coverability;
+
+use crate::core::marking::IdxMarking;
 use crate::core::{DenseNet, TransitionIdx};
-use crate::api::marking::Omega;
 use petgraph::graph::NodeIndex;
-use petgraph::prelude::EdgeRef;
 use petgraph::Graph;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
@@ -26,31 +27,6 @@ pub trait TokenOps: Clone + Copy + Eq + Ord + Hash + Default {
     fn at_least_one(&self) -> bool;
     fn increment(&mut self);
     fn decrement(&mut self);
-}
-
-impl TokenOps for u32 {
-    fn zero() -> Self { 0 }
-    fn one() -> Self { 1 }
-    fn at_least_one(&self) -> bool { *self >= 1 }
-    fn increment(&mut self) { *self += 1; }
-    fn decrement(&mut self) { *self -= 1; }
-}
-
-impl TokenOps for Omega {
-    fn zero() -> Self { Omega::Finite(0) }
-    fn one() -> Self { Omega::Finite(1) }
-    fn at_least_one(&self) -> bool {
-        match self {
-            Omega::Finite(n) => *n >= 1,
-            Omega::Unbounded => true,
-        }
-    }
-    fn increment(&mut self) {
-        if let Omega::Finite(n) = self { *n += 1; }
-    }
-    fn decrement(&mut self) {
-        if let Omega::Finite(n) = self { *n -= 1; }
-    }
 }
 
 /// The shared exploration engine for both reachability and coverability graphs.
@@ -182,124 +158,6 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         self.state_space.seen.insert(marking, idx);
 
         (true, idx)
-    }
-}
-
-impl DenseStateGraphExplorer<'_, u32> {
-    /// Advance exploration by one step.
-    ///
-    /// Returns `None` when the frontier is exhausted (fully explored).
-    ///
-    /// The second tuple element is the graph [`NodeIndex`] of the marking
-    /// reached by firing the transition (new or existing).
-    pub fn explore_next(&mut self) -> Option<(TransitionIdx, NodeIndex, bool)> {
-        loop {
-            let (src_idx, t_idx) = self.pop_frontier()?;
-            if !self.is_enabled(src_idx, t_idx) {
-                continue;
-            }
-            let new_marking = self.fire(src_idx, t_idx);
-            let (is_new, node_idx) = self.register(src_idx, t_idx, new_marking);
-            return Some((t_idx, node_idx, is_new));
-        }
-    }
-
-    /// Drive exploration until either:
-    ///
-    /// - `predicate` returns `true` for some reachable marking — in which
-    ///   case the marking is returned immediately, or
-    /// - the frontier is exhausted (the entire reachability graph has been
-    ///   explored without the predicate ever firing) — in which case
-    ///   `None` is returned.
-    ///
-    /// **Does not terminate on unbounded nets.** Callers must rule that
-    /// out before calling — typically via
-    /// [`Net::is_structurally_bounded`](crate::Net::is_structurally_bounded)
-    /// or by going through the coverability path first.
-    pub fn search(
-        &mut self,
-        mut predicate: impl FnMut(&IdxMarking<u32>) -> bool,
-    ) -> Option<&IdxMarking<u32>> {
-        for &node in self.state_space.seen.values() {
-            if predicate(self.state_space.marking_at(node)) {
-                return Some(self.state_space.marking_at(node));
-            }
-        }
-        while let Some((_t_idx, node, is_new)) = self.explore_next() {
-            if is_new && predicate(self.state_space.marking_at(node)) {
-                return Some(self.state_space.marking_at(node));
-            }
-        }
-        None
-    }
-}
-
-impl DenseStateGraphExplorer<'_, Omega> {
-    pub fn explore_next(&mut self) -> Option<(TransitionIdx, NodeIndex, bool)> {
-        /// Karp–Miller acceleration: if any ancestor of `src` (including `src`
-        /// itself) carries a marking strictly smaller than `new_marking`,
-        /// promote each strictly-greater component of `new_marking` to ω.
-        fn omega_accelerate(
-            state_space: &DenseStateGraph<'_, Omega>,
-            new_marking: &mut IdxOmegaMarking, src: NodeIndex
-        ) {
-            let mut stack = vec![src];
-            let mut visited: HashSet<NodeIndex> = HashSet::new();
-            while let Some(predecessor_node) = stack.pop() {
-                if !visited.insert(predecessor_node) {
-                    continue;
-                }
-                let ancestor_marking = state_space.marking_at(predecessor_node);
-                if ancestor_marking < new_marking {
-                    for (component, prev) in new_marking.iter_mut().zip(ancestor_marking.iter()) {
-                        if *component > *prev {
-                            *component = Omega::Unbounded;
-                        }
-                    }
-                }
-                for incoming_edge in state_space.graph.edges_directed(
-                    predecessor_node,
-                    petgraph::Direction::Incoming
-                ) {
-                    stack.push(incoming_edge.source());
-                }
-            }
-        }
-
-        loop {
-            let (src_node_idx, transition_idx) = self.pop_frontier()?;
-            if !self.is_enabled(src_node_idx, transition_idx) {
-                continue;
-            }
-            let mut marking = self.fire(src_node_idx, transition_idx);
-            omega_accelerate(&self.state_space, &mut marking, src_node_idx);
-            let (is_new, node_idx) = self.register(src_node_idx, transition_idx, marking.clone());
-            return Some((transition_idx, node_idx, is_new));
-        }
-    }
-
-    /// Drive exploration until either:
-    ///
-    /// - `predicate` returns `true` for some reachable marking — in which
-    ///   case the marking is returned immediately, or
-    /// - the frontier is exhausted (the entire reachability graph has been
-    ///   explored without the predicate ever firing) — in which case
-    ///   `None` is returned.
-    pub fn find(
-        &mut self,
-        mut predicate: impl FnMut(&IdxMarking<Omega>) -> bool,
-    ) -> Option<&IdxOmegaMarking> {
-        for &node in self.state_space.seen.values() {
-            if predicate(self.state_space.marking_at(node)) {
-                return Some(self.state_space.marking_at(node));
-            }
-        }
-        while let Some((_t_idx, node, is_new)) = self.explore_next() {
-            if is_new && predicate(self.state_space.marking_at(node)) {
-                return Some(self.state_space.marking_at(node));
-            }
-        }
-        None
     }
 }
 

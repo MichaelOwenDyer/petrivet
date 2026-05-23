@@ -18,7 +18,9 @@
 //! All public APIs in this module use [`Place`] and [`Transition`] as the
 //! authoritative identifiers. Dense internal indices are implementation details.
 
-use crate::api::marking::{Marking, Omega, OmegaMarking};
+use crate::api::marking::Marking;
+use crate::state_space::coverability::OmegaMarking;
+use crate::state_space::Omega;
 use crate::{Place, Transition};
 use std::collections::HashSet;
 

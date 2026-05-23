@@ -23,7 +23,7 @@ use petrivet::api::model::{
 };
 use petrivet::api::builder::NetBuilder;
 use petrivet::api::class::NetClass;
-use petrivet::api::marking::Omega;
+use petrivet::api::state_space::coverability::Omega;
 use petrivet::api::net::system::PetriNet;
 use petrivet::api::net::{Marking, Net, Place, Transition};
 use petrivet::api::pnml::graphics::PnmlGraphics;

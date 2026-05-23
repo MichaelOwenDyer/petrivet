@@ -5,41 +5,36 @@
 //! unbounded symbol ω, and [`OmegaMarking`] is a type alias for `Marking<Omega>`.
 
 use crate::api::net::Place;
-use std::cmp::Ordering;
-use std::collections::HashSet;
-use std::fmt::Debug;
-use std::hash::Hash;
+use crate::core::unique_sorted_slice::UniqueSortedSlice;
 use std::iter::Sum;
 use std::ops::Index;
 use std::{iter, vec};
 
-/// The public-facing marking type. Contains a slice of (Place, Token) pairs.
-/// A place does not appear in the list iff it has `T::default()` tokens.
-/// Places are sorted ascending by place ID.
+/// A marking of a Petri net.
+///
+/// This is a mapping from `Place` to token counts of type `T`.
 #[derive(Debug, Clone)]
-pub struct Marking<T>(pub(crate) Box<[(Place, T)]>);
-pub type OmegaMarking = Marking<Omega>;
-
-impl<T> AsRef<[(Place, T)]> for Marking<T> {
-    fn as_ref(&self) -> &[(Place, T)] {
-        &self.0
-    }
+pub struct Marking<T> {
+    /// The support of the marking.
+    ///
+    /// Only places with non-default token counts are stored here,
+    /// so the default token count is implicitly assigned to all other places.
+    pub(crate) support: UniqueSortedSlice<(Place, T)>,
 }
 
-impl<T: Default + Eq + Hash> FromIterator<(Place, T)> for Marking<T> {
+impl<T: Default + PartialEq> FromIterator<(Place, T)> for Marking<T> {
     fn from_iter<I: IntoIterator<Item = (Place, T)>>(iter: I) -> Self {
-        let mut x = iter
-            .into_iter()
+        let mut vec: Vec<(Place, T)> = iter.into_iter()
             .filter(|(_, t)| *t != T::default())
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect::<Box<_>>();
-        x.sort_unstable_by_key(|&(Place(id), _)| id);
-        Marking(x)
+            .collect();
+        vec.sort_unstable_by_key(|elem| elem.0.0);
+        vec.dedup_by_key(|elem| elem.0.0);
+        let support = UniqueSortedSlice::from_sorted_unique(vec);
+        Marking { support }
     }
 }
 
-impl<T: Default + Eq + Hash, const N: usize> From<[(Place, T); N]> for Marking<T> {
+impl<T: Default + PartialEq, const N: usize> From<[(Place, T); N]> for Marking<T> {
     fn from(array: [(Place, T); N]) -> Self {
         Marking::from_iter(array)
     }
@@ -49,13 +44,26 @@ impl<T> IntoIterator for Marking<T> {
     type Item = (Place, T);
     type IntoIter = vec::IntoIter<(Place, T)>;
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        self.support.into_iter()
     }
 }
 
-impl From<Marking<u32>> for OmegaMarking {
-    fn from(value: Marking<u32>) -> Self {
-        value.into_iter().map(|(p, t)| (p, Omega::Finite(t))).collect()
+impl<T: Default + Copy> Index<Place> for Marking<T> {
+    type Output = T;
+    fn index(&self, place: Place) -> &Self::Output {
+        self.support.iter()
+            .find(|(p, _)| *p == place)
+            .map(|(_, t)| t)
+            .unwrap()
+    }
+}
+
+impl<T: Copy + Sum> Marking<T> {
+    #[must_use]
+    pub fn total_tokens(&self) -> T {
+        self.support.iter()
+            .map(|(_, t)| *t)
+            .sum()
     }
 }
 
@@ -64,107 +72,32 @@ impl<T: Default + Copy> Marking<T> {
     /// Returns `T::default()` if the place is not present in the marking.
     #[must_use]
     pub fn get(&self, place: Place) -> T {
-        self.0.iter().find(|(p, _)| *p == place).map(|(_, t)| t).copied().unwrap_or_default()
-    }
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&mut Place, &mut T)> {
-        self.0.iter_mut().map(|(p, t)| (p, t))
-    }
-    pub fn iter(&self) -> impl Iterator<Item = (&Place, &T)> {
-        self.0.iter().map(|(p, t)| (p, t))
+        self.support.iter()
+            .find(|(p, _)| *p == place)
+            .map(|(_, t)| t)
+            .copied()
+            .unwrap_or_default()
     }
 }
 
-impl<T: Clone + Sum> Marking<T> {
-    #[must_use]
-    pub fn total_tokens(&self) -> T {
-        self.0.iter().map(|(_, t)| t.clone()).sum()
+impl<T> Marking<T> {
+    pub fn iter(&self) -> impl Iterator<Item = (&Place, &T)> {
+        self.support.iter().map(|(p, t)| (p, t))
     }
     pub fn support(&self) -> impl Iterator<Item = Place> {
-        self.0.iter().map(|(p, _)| *p)
-    }
-}
-
-impl<T: Default + Copy> Index<Place> for Marking<T> {
-    type Output = T;
-    fn index(&self, place: Place) -> &Self::Output {
-        self.0.iter().find(|(p, _)| *p == place).map(|(_, t)| t).unwrap()
+        self.support.iter().map(|(p, _)| *p)
     }
 }
 
 impl<T: PartialEq> PartialEq for Marking<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.0.len() == other.0.len() && iter::zip(self.0.iter(), other.0.iter())
-            .all(|((p1, t1), (p2, t2))| p1 == p2 && t1 == t2)
-    }
-}
-
-/// A token count that is either finite or ω (unbounded).
-///
-/// "Omega" as the name of this enum is a slight misnomer,
-/// since ω represents unboundedness but this enum
-/// represents either boundedness or unboundedness.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Omega {
-    /// A concrete finite token count.
-    Finite(u32),
-    /// An unbounded token count (ω). Greater than any finite value.
-    Unbounded,
-}
-
-impl Omega {
-    /// Returns `true` if this is a finite value.
-    #[must_use]
-    pub const fn is_finite(self) -> bool {
-        matches!(self, Omega::Finite(_))
-    }
-
-    /// Returns `true` if this value is unbounded (omega).
-    #[must_use]
-    pub const fn is_unbounded(self) -> bool {
-        matches!(self, Omega::Unbounded)
-    }
-
-    /// Returns true if this is a finite value less than or equal to `b`.
-    #[must_use]
-    pub const fn is_b_bounded(self, b: u32) -> bool {
-        matches!(self, Omega::Finite(bound) if bound <= b)
-    }
-
-    /// Returns the finite value, or `None` if unbounded.
-    #[must_use]
-    pub const fn finite(self) -> Option<u32> {
-        match self {
-            Omega::Finite(n) => Some(n),
-            Omega::Unbounded => None,
+        // this impl assumes that the supports are sorted and unique,
+        // as guaranteed by the constructor.
+        self.support.len() == other.support.len() && {
+            iter::zip(self.support.iter(), other.support.iter())
+                .all(|((p1, t1), (p2, t2))| {
+                    p1 == p2 && t1 == t2
+                })
         }
-    }
-}
-
-impl Default for Omega {
-    fn default() -> Self {
-        Omega::Finite(0)
-    }
-}
-
-impl From<u32> for Omega {
-    fn from(n: u32) -> Self {
-        Omega::Finite(n)
-    }
-}
-
-impl Ord for Omega {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Omega::Finite(a), Omega::Finite(b)) => a.cmp(b),
-            (Omega::Finite(_), Omega::Unbounded) => Ordering::Less,
-            (Omega::Unbounded, Omega::Finite(_)) => Ordering::Greater,
-            (Omega::Unbounded, Omega::Unbounded) => Ordering::Equal,
-        }
-    }
-}
-
-impl PartialOrd for Omega {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
     }
 }

@@ -54,17 +54,18 @@
 //! sys.fire_any();
 //! ```
 
+use crate::api::marking::Marking;
 use crate::api::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CommonerHackCriterionResult, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, SiphonTrapPair, UnreachabilityProof};
+use crate::api::state_space::coverability::{Omega, OmegaMarking};
+use crate::api::state_space::{CoverabilityExplorer, CoverabilityGraph, ReachabilityExplorer, ReachabilityGraph};
 use crate::core::analysis::semi_decision;
 use crate::core::analysis::siphon_trap;
-use crate::core::marking::{IdxOmegaMarking};
+use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::core::state_space::ExplorationOrder;
-use crate::api::marking::{Marking, Omega, OmegaMarking};
-use crate::api::state_space::{CoverabilityExplorer, CoverabilityGraph, ReachabilityExplorer, ReachabilityGraph};
+use crate::core::system::DensePetriNet;
 use crate::{Net, Place, Transition};
 use std::fmt;
 use std::marker::PhantomData;
-use crate::core::system::DensePetriNet;
 
 /// A Petri net system `(N, M₀)`,
 /// where `N` is the structure of the net and `M₀` is the initial marking.

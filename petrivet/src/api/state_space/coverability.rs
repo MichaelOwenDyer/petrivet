@@ -73,11 +73,50 @@
 //! [`ReachabilityGraph::build`] directly. For unbounded nets or when you
 //! need fine-grained control, use [`ReachabilityExplorer`].
 
-use crate::core::marking::IdxOmegaMarking;
+use crate::core::state_space::coverability::IdxOmegaMarking;
+use crate::marking::Marking;
+use crate::state_space::{ExplorationOrder, ExplorationStep, ReachabilityGraph, StateGraph, StateGraphExplorer};
 use crate::{Net, PetriNet};
-use crate::api::state_space::{ExplorationOrder, ExplorationStep, ReachabilityGraph, StateGraph, StateGraphExplorer};
 use std::fmt;
-use crate::api::marking::{Omega, OmegaMarking};
+
+pub use crate::core::state_space::coverability::Omega;
+
+/// An ω-marking: a marking where token counts can either be a finite number or `ω`.
+///
+/// `ω` represents an unbounded token count, i.e. an arbitrarily large finite number of tokens.
+/// Used in coverability analysis to mark places that can grow without bound.
+///
+/// See also: Karp-Miller coverability graph.
+pub type OmegaMarking = Marking<Omega>;
+
+impl OmegaMarking {
+    /// Returns true if all token counts in this marking are finite (no ω).
+    #[must_use]
+    pub fn is_finite(&self) -> bool {
+        self.support.iter().all(|(_, o)| o.is_finite())
+    }
+
+    /// Returns true if any token count in this marking is unbounded (ω).
+    #[must_use]
+    pub fn is_unbounded(&self) -> bool {
+        self.support.iter().any(|(_, o)| o.is_unbounded())
+    }
+
+    /// Returns true if all token counts in this marking are finite
+    /// and less than or equal to `b`.
+    #[must_use]
+    pub fn is_b_bounded(&self, b: u32) -> bool {
+        self.support.iter().all(|(_, o)| o.is_b_bounded(b))
+    }
+}
+
+impl From<Marking<u32>> for OmegaMarking {
+    fn from(value: Marking<u32>) -> Self {
+        value.into_iter()
+            .map(|(p, t)| (p, Omega::Finite(t)))
+            .collect()
+    }
+}
 
 /// An incremental exploration handle for constructing a coverability graph of a Petri net.
 ///
@@ -205,9 +244,9 @@ impl<'a> CoverabilityGraph<'a> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::api::builder::NetBuilder;
     use crate::api::class::NetClass;
-    use super::*;
     use crate::api::net::{Net, Place};
 
     /// Two-place cycle: p0 → t0 → p1 → t1 → p0 (bounded)
@@ -263,7 +302,7 @@ mod tests {
 
     #[test]
     fn coverability_check() {
-        use Omega::Finite;
+        use crate::api::state_space::coverability::Omega::Finite;
         let (sys, p0, p1) = two_place_cycle();
         let cg = sys.build_coverability_graph();
 

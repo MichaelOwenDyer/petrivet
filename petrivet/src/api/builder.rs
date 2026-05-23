@@ -515,7 +515,8 @@ where
                         .get(neighbor)
                         .expect("Neighbor key must exist in dense index map")
                 })
-                .collect()
+                .collect::<Vec<_>>()
+                .into()
         })
         .collect()
 }
