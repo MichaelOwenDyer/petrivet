@@ -269,7 +269,7 @@
 //! > analyse. Therefore, we will assume that there is at least one
 //! > transition and at least one place in the nets we consider.
 //!
-//! Used in: [`BuildError::Empty`](crate::api::builder::NetError::Degenerate).
+//! Used in: [`BuildError::Empty`](crate::builder::NetError::Degenerate).
 //!
 //! ## Definition 4.1 — Incidence matrix
 //!
@@ -406,10 +406,6 @@
 // These imports exist only to make intra-doc links shorter/readable.
 // They are compiled only under rustdoc.
 #[cfg(doc)]
-use crate::api::model::{CommonerHackCriterionResult, SNetLivenessEvidence, TNetLivenessEvidence};
+use crate::model::{CommonerHackCriterionResult, SNetLivenessEvidence, TNetLivenessEvidence};
 #[cfg(doc)]
 use crate::core::analysis::semi_decision;
-#[cfg(doc)]
-use crate::core::analysis::incidence::IncidenceMatrix;
-#[cfg(doc)]
-use crate::LivenessLevel;

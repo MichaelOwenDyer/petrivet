@@ -2,8 +2,8 @@ mod protocol;
 
 use std::path::{Path, PathBuf};
 
-use petrivet::api::state_space::reachability::ReachabilityGraph;
-use petrivet::api::{Net, PetriNet};
+use petrivet::state_space::reachability::ReachabilityGraph;
+use petrivet::{Net, PetriNet};
 use protocol::{
     BooleanFormulaReport, Examination, ParticipationError, RunContext, StateSpaceReport, Technique,
 };

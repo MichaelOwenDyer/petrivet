@@ -7,8 +7,8 @@
 //! # Quick start
 //!
 //! ```
-//! use petrivet::api::builder::NetBuilder;
-//! use petrivet::api::net::system::PetriNet;
+//! use petrivet::builder::NetBuilder;
+//! use petrivet::net::system::PetriNet;
 //!
 //! // Build a simple producer-consumer net
 //! let mut b = NetBuilder::new();
@@ -35,8 +35,8 @@
 //! Three patterns for firing transitions:
 //!
 //! ```
-//! # use petrivet::api::builder::NetBuilder;
-//! # use petrivet::api::net::system::PetriNet;
+//! # use petrivet::builder::NetBuilder;
+//! # use petrivet::net::system::PetriNet;
 //! # let mut b = NetBuilder::new();
 //! # let [p0, p1] = b.add_places();
 //! # let [t0, t1] = b.add_transitions();
@@ -54,16 +54,15 @@
 //! sys.fire_any();
 //! ```
 
-use crate::api::marking::Marking;
 use crate::api::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CommonerHackCriterionResult, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, SiphonTrapPair, UnreachabilityProof};
-use crate::api::state_space::coverability::{CoverabilityExplorer, CoverabilityGraph, Omega, OmegaMarking};
-use crate::api::state_space::reachability::{ReachabilityExplorer, ReachabilityGraph};
-use crate::api::{Net, Place, Transition};
 use crate::core::analysis::semi_decision;
 use crate::core::analysis::siphon_trap;
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::core::state_space::ExplorationOrder;
+use crate::state_space::coverability::{CoverabilityExplorer, CoverabilityGraph, Omega, OmegaMarking};
+use crate::state_space::reachability::{ReachabilityExplorer, ReachabilityGraph};
+use crate::{Marking, Net, Place, Transition};
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -78,7 +77,7 @@ use std::ops::Deref;
 /// **Note:** Analysis methods will use the **current** marking as the starting point.
 #[derive(Debug, Clone)]
 pub struct PetriNet<N: AsRef<Net> = Net> {
-    pub(crate) net: N,
+    pub net: N,
     pub(crate) initial_marking: IdxMarking<u32>,
     pub(crate) current_marking: IdxMarking<u32>,
 }
@@ -303,8 +302,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// # Examples
     ///
     /// ```
-    /// use petrivet::api::builder::NetBuilder;
-    /// use petrivet::api::net::system::PetriNet;
+    /// use petrivet::builder::NetBuilder;
+    /// use petrivet::net::system::PetriNet;
     ///
     /// let mut b = NetBuilder::new();
     /// let [p0, p1] = b.add_places();
@@ -773,9 +772,9 @@ impl std::error::Error for NotEnabled {}
 
 #[cfg(feature = "pnml")]
 mod pnml {
-    use crate::api::pnml::convert::PnmlConversionError;
-    use crate::api::pnml::PnmlDocument;
-    use crate::api::{Net, PetriNet};
+    use crate::pnml::convert::PnmlConversionError;
+    use crate::pnml::PnmlDocument;
+    use crate::{Net, PetriNet};
     use std::error::Error;
     use std::fmt;
     use std::fmt::{Display, Formatter};
@@ -832,10 +831,9 @@ mod pnml {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::api::builder::NetBuilder;
-    use crate::api::class::NetClass;
-    use crate::api::net::Transition;
+    use crate::api::model::{CoverabilityProof, CoverabilityResult, LivenessLevel, LivenessMethod, NonCoverabilityProof};
+    use crate::state_space::coverability::Omega;
+    use crate::{Marking, Net, NetBuilder, NetClass, PetriNet, Place, Transition};
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
     fn two_place_cycle() -> (Net, Place, Transition, Place, Transition) {

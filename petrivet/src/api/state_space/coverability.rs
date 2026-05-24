@@ -14,8 +14,8 @@
 //! # Usage
 //!
 //! ```
-//! use petrivet::api::builder::NetBuilder;
-//! use petrivet::api::net::system::PetriNet;
+//! use petrivet::builder::NetBuilder;
+//! use petrivet::net::system::PetriNet;
 //! use petrivet::{CoverabilityGraph, ExplorationOrder};
 //!
 //! let mut b = NetBuilder::new();
@@ -46,8 +46,8 @@
 //! For unknown nets, use the coverability graph first (it always terminates):
 //!
 //! ```
-//! use petrivet::api::builder::NetBuilder;
-//! use petrivet::api::net::system::PetriNet;
+//! use petrivet::builder::NetBuilder;
+//! use petrivet::net::system::PetriNet;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -73,12 +73,11 @@
 //! [`ReachabilityGraph::build`] directly. For unbounded nets or when you
 //! need fine-grained control, use [`ReachabilityExplorer`].
 
-use crate::api::marking::Marking;
-use crate::api::state_space::reachability::ReachabilityGraph;
-use crate::api::state_space::{ExplorationOrder, ExplorationStep, StateGraph, StateGraphExplorer};
-use crate::api::{Net, PetriNet};
 use crate::core::state_space::coverability::IdxOmegaMarking;
 pub use crate::core::state_space::coverability::Omega;
+use crate::state_space::reachability::ReachabilityGraph;
+use crate::state_space::{ExplorationOrder, ExplorationStep, StateGraph, StateGraphExplorer};
+use crate::{Marking, Net, PetriNet};
 
 /// An ω-marking: a marking where token counts can either be a finite number or `ω`.
 ///
@@ -244,9 +243,7 @@ impl<'a> CoverabilityGraph<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::builder::NetBuilder;
-    use crate::api::class::NetClass;
-    use crate::api::net::{Net, Place};
+    use crate::{Net, NetBuilder, NetClass, Place};
 
     /// Two-place cycle: p0 → t0 → p1 → t1 → p0 (bounded)
     fn two_place_cycle() -> (PetriNet<Net>, Place, Place) {
@@ -301,7 +298,7 @@ mod tests {
 
     #[test]
     fn coverability_check() {
-        use crate::api::state_space::coverability::Omega::Finite;
+        use crate::state_space::coverability::Omega::Finite;
         let (sys, p0, p1) = two_place_cycle();
         let cg = sys.build_coverability_graph();
 

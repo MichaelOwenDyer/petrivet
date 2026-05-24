@@ -1,12 +1,11 @@
 pub mod coverability;
 pub mod reachability;
 
-use crate::api::mapping::DenseMapping;
-use crate::api::marking::Marking;
-use crate::api::{Net, PetriNet, Place, Transition};
+use crate::core::mapping::DenseMapping;
 use crate::core::marking::IdxMarking;
 pub use crate::core::state_space::ExplorationOrder;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, TokenOps};
+use crate::{Marking, Net, PetriNet, Place, Transition};
 use std::iter::Sum;
 
 /// An in-progress exploration of the state graph of a Petri net.
@@ -168,14 +167,14 @@ impl<T: TokenOps> StateGraph<'_, T> {
     /// unbounded.
     #[must_use]
     pub fn place_bound(&self, p: Place) -> T {
-        self.mapping.place_idx(p).map_or_else(
-            T::zero,
+        self.mapping.place_idx(p).map_or(
+            T::ZERO,
             |p_idx| {
                 self.state_space
                     .markings()
                     .map(|marking| marking[p_idx])
                     .max()
-                    .unwrap_or_else(T::zero)
+                    .unwrap_or(T::ZERO)
             }
         )
     }
@@ -243,7 +242,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     /// under this name to match the formula it answers.
     #[must_use]
     pub fn is_one_safe(&self) -> bool {
-        self.max_token_in_any_place() <= T::one()
+        self.max_token_in_any_place() <= T::ONE
     }
 
     /// Whether some place holds the same token count in every reachable marking.

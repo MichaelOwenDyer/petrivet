@@ -4,8 +4,8 @@ use crate::core::state_space::{DenseStateGraphExplorer, TokenOps};
 use petgraph::graph::NodeIndex;
 
 impl TokenOps for u32 {
-    fn zero() -> Self { 0 }
-    fn one() -> Self { 1 }
+    const ZERO: Self = 0;
+    const ONE: Self = 1;
     fn at_least_one(&self) -> bool { *self >= 1 }
     fn increment(&mut self) { *self += 1; }
     fn decrement(&mut self) { *self -= 1; }

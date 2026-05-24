@@ -80,8 +80,8 @@ impl PartialOrd for Omega {
 }
 
 impl TokenOps for Omega {
-    fn zero() -> Self { Omega::Finite(0) }
-    fn one() -> Self { Omega::Finite(1) }
+    const ZERO: Self = Omega::Finite(0);
+    const ONE: Self = Omega::Finite(1);
     fn at_least_one(&self) -> bool {
         match self {
             Omega::Finite(n) => *n >= 1,

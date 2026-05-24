@@ -60,7 +60,7 @@
 //! | `http://www.pnml.org/version-2009/extensions/resetptnet` | P/T net with reset arcs |
 //! | `http://www.pnml.org/version-2009/extensions/resetinhibitorptnet` | P/T net with inhibitor and reset arcs |
 
-use crate::api::pnml::graphics::{AnnotationGraphics, NodeGraphics};
+use crate::pnml::graphics::{AnnotationGraphics, NodeGraphics};
 use serde::{Deserialize, Serialize};
 
 pub mod convert;

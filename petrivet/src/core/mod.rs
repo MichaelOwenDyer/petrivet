@@ -3,3 +3,5 @@ pub mod marking;
 pub mod state_space;
 pub mod unique_sorted_slice;
 pub mod analysis;
+pub mod mapping;
+pub mod class;

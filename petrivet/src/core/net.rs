@@ -1,8 +1,8 @@
 use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::analysis::semi_decision;
+use crate::core::class::NetClass;
 use crate::core::marking::IdxMarking;
 use crate::core::unique_sorted_slice::UniqueSortedSlice;
-use crate::api::class::NetClass;
 
 /// A place in a built [`Net`], identified by a dense index in `0 .. place_count`.
 ///

@@ -1,7 +1,7 @@
+use crate::state_space::coverability::{CoverabilityGraph, Omega};
+use crate::state_space::{ExplorationOrder, ExplorationStep, StateGraph, StateGraphExplorer};
+use crate::{Net, PetriNet, Transition};
 use crate::api::model::LivenessLevel;
-use crate::api::state_space::coverability::{CoverabilityGraph, Omega};
-use crate::api::state_space::{ExplorationOrder, ExplorationStep, StateGraph, StateGraphExplorer};
-use crate::api::{Net, PetriNet, Transition};
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::DenseStateGraph;
 
@@ -16,9 +16,9 @@ use crate::core::state_space::DenseStateGraph;
 /// # Examples
 ///
 /// ```
-/// use petrivet::api::builder::NetBuilder;
-/// use petrivet::api::net::system::PetriNet;
-/// use petrivet::{ReachabilityExplorer, ReachabilityGraph, ExplorationOrder};
+/// use petrivet::{NetBuilder, PetriNet};
+/// use petrivet::state_space::ExplorationOrder;
+/// use petrivet::state_space::reachability::{ReachabilityExplorer, ReachabilityGraph};
 ///
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
@@ -62,10 +62,10 @@ impl<'a> ReachabilityExplorer<'a> {
     /// **Warning: infinite** for unbounded nets.
     ///
     /// ```
-    /// use petrivet::api::builder::NetBuilder;
-    /// use petrivet::api::net::system::PetriNet;
+    /// use petrivet::builder::NetBuilder;
+    /// use petrivet::net::system::PetriNet;
     /// use petrivet::{ReachabilityExplorer, ExplorationOrder};
-    /// use petrivet::api::marking::IdxMarking;
+    /// use petrivet::marking::IdxMarking;
     ///
     /// let mut b = NetBuilder::new();
     /// let [p0, p1] = b.add_places();
@@ -124,10 +124,10 @@ impl std::fmt::Debug for ReachabilityExplorer<'_> {
 /// # Examples
 ///
 /// ```
-/// use petrivet::api::builder::NetBuilder;
-/// use petrivet::api::net::system::PetriNet;
+/// use petrivet::builder::NetBuilder;
+/// use petrivet::net::system::PetriNet;
 /// use petrivet::{ReachabilityGraph, ExplorationOrder};
-/// use petrivet::api::marking::IdxMarking;
+/// use petrivet::marking::IdxMarking;
 ///
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
@@ -179,7 +179,7 @@ impl<'a> ReachabilityGraph<'a> {
     ///
     /// To get per-key results, use [`PetriNet::analyze_liveness`] which returns a
     /// [`LivenessAnalysis`] with key-based access via
-    /// [`transition_level`](crate::api::model::LivenessAnalysis::transition_level).
+    /// [`transition_level`](crate::model::LivenessAnalysis::transition_level).
     #[must_use]
     pub(crate) fn liveness_levels(&self) -> Box<[LivenessLevel]> {
         use petgraph::visit::EdgeRef;

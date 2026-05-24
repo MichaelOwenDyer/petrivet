@@ -17,9 +17,9 @@
 //! # Example
 //!
 //! ```
-//! use petrivet::api::builder::NetBuilder;
-//! use petrivet::api::marking::IdxMarking;
-//! use petrivet::api::net::system::PetriNet;
+//! use petrivet::builder::NetBuilder;
+//! use petrivet::marking::IdxMarking;
+//! use petrivet::net::system::PetriNet;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -340,9 +340,9 @@ pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::api::builder::NetBuilder;
-    use crate::api::net::Net;
+    use crate::core::analysis::semi_decision::*;
+    use crate::core::marking::IdxMarking;
+    use crate::{Net, NetBuilder};
 
     fn two_place_cycle() -> Net {
         let mut b = NetBuilder::new();

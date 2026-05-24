@@ -4,29 +4,26 @@
 //! `u32`. For coverability analysis, [`Omega`] extends token counts with an
 //! unbounded symbol ω, and [`OmegaMarking`] is a type alias for `Marking<Omega>`.
 
-use crate::api::net::Place;
 use crate::core::state_space::TokenOps;
 use crate::core::unique_sorted_slice::UniqueSortedSlice;
+use crate::Place;
 use std::iter::Sum;
-use std::ops::Index;
 use std::{iter, vec};
 
-/// A marking of a Petri net.
-///
-/// This is a mapping from `Place` to token counts of type `T`.
+/// A mapping from [`Place`] to tokens of type `T`.
 #[derive(Debug, Clone)]
 pub struct Marking<T> {
     /// The support of the marking.
     ///
-    /// Only places with non-default token counts are stored here,
-    /// so the default token count is implicitly assigned to all other places.
+    /// Only places with non-zero token counts are stored here,
+    /// and a token count of zero is implicitly assigned to all other places.
     pub(crate) support: UniqueSortedSlice<(Place, T)>,
 }
 
 impl<T: TokenOps> FromIterator<(Place, T)> for Marking<T> {
     fn from_iter<I: IntoIterator<Item = (Place, T)>>(iter: I) -> Self {
         let mut vec: Vec<(Place, T)> = iter.into_iter()
-            .filter(|(_, t)| *t != T::zero())
+            .filter(|(_, t)| *t != T::ZERO)
             .collect();
         vec.sort_unstable_by_key(|elem| elem.0.0);
         vec.dedup_by_key(|elem| elem.0.0);
@@ -46,16 +43,6 @@ impl<T> IntoIterator for Marking<T> {
     type IntoIter = vec::IntoIter<(Place, T)>;
     fn into_iter(self) -> Self::IntoIter {
         self.support.into_iter()
-    }
-}
-
-impl<T: Default + Copy> Index<Place> for Marking<T> {
-    type Output = T;
-    fn index(&self, place: Place) -> &Self::Output {
-        self.support.iter()
-            .find(|(p, _)| *p == place)
-            .map(|(_, t)| t)
-            .unwrap()
     }
 }
 
@@ -82,8 +69,8 @@ impl<T: Default + Copy> Marking<T> {
 }
 
 impl<T> Marking<T> {
-    pub fn iter(&self) -> impl Iterator<Item = (&Place, &T)> {
-        self.support.iter().map(|(p, t)| (p, t))
+    pub fn iter(&self) -> impl Iterator<Item = &(Place, T)> {
+        self.support.iter()
     }
     pub fn support(&self) -> impl Iterator<Item = Place> {
         self.support.iter().map(|(p, _)| *p)

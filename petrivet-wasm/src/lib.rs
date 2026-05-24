@@ -17,18 +17,17 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use petrivet::api::model::{
+use petrivet::model::{
     BoundednessAnalysisMethod, CoverabilityResult, DeadlockAnalysisMethod, LivenessMethod,
     NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof,
 };
-use petrivet::api::builder::NetBuilder;
-use petrivet::api::class::NetClass;
-use petrivet::api::state_space::coverability::Omega;
-use petrivet::api::net::system::PetriNet;
-use petrivet::api::net::{Marking, Net, Place, Transition};
-use petrivet::api::pnml::graphics::PnmlGraphics;
-use petrivet::api::pnml::labels::NetLabels;
-use petrivet::api::pnml::PnmlDocument;
+use petrivet::pnml::graphics::PnmlGraphics;
+use petrivet::pnml::labels::NetLabels;
+use petrivet::pnml::PnmlDocument;
+use petrivet::state_space::coverability::Omega;
+use petrivet::NetBuilder;
+use petrivet::NetClass;
+use petrivet::{Marking, Net, PetriNet, Place, Transition};
 use wasm_bindgen::prelude::*;
 
 mod types;
@@ -99,8 +98,8 @@ impl WasmSystem {
         labels: Option<NetLabels>,
         graphics: Option<PnmlGraphics>,
     ) -> Self {
-        let place_keys: Vec<Place> = system.net().as_ref().places().collect();
-        let transition_keys: Vec<Transition> = system.net().as_ref().transitions().collect();
+        let place_keys: Vec<Place> = system.places().collect();
+        let transition_keys: Vec<Transition> = system.transitions().collect();
         Self { system, initial_marking, labels, graphics, place_keys, transition_keys }
     }
 }
@@ -114,16 +113,15 @@ impl WasmSystem {
     /// get a new `WasmSystem` with the updated topology.
     #[wasm_bindgen(js_name = toBuilder)]
     pub fn to_builder(&self) -> WasmNetBuilder {
-        let net = self.system.net().as_ref();
-        let builder = NetBuilder::from(net.clone());
+        let builder = NetBuilder::from(self.system.net);
 
         let mut place_names: HashMap<u32, String> = HashMap::new();
         let mut transition_names: HashMap<u32, String> = HashMap::new();
         let mut place_positions: HashMap<u32, (f64, f64)> = HashMap::new();
         let mut transition_positions: HashMap<u32, (f64, f64)> = HashMap::new();
 
-        let n_places = net.place_count();
-        let n_transitions = net.transition_count();
+        let n_places = self.system.place_count();
+        let n_transitions = self.system.transition_count();
 
         if let Some(labels) = &self.labels {
             for (i, &pk) in self.place_keys.iter().enumerate() {
@@ -1012,9 +1010,9 @@ fn omega_to_wasm(omega: Omega) -> WasmOmega {
 }
 
 fn liveness_level_to_wasm(
-    level: petrivet::api::model::LivenessLevel,
+    level: petrivet::model::LivenessLevel,
 ) -> WasmLivenessLevel {
-    use petrivet::api::model::LivenessLevel;
+    use petrivet::model::LivenessLevel;
     match level {
         LivenessLevel::L0 => WasmLivenessLevel::L0,
         LivenessLevel::L1 => WasmLivenessLevel::L1,

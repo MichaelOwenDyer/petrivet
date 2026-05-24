@@ -9,8 +9,8 @@
 //! # Usage
 //!
 //! ```rust
-//! use petrivet::api::builder::NetBuilder;
-//! use petrivet::api::pnml::labels::NetLabels;
+//! use petrivet::builder::NetBuilder;
+//! use petrivet::pnml::labels::NetLabels;
 //!
 //! let mut b = NetBuilder::new();
 //! let [idle, busy] = b.add_places();
@@ -30,8 +30,8 @@
 //! assert_eq!(labels.transition_name(finish), Some("Finish"));
 //! ```
 
-use crate::api::net::{Arc, Place, Transition};
-use crate::api::pnml::nupn::NupnMetadata;
+use crate::pnml::nupn::NupnMetadata;
+use crate::{Arc, Place, Transition};
 use std::collections::HashMap;
 
 /// Human-readable labels and metadata for the elements of a single Petri net.
@@ -39,7 +39,7 @@ use std::collections::HashMap;
 /// Labels are purely presentational: they have no effect on structural
 /// classification, reachability analysis, or simulation. The struct is
 /// intentionally decoupled from [`Net`](Net) and
-/// [`System`](crate::api::system::PetriNet) — callers hold the three values
+/// [`System`](crate::system::PetriNet) — callers hold the three values
 /// independently and compose them as needed.
 ///
 /// It is undefined behavior to access labels for a place/transition/arc
@@ -277,8 +277,8 @@ impl NetLabels {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::api::builder::NetBuilder;
+    use crate::{Arc, NetBuilder};
+    use crate::pnml::labels::NetLabels;
 
     #[test]
     fn set_and_get_place_name() {

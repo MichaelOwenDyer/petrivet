@@ -25,11 +25,10 @@
 //! The net stores the bidirectional mapping between public keys and the crate-internal
 //! indices and the public API is an adapter over the internal dense representation.
 
-use crate::api::class::NetClass;
-use crate::api::mapping::DenseMapping;
-use crate::api::{Arc, Net, Node, Place, Transition};
+use crate::core::mapping::DenseMapping;
 use crate::core::net::{DenseNet, PlaceIdx, TransitionIdx};
 use crate::core::unique_sorted_slice::UniqueSortedSlice;
+use crate::{Arc, Net, NetClass, Node, Place, Transition};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::hash::Hash;
@@ -418,7 +417,7 @@ impl NetBuilder {
             return Err(NetError::Degenerate);
         }
 
-        crate::api::class::classify(
+        crate::core::class::classify(
             &self.preset_t,
             &self.postset_t,
             &self.preset_p,
@@ -749,8 +748,7 @@ impl_into_arcs_for_tuples!(a b c d e f g h i j k l);
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::api::class::NetClass;
+    use crate::{Arc, NetBuilder, NetClass, NetError};
 
     #[test]
     fn build_simple_net() {

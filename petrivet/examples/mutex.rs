@@ -28,8 +28,7 @@
 //!
 //! Run: `cargo run --example mutex`
 
-use petrivet::api::builder::NetBuilder;
-use petrivet::api::{Net, PetriNet, Place, Transition};
+use petrivet::{Net, PetriNet, Place, Transition, NetBuilder};
 use std::collections::HashMap;
 
 fn main() {

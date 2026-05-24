@@ -19,11 +19,9 @@ pub enum ExplorationOrder {
 }
 
 /// Operations on a token count needed for state space exploration.
-///
-/// Implemented for `u32` (reachability) and `Omega` (coverability).
 pub trait TokenOps: Clone + Copy + Eq + Ord + Hash {
-    fn zero() -> Self;
-    fn one() -> Self;
+    const ZERO: Self;
+    const ONE: Self;
     fn at_least_one(&self) -> bool;
     fn increment(&mut self);
     fn decrement(&mut self);

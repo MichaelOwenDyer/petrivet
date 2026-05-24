@@ -39,14 +39,14 @@ impl<T: TokenOps> IdxMarking<T> {
     pub fn support(&self) -> impl Iterator<Item = PlaceIdx> {
         self.iter()
             .enumerate()
-            .filter(|&(_, tokens)| tokens != &T::zero())
+            .filter(|&(_, tokens)| tokens != &T::ZERO)
             .map(|(idx, _)| idx)
     }
 
     /// Creates a marking with `n_places` places, all initialized to zero tokens.
     #[must_use]
     pub fn zeros(n_places: u32) -> Self {
-        Self(vec![T::zero(); n_places as usize].into_boxed_slice())
+        Self(vec![T::ZERO; n_places as usize].into_boxed_slice())
     }
 }
 

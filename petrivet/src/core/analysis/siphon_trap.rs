@@ -336,8 +336,8 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
 /// # Examples
 ///
 /// ```
-/// use petrivet::api::builder::NetBuilder;
-/// use petrivet::api::marking::IdxMarking;
+/// use petrivet::builder::NetBuilder;
+/// use petrivet::marking::IdxMarking;
 /// use petrivet::analysis::structural::{minimal_siphons, commoner_hack_criterion_inner};
 ///
 /// let mut b = NetBuilder::new();

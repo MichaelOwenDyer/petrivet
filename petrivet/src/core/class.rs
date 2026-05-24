@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::{fmt, iter};
-use crate::api::net::{Node, Place, Transition};
+use crate::{Node, Place, Transition};
 
-/// TODO: Add examples of each class of net with doctests asserting the classification correctly identifies the class.
-/// Structural classification of a Petri net.
+/// Structural classification of Petri nets based on their graph structure.
+///
+/// These classes reflect common structural restrictions studied in the Petri net literature,
+/// which enable more efficient analysis techniques and stronger theoretical results.
 ///
 /// The classes form an inclusion hierarchy (each is a subclass of the next):
 ///
@@ -11,11 +13,8 @@ use crate::api::net::{Node, Place, Transition};
 /// Circuit ⊂ S-net ⊂ Free-choice ⊂ AsymmetricChoice ⊂ General
 /// Circuit ⊂ T-net ⊂ Free-choice ⊂ AsymmetricChoice ⊂ General
 /// ```
-///
-/// `classify_net` returns the most specific class.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum NetClass {
-
     /// A net `N = (S, T, F)` is a **Circuit** if
     /// |•t| = |t•| = 1 for every t ∈ T and
     /// |•s| = |s•| = 1 for every s ∈ S.
@@ -44,7 +43,7 @@ pub enum NetClass {
     /// iff J = (y, ..., y) for some y ∈ Q.
     ///
     /// ```
-    /// use petrivet::api::class::NetClass;
+    /// use petrivet::class::NetClass;
     /// use petrivet::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3] = b.add_places();
@@ -105,7 +104,7 @@ pub enum NetClass {
     /// Credit for this example goes to [Murata Figure 4]. // todo cite properly
     ///
     /// ```
-    /// use petrivet::api::class::NetClass;
+    /// use petrivet::class::NetClass;
     /// use petrivet::Net;
     /// let mut b = Net::builder();
     /// let [bal_0, bal_5, bal_10, bal_15, bal_20] = b.add_places();
@@ -208,7 +207,7 @@ pub enum NetClass {
     ///   M<sub>0</sub> <sup>σ</sup>→ M such that |σ| ≤ b * n(n-1)/2, where n = |T| is the number of transitions.
     ///
     /// ```
-    /// use petrivet::api::class::NetClass;
+    /// use petrivet::class::NetClass;
     /// use petrivet::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3, p4, p5] = b.add_places();
@@ -297,6 +296,8 @@ pub enum NetClass {
     /// Let (N, M<sub>0</sub>) be a b-bounded free-choice system and let M be a reachable marking.
     /// Then there is a firing sequence M<sub>0</sub> <sup>σ</sup>→ M
     /// such that `|σ| ≤ bn(n+1)(n+2)/6`, where n = |T| is the number of transitions of N.
+    ///
+    /// TODO: Add example of a free-choice system
     FreeChoice,
 
     /// A net `N = (S, T, F)` is an **Asymmetric-choice Net** (also known as a **Simple Net**)
@@ -314,7 +315,7 @@ pub enum NetClass {
     /// `M'` reachable from `M` such that `M'(s) > 0`.
     ///
     /// ```
-    /// use petrivet::api::class::NetClass;
+    /// use petrivet::class::NetClass;
     /// use petrivet::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();
@@ -335,11 +336,10 @@ pub enum NetClass {
     /// Can model arbitrary concurrency, choices, and conflicts.
     ///
     /// A net falls into the **General** class if it does not satisfy the structural restrictions
-    /// of any of the more restrictive classes (Circuit, S-Net, T-Net, Free-Choice, or
-    /// Asymmetric-Choice). General Petri nets are fully expressive. While ordinary general Petri
-    /// nets are strictly less powerful than Turing machines, they can still model highly complex
-    /// distributed, asynchronous, and nondeterministic systems. (Adding inhibitor
-    /// arcs or prioritizing transitions increases their modeling power to the level of Turing machines).
+    /// of the more restrictive classes (Circuit, S-Net, T-Net, Free-Choice, or Asymmetric-Choice).
+    /// General Petri nets are fully expressive. While general Petri nets (without certain extensions)
+    /// are not [Turing-complete](https://en.wikipedia.org/wiki/Turing_completeness),
+    /// they can still model highly complex distributed, asynchronous, and nondeterministic systems.
     ///
     /// Because they lack structural restrictions, analyzing general Petri nets often requires
     /// exhaustive state space exploration (e.g., constructing a reachability or coverability tree)
@@ -351,7 +351,7 @@ pub enum NetClass {
     /// [Ackermann-complete](https://en.wikipedia.org/wiki/Ackermann_function) [Czerwiński and Orlikowski 2021].
     ///
     /// ```
-    /// use petrivet::api::class::NetClass;
+    /// use petrivet::class::NetClass;
     /// use petrivet::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();

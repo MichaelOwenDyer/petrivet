@@ -5,14 +5,9 @@
 //! - A finite set of transitions T
 //! - A flow relation F ⊆ (S × T) ∪ (T × S)
 
-use crate::api::builder;
-use crate::api::class::NetClass;
-use crate::api::mapping::DenseMapping;
-use crate::api::marking::Marking;
-use crate::api::pnml::graphics::PnmlGraphics;
-use crate::api::pnml::labels::NetLabels;
-use crate::api::PetriNet;
+use crate::core::mapping::DenseMapping;
 use crate::core::net::{DenseNet, IdxArc};
+use crate::{Marking, NetBuilder, NetClass, PetriNet};
 use std::num::NonZeroU32;
 
 /// A place in a net, often represented visually by a circle.
@@ -74,19 +69,22 @@ pub struct Net {
 
     /// The annotations on the net.
     /// Boxed so that it only adds a single pointer's worth of overhead to the Net struct.
-    pub labels: Option<Box<NetLabels>>,
+    #[cfg(feature = "pnml")]
+    pub labels: Option<Box<crate::pnml::labels::NetLabels>>,
 
     /// The visual properties of the net.
     /// Boxed so that it only adds a single pointer's worth of overhead to the Net struct.
-    pub graphics: Option<Box<PnmlGraphics>>
+    #[cfg(feature = "pnml")]
+    pub graphics: Option<Box<crate::pnml::graphics::PnmlGraphics>>
 }
 
+#[cfg(feature = "pnml")]
 impl Net {
     // todo: temporary solution, work this into NetBuilder ideally!
-    pub(crate) fn set_labels(&mut self, labels: NetLabels) {
+    pub(crate) fn set_labels(&mut self, labels: crate::pnml::labels::NetLabels) {
         self.labels = Some(Box::new(labels));
     }
-    pub(crate) fn set_graphics(&mut self, graphics: PnmlGraphics) {
+    pub(crate) fn set_graphics(&mut self, graphics: crate::pnml::graphics::PnmlGraphics) {
         self.graphics = Some(Box::new(graphics));
     }
 }
@@ -94,8 +92,8 @@ impl Net {
 impl Net {
     /// Creates a new net builder for constructing a net.
     #[must_use]
-    pub fn builder() -> builder::NetBuilder {
-        builder::NetBuilder::new()
+    pub fn builder() -> NetBuilder {
+        NetBuilder::new()
     }
 
     /// Creates a system by combining this net with the given marking.
@@ -300,7 +298,7 @@ impl AsRef<Net> for Net {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::Net;
+    use crate::Net;
 
     fn example_net() -> Net {
         let mut net = Net::builder();

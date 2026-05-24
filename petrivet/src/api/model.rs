@@ -1,6 +1,6 @@
 //! Structured analysis results with evidence.
 //!
-//! Each `analyze_*` method on [`System`](crate::api::system::PetriNet) returns a result
+//! Each `analyze_*` method on [`System`](crate::system::PetriNet) returns a result
 //! struct with two parts:
 //!
 //! 1. **Uniform fields**: always valid regardless of which method was used.
@@ -18,9 +18,8 @@
 //! All public APIs in this module use [`Place`] and [`Transition`] as the
 //! authoritative identifiers. Dense internal indices are implementation details.
 
-use crate::api::marking::Marking;
-use crate::api::state_space::coverability::{Omega, OmegaMarking};
-use crate::api::{Place, Transition};
+use crate::state_space::coverability::{Omega, OmegaMarking};
+use crate::{Marking, Place, Transition};
 use std::collections::HashSet;
 
 /// A siphon is a set of places D such that •D ⊆ D•.
