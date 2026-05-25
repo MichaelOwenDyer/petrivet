@@ -26,11 +26,11 @@ impl IncidenceMatrix {
         let rows = net.place_count() as usize;
         let cols = net.transition_count() as usize;
         let mut data = vec![0; rows * cols].into_boxed_slice();
-        for (t, preset, postset) in net.transition_io() {
-            for &p in preset {
+        for t in net.transition_indices() {
+            for &p in &net.preset_t[t] {
                 data[p * cols + t] -= 1;
             }
-            for &p in postset {
+            for &p in &net.postset_t[t] {
                 data[p * cols + t] += 1;
             }
         }

@@ -182,8 +182,7 @@ impl ReachabilityGraph<'_> {
         let transition_count = self.state_space.net.transition_count() as usize;
         let graph = &self.state_space.graph;
 
-        // todo: replace with Tarjan's algorithm for better performance
-        let sccs = petgraph::algo::kosaraju_scc(graph);
+        let sccs = petgraph::algo::tarjan_scc(graph);
 
         let mut node_to_scc = vec![0usize; graph.node_count()];
         for (scc_id, scc) in sccs.iter().enumerate() {

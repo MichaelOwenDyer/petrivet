@@ -39,11 +39,6 @@ pub struct DenseNet {
 }
 
 impl DenseNet {
-    /// Iterator over all internal places.
-    pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
-        0..self.place_count() as usize
-    }
-
     /// Number of places in the net.
     #[must_use]
     pub fn place_count(&self) -> u32 {
@@ -54,18 +49,6 @@ impl DenseNet {
     #[must_use]
     pub fn transition_count(&self) -> u32 {
         u32::try_from(self.preset_t.len()).expect("cannot be built with more than u32::MAX transitions")
-    }
-
-    /// Iterator over all internal transitions.
-    pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
-        0..self.transition_count() as usize
-    }
-
-    /// Returns an iterator over all transition indices and associated index presets and index postsets.
-    pub fn transition_io(&self) -> impl Iterator<Item = (TransitionIdx, &UniqueSortedSlice<PlaceIdx>, &UniqueSortedSlice<PlaceIdx>)> + '_ {
-        self.transition_indices()
-            .zip(self.preset_t.iter().zip(self.postset_t.iter()))
-            .map(|(t, (preset, postset))| (t, preset, postset))
     }
 
     /// Number of nodes in the net (places + transitions).
@@ -82,7 +65,18 @@ impl DenseNet {
             .sum()
     }
 
-    pub fn arcs(&self) -> impl Iterator<Item = IdxArc> + '_ {
+    /// Iterator over all internal places.
+    pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
+        0..self.place_count() as usize
+    }
+
+    /// Iterator over all internal transitions.
+    pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
+        0..self.transition_count() as usize
+    }
+
+    /// Iterator over all arcs in the net, represented as pairs of internal indices.
+    pub fn idx_arcs(&self) -> impl Iterator<Item = IdxArc> + '_ {
         self.place_indices()
             .zip(self.preset_p.iter().zip(self.postset_p.iter()))
             .flat_map(|(p_idx, (preset, postset))| {
@@ -121,8 +115,9 @@ impl DenseNet {
         let t_indices: Box<[NodeIndex]> = self.transition_indices()
             .map(|_| graph.add_node(()))
             .collect();
-        self.transition_io()
-            .flat_map(|(t_idx, preset, postset)| {
+        self.transition_indices()
+            .zip(self.preset_t.iter().zip(self.postset_t.iter()))
+            .flat_map(|(t_idx, (preset, postset))| {
                 let transition_node = t_indices[t_idx];
                 let preset = preset.iter()
                     .map(|&p_idx| p_indices[p_idx])
@@ -135,7 +130,7 @@ impl DenseNet {
             .for_each(|(from, to)| {
                 graph.add_edge(from, to, ());
             });
-        petgraph::algo::kosaraju_scc(&graph).len() == 1
+        petgraph::algo::tarjan_scc(&graph).len() == 1
     }
 
     /// Checks if the net is structurally bounded.

@@ -219,7 +219,7 @@ impl Net {
 
     /// Iterates over all [`Arc`]s in the net in unspecified order.
     pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
-        self.dense_net.arcs().map(|idx_arc| match idx_arc {
+        self.dense_net.idx_arcs().map(|idx_arc| match idx_arc {
             IdxArc::PlaceToTransition(p_idx, t_idx) => {
                 let place = self.mapping.place(p_idx);
                 let transition = self.mapping.transition(t_idx);
