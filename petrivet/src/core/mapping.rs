@@ -1,18 +1,21 @@
-//! Bidirectional mapping between public [`Place`] / [`Transition`] handles and dense
-//! ranks (`0 .. n`) for a single built [`Net`].
-
-use std::collections::HashMap;
+//! Bidirectional mapping between public [`Place`] / [`Transition`] handles
+//! and dense indices (`0 .. n`) for a single built [`Net`].
 
 use crate::core::marking::IdxMarking;
 use crate::core::net::{PlaceIdx, TransitionIdx};
 use crate::core::state_space::TokenOps;
 use crate::{Marking, Place, Transition};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DenseMapping {
+    /// Mapping from public place handles to internal dense indices.
     place_to_dense: HashMap<Place, PlaceIdx>,
+    /// Mapping from public transition handles to internal dense indices.
     transition_to_dense: HashMap<Transition, TransitionIdx>,
+    /// Ordered list of places in the net, indexed by their dense indices.
     ordered_places: Box<[Place]>,
+    /// Ordered list of transitions in the net, indexed by their dense indices.
     ordered_transitions: Box<[Transition]>,
 }
 
@@ -39,40 +42,46 @@ impl DenseMapping {
         }
     }
 
-    /// Dense rank for `place` in this built net, if it is a member of this snapshot.
+    /// Returns the dense index for `place` if it exists in this net, or `None` if it does not.
     #[must_use]
     pub fn place_idx(&self, place: Place) -> Option<PlaceIdx> {
         self.place_to_dense.get(&place).copied()
     }
 
-    /// Public handle for place dense rank `idx`.
+    /// Returns the [`Place`] at dense index `p_idx`.
     #[must_use]
-    pub fn place(&self, idx: PlaceIdx) -> Place {
-        self.ordered_places[idx]
+    pub fn place(&self, p_idx: PlaceIdx) -> Place {
+        self.ordered_places[p_idx]
     }
 
+    /// Returns an iterator over all [`Places`](Place) in the net in their dense index order.
+    ///
+    /// This is useful for zipping places together with internal dense place data.
     pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
         self.ordered_places.iter().copied()
     }
 
-    /// Number of places in the net.
+    /// Returns the number of places in the net.
     #[must_use]
     pub fn place_count(&self) -> u32 {
         u32::try_from(self.ordered_places.len()).expect("cannot be built with more than u32::MAX places")
     }
 
-    /// Dense rank for `transition` in this built net, if it is a member of this snapshot.
+    /// Returns the dense index for `transition` if it exists in this net, or `None` if it does not.
     #[must_use]
     pub fn transition_idx(&self, transition: Transition) -> Option<TransitionIdx> {
         self.transition_to_dense.get(&transition).copied()
     }
 
-    /// Public handle for transition dense rank `idx`.
+    /// Returns the [`Transition`] at dense index `t_idx`.
     #[must_use]
-    pub fn transition(&self, idx: TransitionIdx) -> Transition {
-        self.ordered_transitions[idx]
+    pub fn transition(&self, t_idx: TransitionIdx) -> Transition {
+        self.ordered_transitions[t_idx]
     }
 
+    /// Returns an iterator over all [`Transitions`](Transition) in the net in their dense index order.
+    ///
+    /// This is useful for zipping transitions together with internal dense transition data.
     pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
         self.ordered_transitions.iter().copied()
     }
@@ -83,7 +92,8 @@ impl DenseMapping {
     }
 
     /// Convert a public marking to an internal index marking.
-    /// If the marking contains places not in the net, they are ignored.
+    ///
+    /// If the provided marking contains places that do not exist in this net, those places will be ignored.
     pub fn idx_marking<T: TokenOps>(&self, marking: Marking<T>) -> IdxMarking<T> {
         let mut idx_marking = IdxMarking::zeros(self.place_count());
         marking.into_iter().for_each(|(place, count)| {

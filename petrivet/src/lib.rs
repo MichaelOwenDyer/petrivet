@@ -13,7 +13,7 @@
 //! # Quick Start
 //!
 //! ```
-//! use petrivet::builder::NetBuilder;
+//! use petrivet::NetBuilder;
 //! use petrivet::state_space::ExplorationOrder;
 //! let mut net = NetBuilder::new();
 //! let [p0, p1] = net.add_places();

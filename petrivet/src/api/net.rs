@@ -96,47 +96,15 @@ impl Net {
         NetBuilder::new()
     }
 
-    /// Creates a system by combining this net with the given marking.
-    pub fn with_initial_marking(self, initial_marking: impl Into<Marking<u32>>) -> PetriNet<Self> {
+    /// Creates a [`PetriNet`] by combining a reference to this net with the given marking.
+    pub fn with_initial_marking(&self, initial_marking: impl Into<Marking<u32>>) -> PetriNet<&Self> {
         PetriNet::new(self, initial_marking)
     }
 
-    /// Returns the structural class of this net (cached at build time).
+    /// Returns the structural class of this net.
     #[must_use]
     pub const fn class(&self) -> NetClass {
         self.dense_net.class
-    }
-
-    /// A net is a circuit if it is both an S-net and a T-net.
-    #[must_use]
-    pub const fn is_circuit(&self) -> bool {
-        self.dense_net.class.is_circuit()
-    }
-
-    /// A net is an S-net, or state machine, if every transition has exactly one input and one output place.
-    #[must_use]
-    pub const fn is_state_machine(&self) -> bool {
-        self.dense_net.class.is_state_machine()
-    }
-
-    /// A net is a T-net, or marked graph, if every place has exactly one input and one output transition.
-    #[must_use]
-    pub const fn is_marked_graph(&self) -> bool {
-        self.dense_net.class.is_marked_graph()
-    }
-
-    /// A net is free-choice if for every two transitions t1, t2:
-    /// if •t1 ∩ •t2 ≠ ∅ then •t1 = •t2.
-    #[must_use]
-    pub const fn is_free_choice(&self) -> bool {
-        self.dense_net.class.is_free_choice()
-    }
-
-    /// A net is asymmetric-choice if for every two places s1, s2:
-    /// if s1• ∩ s2• ≠ ∅ then s1• ⊆ s2• or s2• ⊆ s1•.
-    #[must_use]
-    pub const fn is_asymmetric_choice(&self) -> bool {
-        self.dense_net.class.is_asymmetric_choice()
     }
 
     /// Iterator over all places.
@@ -152,7 +120,7 @@ impl Net {
     /// Number of places in the net.
     #[must_use]
     pub fn place_count(&self) -> u32 {
-        self.dense_net.place_count()
+        self.mapping.place_count()
     }
 
     /// Number of transitions in the net.

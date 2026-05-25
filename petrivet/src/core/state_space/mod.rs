@@ -4,9 +4,9 @@ pub mod coverability;
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
 use petgraph::graph::NodeIndex;
-use petgraph::Graph;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
+use std::iter::Sum;
 
 /// Controls frontier traversal order.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -19,7 +19,7 @@ pub enum ExplorationOrder {
 }
 
 /// Operations on a token count needed for state space exploration.
-pub trait TokenOps: Clone + Copy + Eq + Ord + Hash {
+pub trait TokenOps: Clone + Copy + Eq + Ord + Hash + Sum {
     const ZERO: Self;
     const ONE: Self;
     fn at_least_one(&self) -> bool;
@@ -62,7 +62,7 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         initial_marking: IdxMarking<T>,
         order: ExplorationOrder
     ) -> Self {
-        let mut graph = Graph::new();
+        let mut graph = petgraph::Graph::new();
         let initial_idx = graph.add_node(initial_marking.clone());
 
         let source_transitions: Box<[TransitionIdx]> = net
@@ -159,6 +159,7 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     }
 }
 
+/// A fully explored state space graph of a Petri net.
 #[derive(Debug, Clone)]
 pub struct DenseStateGraph<'a, T: TokenOps> {
     /// Reference to the net.
@@ -166,21 +167,34 @@ pub struct DenseStateGraph<'a, T: TokenOps> {
     /// Reference to the graph's initial node, for pathfinding.
     pub initial_idx: NodeIndex,
     /// The underlying graph structure. Nodes are markings, edges are transitions.
-    pub graph: Graph<IdxMarking<T>, TransitionIdx>,
+    pub graph: petgraph::Graph<IdxMarking<T>, TransitionIdx>,
     /// A hash table of seen markings to their node indices in the graph,
     /// for O(1) lookup.
     pub seen: HashMap<IdxMarking<T>, NodeIndex>,
 }
 
-/// A fully explored state space.
 impl<T: TokenOps> DenseStateGraph<'_, T> {
+    /// Returns an iterator over all markings in the graph.
     pub fn markings(&self) -> impl Iterator<Item = &IdxMarking<T>> + '_ {
         self.graph.node_weights()
     }
 
-    /// Reference to the marking at a given node.
+    /// Get the marking stored at node index `idx`.
     pub fn marking_at(&self, idx: NodeIndex) -> &IdxMarking<T> {
         &self.graph[idx]
+    }
+
+    /// Returns an iterator over markings which enable no transitions (deadlocks).
+    pub fn deadlocks(&self) -> impl Iterator<Item = &IdxMarking<T>> {
+        self.graph
+            .node_indices()
+            .filter(|&idx| {
+                self.graph
+                    .edges_directed(idx, petgraph::Direction::Outgoing)
+                    .next()
+                    .is_none()
+            })
+            .map(|idx| self.marking_at(idx))
     }
 
     /// Find a path from initial to target using A*.
@@ -197,25 +211,13 @@ impl<T: TokenOps> DenseStateGraph<'_, T> {
             |_| 0u32,
         )?;
 
-        let transition_path = node_path
+        let firing_sequence = node_path
             .array_windows()
             .map(|&[m1_idx, m2_idx]| {
                 self.graph.find_edge(m1_idx, m2_idx).expect("edge must exist")
             })
             .map(|edge_idx| self.graph[edge_idx])
             .collect();
-        Some(transition_path)
-    }
-
-    /// Node indices with no outgoing edges (deadlocked states).
-    pub fn deadlock_indices(&self) -> impl Iterator<Item = NodeIndex> {
-        self.graph
-            .node_indices()
-            .filter(|&idx| {
-                self.graph
-                    .edges_directed(idx, petgraph::Direction::Outgoing)
-                    .next()
-                    .is_none()
-            })
+        Some(firing_sequence)
     }
 }

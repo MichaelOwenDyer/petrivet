@@ -18,8 +18,14 @@ use std::hash::Hash;
 /// net.postset_p(p1).is_subset_of(net.postset_p(p0))   // p1• ⊆ p0•
 /// net.preset_t(t).contains(&p)                         // p ∈ •t
 /// ```
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UniqueSortedSlice<T>(Box<[T]>);
+
+impl<T> Default for UniqueSortedSlice<T> {
+    fn default() -> Self {
+        Self(Box::new([]))
+    }
+}
 
 impl<T: PartialEq + Ord> From<Vec<T>> for UniqueSortedSlice<T> {
     fn from(mut v: Vec<T>) -> Self {

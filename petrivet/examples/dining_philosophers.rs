@@ -18,7 +18,7 @@
 //!
 //! Run: `cargo run --example dining_philosophers`
 
-use petrivet::state_space::reachability::ReachabilityGraph;
+use petrivet::state_space::ReachabilityGraph;
 use petrivet::{Marking, NetBuilder, PetriNet};
 
 const N: usize = 4;
@@ -67,7 +67,7 @@ fn main() {
         .map(|p| (p, 1))
         .collect();
 
-    let mut sys = PetriNet::new(&net, initial.clone());
+    let mut sys = net.with_initial_marking(initial.clone());
 
     println!("--- Simulation ---\n");
 

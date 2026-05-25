@@ -49,24 +49,28 @@ pub enum NetClass {
     /// let [p1, p2, p3] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
     /// b.add_arcs((p1, t1, p2, t2, p3, t3, p1));
-    /// let net = b.build().unwrap();
-    /// assert!(net.class() == NetClass::Circuit);
-    /// assert!(net.is_circuit());
-    /// assert!(net.is_state_machine());
-    /// assert!(net.is_marked_graph());
-    /// assert!(net.is_free_choice_net());
-    /// assert!(net.is_asymmetric_choice_net());
+    /// let class = b.build().unwrap().class();
+    /// assert!(class == NetClass::Circuit);
+    /// assert!(class.is_circuit());
+    /// assert!(class.is_state_machine());
+    /// assert!(class.is_marked_graph());
+    /// assert!(class.is_free_choice());
+    /// assert!(class.is_asymmetric_choice());
     /// ```
     Circuit,
 
-    /// A net `N = (S, T, F)` is an **S-net** (or **State Machine**) if
+    /// A net `N = (S, T, F)` is a **State Machine** (or **S-net**) if
     /// `|•t| = |t•| = 1` for every transition `t ∈ T`.
-    /// (N, M<sub>0</sub>) is an **S-system** if N is an S-net.
+    /// A Petri net `(N, M<sub>0</sub>)` is called an **S-system**
+    /// if `N` is an S-net.
     ///
     /// In other words, a net is a state machine if each transition has
     /// exactly one input and one output place. It is therefore impossible
     /// to represent concurrency in a state machine; state machines can only
     /// model decisions (nondeterminism) [Murata III A]. todo cite
+    ///
+    /// A [`Circuit`] is a special case of an S-net where every place
+    /// also has exactly one input and one output transition.
     ///
     /// This structural restriction implies several important properties:
     /// - Fundamental property:
@@ -123,13 +127,13 @@ pub enum NetClass {
     /// b.add_arcs((bal_15, get_candy_for_15, bal_0));
     /// b.add_arcs((bal_20, get_candy_for_20, bal_0));
     /// b.add_arcs((bal_20, get_candy_for_15, bal_5));
-    /// let net = b.build().unwrap();
-    /// assert!(net.class() == NetClass::StateMachine);
-    /// assert!(!net.is_circuit());
-    /// assert!(net.is_state_machine());
-    /// assert!(!net.is_marked_graph());
-    /// assert!(net.is_free_choice_net());
-    /// assert!(net.is_asymmetric_choice_net());
+    /// let class = b.build().unwrap().class();
+    /// assert!(class == NetClass::StateMachine);
+    /// assert!(!class.is_circuit());
+    /// assert!(class.is_state_machine());
+    /// assert!(!class.is_marked_graph());
+    /// assert!(class.is_free_choice());
+    /// assert!(class.is_asymmetric_choice());
     /// ```
     ///
     /// References:
@@ -137,14 +141,18 @@ pub enum NetClass {
     /// - Lautenbach & Thiagarajan 1979 (original result)
     StateMachine,
 
-    /// A net `N = (S, T, F)` is a **T-net** (or **Marked Graph**) if
+    /// A net `N = (S, T, F)` is a **Marked Graph** (or **T-net**) if
     /// `|•s| = |s•| = 1` for every place `s ∈ S`.
-    /// `(N, M<sub>0</sub>)` is a **T-system** if N is a T-net.
+    /// A Petri net `(N, M<sub>0</sub>)` is called a **T-system**
+    /// if `N` is a T-net.
     ///
     /// In other words, a net is a marked graph if each place has exactly
     /// one input and one output transition. It is therefore impossible to
     /// express decisions in a marked graph; marked graphs model purely
     /// deterministic concurrent systems [Murata VII]. TODO: cite
+    ///
+    /// A [`Circuit`] is a special case of a T-net where every transition
+    /// also has exactly one input and one output place.
     ///
     /// This structural restriction implies several important properties:
     ///
@@ -215,13 +223,13 @@ pub enum NetClass {
     /// b.add_arcs((t1, p1, t2, p3, t4));
     /// b.add_arcs((t1, p2, t3, p4, t4));
     /// b.add_arcs((t4, p5, t1));
-    /// let net = b.build().unwrap();
-    /// assert!(net.class() == NetClass::MarkedGraph);
-    /// assert!(!net.is_circuit());
-    /// assert!(!net.is_state_machine());
-    /// assert!(net.is_marked_graph());
-    /// assert!(net.is_free_choice_net());
-    /// assert!(net.is_asymmetric_choice_net());
+    /// let class = b.build().unwrap().class();
+    /// assert!(class == NetClass::MarkedGraph);
+    /// assert!(!class.is_circuit());
+    /// assert!(!class.is_state_machine());
+    /// assert!(class.is_marked_graph());
+    /// assert!(class.is_free_choice());
+    /// assert!(class.is_asymmetric_choice());
     /// ```
     ///
     /// References:
@@ -247,6 +255,9 @@ pub enum NetClass {
     /// "confusion": the difficult-to-analyze case where two transitions share some but not all input places,
     /// leading to complex interactions between choices and concurrency [Murata III B]. todo cite
     /// In a free-choice net, two transitions either share all input places or none.
+    ///
+    /// [`Circuits`](NetClass::Circuit), [`State Machines`](NetClass::StateMachine),
+    /// and [`Marked Graphs`](NetClass::MarkedGraph) also fulfill the free-choice property.
     ///
     /// This enables various structural analysis techniques, most notably the
     /// Commoner's Liveness Theorem (citation needed) which is the last polynomial-time
@@ -307,6 +318,10 @@ pub enum NetClass {
     /// Asymmetric-choice nets allow one-sided resource sharing (e.g., a shared
     /// resource plus a private resource), but strictly forbid symmetric conflicts (symmetric confusion).
     ///
+    /// [Circuits](NetClass::Circuit), [State Machines](NetClass::StateMachine),
+    /// [Marked Graphs](NetClass::MarkedGraph), and [Free-Choice Nets](NetClass::FreeChoice)
+    /// also fulfill the asymmetric-choice property.
+    ///
     /// Liveness theorem:
     /// An asymmetric-choice net `(N, M<sub>0</sub>)` is live if (but not only if) every siphon
     /// in `N` contains a marked trap at `M<sub>0</sub>`.
@@ -325,14 +340,14 @@ pub enum NetClass {
     /// b.add_arcs((p1, t1));
     /// b.add_arcs((p2, t1));
     /// b.add_arcs((p2, t2));
-    /// let net = b.build().unwrap();
-    /// assert!(net.class() == NetClass::AsymmetricChoice);
-    /// assert!(!net.is_free_choice_net());
-    /// assert!(net.is_asymmetric_choice_net());
+    /// let class = b.build().unwrap().class();
+    /// assert!(class == NetClass::AsymmetricChoice);
+    /// assert!(!class.is_free_choice());
+    /// assert!(class.is_asymmetric_choice());
     /// ```
     AsymmetricChoice,
 
-    /// No structural restrictions.
+    /// A Petri net with no structural restrictions.
     /// Can model arbitrary concurrency, choices, and conflicts.
     ///
     /// A net falls into the **General** class if it does not satisfy the structural restrictions
@@ -364,9 +379,9 @@ pub enum NetClass {
     /// b.add_arcs((p1, t2));
     /// b.add_arcs((p2, t2));
     /// b.add_arcs((p2, t3));
-    /// let net = b.build().unwrap();
-    /// assert!(net.class() == NetClass::General);
-    /// assert!(!net.is_asymmetric_choice_net());
+    /// let class = b.build().unwrap().class();
+    /// assert!(class == NetClass::General);
+    /// assert!(!class.is_asymmetric_choice());
     /// ```
     General,
 }
@@ -424,7 +439,7 @@ impl fmt::Display for NetClass {
 /// This is a prerequisite for classifying or building a net in this library.
 /// It is expected that these maps are eagerly populated, symmetrically consistent,
 /// and non-empty.
-pub(crate) fn is_connected<S: std::hash::BuildHasher>(
+fn is_connected<S: std::hash::BuildHasher>(
     preset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     postset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     preset_p: &HashMap<Place, HashSet<Transition, S>, S>,
@@ -477,7 +492,7 @@ pub(crate) fn is_connected<S: std::hash::BuildHasher>(
 /// and eagerly populated for all nodes (e.g. if `t` has no preset,
 /// then `preset_t[t]` is an empty set, not missing).
 #[allow(clippy::similar_names)]
-pub(crate) fn classify<S: std::hash::BuildHasher>(
+pub fn classify<S: std::hash::BuildHasher>(
     preset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     postset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     preset_p: &HashMap<Place, HashSet<Transition, S>, S>,
@@ -492,8 +507,8 @@ pub(crate) fn classify<S: std::hash::BuildHasher>(
         (true, true) => NetClass::Circuit,
         (true, false) => NetClass::StateMachine,
         (false, true) => NetClass::MarkedGraph,
-        (false, false) if is_free_choice_net(postset_p, preset_t) => NetClass::FreeChoice,
-        (false, false) if is_asymmetric_choice_net(postset_p) => NetClass::AsymmetricChoice,
+        (false, false) if is_free_choice(postset_p, preset_t) => NetClass::FreeChoice,
+        (false, false) if is_asymmetric_choice(postset_p) => NetClass::AsymmetricChoice,
         _ => NetClass::General,
     };
     Some(class)
@@ -519,7 +534,7 @@ fn is_t_net<S: std::hash::BuildHasher>(
 
 /// Free-choice: ∀ p1, p2: p1• ∩ p2• ≠ ∅ ⟹ p1• = p2•.
 /// Equivalently: for every place p, all transitions in p• share the same preset.
-fn is_free_choice_net<S: std::hash::BuildHasher>(
+fn is_free_choice<S: std::hash::BuildHasher>(
     postset_p: &HashMap<Place, HashSet<Transition, S>, S>,
     preset_t: &HashMap<Transition, HashSet<Place, S>, S>,
 ) -> bool {
@@ -530,7 +545,7 @@ fn is_free_choice_net<S: std::hash::BuildHasher>(
 }
 
 /// Asymmetric-choice: ∀ p1, p2: p1• ∩ p2• ≠ ∅ ⟹ p1• ⊆ p2• ∨ p2• ⊆ p1•.
-fn is_asymmetric_choice_net<S: std::hash::BuildHasher>(
+fn is_asymmetric_choice<S: std::hash::BuildHasher>(
     postset_p: &HashMap<Place, HashSet<Transition, S>, S>,
 ) -> bool {
     postset_p.values().all(|a| {

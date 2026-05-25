@@ -18,9 +18,10 @@
 //! All public APIs in this module use [`Place`] and [`Transition`] as the
 //! authoritative identifiers. Dense internal indices are implementation details.
 
-use crate::state_space::coverability::{Omega, OmegaMarking};
+use crate::state_space::{Omega, OmegaMarking};
 use crate::{Marking, Place, Transition};
 use std::collections::HashSet;
+use crate::core::liveness::LivenessLevel;
 
 /// A siphon is a set of places D such that •D ⊆ D•.
 ///
@@ -94,7 +95,7 @@ impl BoundednessAnalysis {
     /// Returns the bound of the system as a whole: the maximum over all places.
     #[must_use]
     pub fn system_bound(&self) -> Omega {
-        self.bounds.iter().map(|(_, b)| *b).max().unwrap_or_default()
+        self.bounds.support().map(|(_, b)| *b).max().unwrap_or_default()
     }
 
     /// Returns the bound for a specific place identified by its [`Place`].
@@ -118,52 +119,6 @@ pub enum BoundednessAnalysisMethod {
     CoverabilityGraph,
 }
 
-/// Liveness level of a transition from a given initial marking, following Murata 1989 §V-C.
-///
-/// The levels form a strict hierarchy: L4 ⊂ L3 ⊂ L2 ⊂ L1, and L0 means
-/// the transition is dead (not even L1).
-///
-/// For **bounded** nets, L2 and L3 coincide: if a transition can fire any positive
-/// integer k number of times, the finite state space forces a cycle, making it
-/// possible to fire infinitely often. We still distinguish them in the enum for
-/// theoretical completeness, but bounded-net analysis reports L3 when both
-/// L2 and L3 hold.
-///
-/// References:
-/// - [Murata 1989, Definition 5.1](crate::literature#definition-51--liveness-levels-l0l4)
-/// - Petri Net Primer, §5.4 (liveness)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum LivenessLevel {
-    /// Dead: the transition never fires in any firing sequence from the initial marking.
-    L0,
-    /// Potentially firable: there exists a firing sequence from the initial marking
-    /// where the transition fires at least once.
-    L1,
-    /// For any positive integer `k`, there exists a firing sequence from the initial marking
-    /// where the transition fires at least `k` times (but not necessarily infinitely often!).
-    L2,
-    /// Potentially infinitely fireable: there exists a firing sequence from the initial marking
-    /// where the transition fires infinitely many times.
-    L3,
-    /// Live: the transition is L1-live from every marking reachable from the initial marking
-    /// (can always become enabled again).
-    L4,
-}
-
-impl LivenessLevel {
-    /// Whether this is L0 (dead).
-    #[must_use]
-    pub fn is_dead(self) -> bool {
-        self == Self::L0
-    }
-
-    /// Whether this is L4 (live).
-    #[must_use]
-    pub fn is_live(self) -> bool {
-        self == Self::L4
-    }
-}
-
 /// Result of liveness analysis.
 /// When proved via Commoner's theorem (free-choice nets), all transitions are L4.
 /// When proved via SCC analysis on the reachability graph, levels are
@@ -177,22 +132,25 @@ pub struct LivenessAnalysis {
 }
 
 impl LivenessAnalysis {
-    /// The overall liveness level of the net (minimum over all transitions).
+    /// Returns the liveness level of the Petri net as a whole,
+    /// defined as the minimum liveness level among all transitions.
     #[must_use]
-    pub fn net_level(&self) -> LivenessLevel {
+    pub fn global_level(&self) -> LivenessLevel {
         self.levels
             .iter()
             .map(|(_, level)| *level)
             .min()
-            .unwrap_or(LivenessLevel::L4)
+            .expect("at least one liveness level")
     }
 
-    /// Liveness level of a specific transition identified by its [`Transition`].
+    /// Returns the liveness level of the provided `transition`.
     ///
-    /// Returns `None` if the key does not belong to the analysed net.
+    /// If the transition does not
     #[must_use]
-    pub fn transition_level(&self, tk: Transition) -> Option<LivenessLevel> {
-        self.levels.iter().find(|(k, _)| *k == tk).map(|(_, level)| *level)
+    pub fn level(&self, transition: Transition) -> LivenessLevel {
+        self.levels.iter()
+            .find(|(t, _)| *t == transition)
+            .map_or(LivenessLevel::L0, |(_, level)| *level)
     }
 }
 
@@ -303,7 +261,7 @@ pub enum LivenessMethod {
     /// Reference: [Primer Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc), [Murata 1989 Theorem 12](crate::literature#theorem-12--commonerhack-criterion).
     FreeChoice(CommonerHackCriterionResult),
     /// Strongly-connected component analysis on the full reachability graph (bounded net).
-    ReachabilityGraphSCC,
+    ReachabilityGraph,
     /// Current algorithms could not decide (unbounded general net).
     Inconclusive,
 }

@@ -1,9 +1,9 @@
-use crate::state_space::coverability::{CoverabilityGraph, Omega};
-use crate::state_space::{ExplorationOrder, ExplorationStep, StateGraph, StateGraphExplorer};
-use crate::{Net, PetriNet, Transition};
-use crate::api::model::LivenessLevel;
+use crate::core::liveness::LivenessLevel;
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::DenseStateGraph;
+use crate::model::{LivenessAnalysis, LivenessMethod};
+use crate::state_space::{CoverabilityGraph, ExplorationOrder, ExplorationStep, Omega, StateGraph, StateGraphExplorer};
+use crate::{Net, PetriNet};
 
 /// An incremental exploration handle for a Petri net's reachability graph.
 ///
@@ -165,7 +165,9 @@ impl<'a> ReachabilityGraph<'a> {
             mapping: explorer.mapping,
         }
     }
+}
 
+impl ReachabilityGraph<'_> {
     /// Computes liveness levels for all transitions in a single pass.
     ///
     /// SCC-based decision procedure for bounded nets ([Murata 1989 §V-C](crate::literature#v-c--liveness-via-reachability-graph-sccs)):
@@ -173,25 +175,15 @@ impl<'a> ReachabilityGraph<'a> {
     /// - L1: `t` labels at least one edge.
     /// - L3 (≡L2 for bounded): `t` labels an edge within some non-trivial SCC.
     /// - L4 (live): `t` labels an edge in **every** terminal SCC.
-    ///
-    /// Returns a dense `TransitionMap<LivenessLevel>` indexed by transition index.
-    /// Store the result if you need to query it multiple times.
-    ///
-    /// To get per-key results, use [`PetriNet::analyze_liveness`] which returns a
-    /// [`LivenessAnalysis`] with key-based access via
-    /// [`transition_level`](crate::model::LivenessAnalysis::transition_level).
     #[must_use]
-    pub(crate) fn liveness_levels(&self) -> Box<[LivenessLevel]> {
+    pub(crate) fn liveness_levels(&self) -> impl Iterator<Item = LivenessLevel> {
         use petgraph::visit::EdgeRef;
 
-        let n_transitions = self.state_space.net.transition_count() as usize;
+        let transition_count = self.state_space.net.transition_count() as usize;
         let graph = &self.state_space.graph;
+
         // todo: replace with Tarjan's algorithm for better performance
         let sccs = petgraph::algo::kosaraju_scc(graph);
-
-        if sccs.is_empty() || n_transitions == 0 {
-            return std::iter::repeat_n(LivenessLevel::L0, n_transitions).collect();
-        }
 
         let mut node_to_scc = vec![0usize; graph.node_count()];
         for (scc_id, scc) in sccs.iter().enumerate() {
@@ -200,11 +192,11 @@ impl<'a> ReachabilityGraph<'a> {
             }
         }
 
-        let n_scc = sccs.len();
-        let mut has_external_edge = vec![false; n_scc].into_boxed_slice();
-        let mut scc_is_nontrivial = vec![false; n_scc].into_boxed_slice();
-        let mut scc_has_t = vec![vec![false; n_transitions].into_boxed_slice(); n_scc].into_boxed_slice();
-        let mut t_fires_anywhere = vec![false; n_transitions].into_boxed_slice();
+        let scc_count = sccs.len();
+        let mut has_external_edge = vec![false; scc_count].into_boxed_slice();
+        let mut scc_is_nontrivial = vec![false; scc_count].into_boxed_slice();
+        let mut scc_has_t = vec![vec![false; transition_count].into_boxed_slice(); scc_count].into_boxed_slice();
+        let mut t_fires_anywhere = vec![false; transition_count].into_boxed_slice();
 
         for edge in graph.edge_references() {
             let t = *edge.weight();
@@ -221,53 +213,43 @@ impl<'a> ReachabilityGraph<'a> {
             }
         }
 
-        let terminal_sccs: Vec<usize> = (0..n_scc)
-            .filter(|&i| !has_external_edge[i])
-            .collect();
-
-        let mut levels = vec![LivenessLevel::L0; n_transitions];
-        for t_idx in 0..n_transitions {
+        (0..transition_count).map(move |t_idx| {
             if !t_fires_anywhere[t_idx] {
-                continue;
-            }
-
-            let in_all_terminal = terminal_sccs.iter().all(|&s| scc_has_t[s][t_idx]);
-            if in_all_terminal {
-                levels[t_idx] = LivenessLevel::L4;
-            } else if (0..n_scc).any(|s| scc_is_nontrivial[s] && scc_has_t[s][t_idx]) {
-                levels[t_idx] = LivenessLevel::L3;
+                LivenessLevel::L0
+            } else if (0..scc_count).all(|scc_idx| has_external_edge[scc_idx] || scc_has_t[scc_idx][t_idx]) {
+                LivenessLevel::L4
+            } else if (0..scc_count).any(|scc_idx| scc_is_nontrivial[scc_idx] && scc_has_t[scc_idx][t_idx]) {
+                LivenessLevel::L3
             } else {
-                levels[t_idx] = LivenessLevel::L1;
+                LivenessLevel::L1
             }
-        }
-
-        levels.into_boxed_slice()
+        })
     }
 
+    /// Returns all transitions in the Petri net with their associated liveness levels.
     #[must_use]
-    pub fn liveness(&self) -> Box<[(Transition, LivenessLevel)]> {
-        self.mapping.transitions()
+    pub fn liveness(&self) -> LivenessAnalysis {
+        let levels = self.mapping
+            .transitions()
             .zip(self.liveness_levels())
-            .collect()
+            .collect();
+        LivenessAnalysis {
+            levels,
+            method: LivenessMethod::ReachabilityGraph,
+        }
     }
 
-    /// Convenience: checks L4-liveness for all transitions.
-    ///
-    /// Computes liveness levels internally. If you also need per-transition
-    /// levels, call [`liveness_levels`](Self::liveness_levels) once and
-    /// inspect the result instead.
+    /// Returns true if all transitions in the Petri net are live.
     #[must_use]
     pub fn is_live(&self) -> bool {
-        self.liveness_levels().iter().all(|&l| l == LivenessLevel::L4)
+        self.liveness_levels().all(|l| l == LivenessLevel::L4)
     }
 
-    /// Whether every transition appears on some edge of the reachability graph.
-    ///
-    /// This answers `∀t EF is-fireable(t)`, used by the MCC `QuasiLiveness`
-    /// examination. A transition that never fires (L0) is the only obstacle.
+    /// Whether every transition appears on some edge of the reachability graph,
+    /// i.e. no transition in the Petri net is dead.
     #[must_use]
     pub fn is_quasi_live(&self) -> bool {
-        self.liveness_levels().iter().all(|&l| l != LivenessLevel::L0)
+        self.liveness_levels().all(|l| l != LivenessLevel::L0)
     }
 }
 
@@ -306,8 +288,7 @@ impl<'a> TryFrom<CoverabilityGraph<'a>> for ReachabilityGraph<'a> {
             return Err(cg);
         }
 
-        // todo: this creates a new graph and drops the old one,
-        //  can we do this in-place instead to re-use the memory?
+        // todo: this creates a new graph, can we reuse the old one instead?
         let graph = cg.state_space.graph.map(
             |_idx, omega_marking| unwrap_omega_marking_to_u32(omega_marking.clone()),
             |_src, &t| t,

@@ -34,8 +34,7 @@
 //!
 //! Run: `cargo run --example workflow_analysis`
 
-use petrivet::state_space::reachability::ReachabilityGraph;
-use petrivet::state_space::ExplorationOrder;
+use petrivet::state_space::{ExplorationOrder, ReachabilityGraph};
 use petrivet::{NetBuilder, PetriNet};
 
 fn main() {

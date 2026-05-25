@@ -24,7 +24,7 @@ use petrivet::model::{
 use petrivet::pnml::graphics::PnmlGraphics;
 use petrivet::pnml::labels::NetLabels;
 use petrivet::pnml::PnmlDocument;
-use petrivet::state_space::coverability::Omega;
+use petrivet::state_space::Omega;
 use petrivet::NetBuilder;
 use petrivet::NetClass;
 use petrivet::{Marking, Net, PetriNet, Place, Transition};
@@ -68,17 +68,17 @@ impl WasmSystem {
         let doc = PnmlDocument::from_xml(xml)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        let (system, labels, graphics) = doc
+        let system = doc
             .nets
             .iter()
             .find_map(|net| net.to_pt_system().ok())
             .ok_or_else(|| JsError::new("no P/T net found in PNML document"))?;
 
         let initial_marking = system.current_marking().clone();
-        let place_keys: Vec<Place> = system.net().places().collect();
-        let transition_keys: Vec<Transition> = system.net().transitions().collect();
-        let (net, marking) = system.into_parts();
-        let system = PetriNet::new(Rc::new(net), marking);
+        let place_keys: Vec<Place> = system.places().collect();
+        let transition_keys: Vec<Transition> = system.transitions().collect();
+        let (net, _initial_marking, current_marking) = system.into_parts();
+        let system = PetriNet::new(Rc::new(net), current_marking);
 
         Ok(WasmSystem {
             system,
@@ -149,9 +149,9 @@ impl WasmSystem {
         }
 
         let initial_tokens: HashMap<u32, u32> = self.initial_marking
-            .iter()
+            .support()
             .enumerate()
-            .filter(|(_, t)| **t > 0)
+            .filter(|(_, (_, t))| **t > 0)
             .map(|(i, t)| (i as u32, *t))
             .collect();
 
@@ -307,7 +307,7 @@ impl WasmSystem {
     /// The current token counts, one entry per place (indexed by place index).
     #[wasm_bindgen(js_name = currentMarking)]
     pub fn current_marking(&self) -> Vec<u32> {
-        self.system.current_marking().iter().copied().collect()
+        self.system.current_marking().support().copied().collect()
     }
 
     /// Indices of transitions that are currently enabled.
@@ -412,7 +412,7 @@ impl WasmSystem {
             LivenessMethod::SNet(_) => WasmLivenessMethod::SNet,
             LivenessMethod::TNet(_) => WasmLivenessMethod::TNet,
             LivenessMethod::FreeChoice(_) => WasmLivenessMethod::FreeChoice,
-            LivenessMethod::ReachabilityGraphSCC => WasmLivenessMethod::ReachabilityGraphSCC,
+            LivenessMethod::ReachabilityGraph => WasmLivenessMethod::ReachabilityGraphSCC,
             LivenessMethod::Inconclusive => WasmLivenessMethod::Inconclusive,
             _ => WasmLivenessMethod::Inconclusive,
         };
@@ -540,7 +540,7 @@ impl WasmSystem {
                     .map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX))
                     .collect();
                 let covering_marking =
-                    proof.covering_marking.iter().copied().map(omega_to_wasm).collect();
+                    proof.covering_marking.support().copied().map(omega_to_wasm).collect();
                 WasmCoverabilityResult::Coverable { firing_sequence, covering_marking }
             }
             CoverabilityResult::Uncoverable(proof) => {

@@ -211,6 +211,7 @@ impl std::fmt::Debug for CoverabilityExplorer<'_> {
     }
 }
 
+/// A fully-explored Karp-Miller coverability graph of a Petri net.
 pub type CoverabilityGraph<'a> = StateGraph<'a, Omega>;
 
 impl<'a> CoverabilityGraph<'a> {
@@ -252,7 +253,7 @@ mod tests {
         let [t0, t1] = b.add_transitions();
         b.add_arcs((p0, t0, p1, t1, p0));
         let net = b.build().expect("valid net");
-        (net.with_initial_marking([(p0, 1)]), p0, p1)
+        (PetriNet::new(net, [(p0, 1)]), p0, p1)
     }
 
     /// Unbounded: t0 consumes from p0 and produces to both p0 and p1
@@ -263,7 +264,7 @@ mod tests {
         b.add_arcs((p0, t0, p0));
         b.add_arc((t0, p1));
         let net = b.build().expect("valid net");
-        (net.with_initial_marking([(p0, 1)]), p0, p1)
+        (PetriNet::new(net, [(p0, 1)]), p0, p1)
     }
 
     /// Self-loop with 0 tokens: immediate deadlock
@@ -273,7 +274,7 @@ mod tests {
         let [t0] = b.add_transitions();
         b.add_arcs((p0, t0, p0));
         let net = b.build().expect("valid net");
-        net.with_initial_marking([])
+        PetriNet::new(net, [])
     }
 
     #[test]
@@ -298,7 +299,7 @@ mod tests {
 
     #[test]
     fn coverability_check() {
-        use crate::state_space::coverability::Omega::Finite;
+        use crate::state_space::Omega::Finite;
         let (sys, p0, p1) = two_place_cycle();
         let cg = sys.build_coverability_graph();
 
@@ -327,7 +328,7 @@ mod tests {
         let mut steps = 0;
         while let Some(step) = cg.explore_next() {
             steps += 1;
-            assert!(!step.marking.iter().any(|(_, o)| o.is_unbounded()));
+            assert!(!step.marking.is_unbounded());
         }
         assert!(cg.is_fully_explored());
         assert!(steps > 0);
@@ -340,7 +341,7 @@ mod tests {
         let mut cg = sys.explore_coverability(ExplorationOrder::BreadthFirst);
 
         while let Some(step) = cg.explore_next() {
-            if step.marking.iter().any(|(_, o)| o.is_unbounded()) {
+            if step.marking.is_unbounded() {
                 break;
             }
         }

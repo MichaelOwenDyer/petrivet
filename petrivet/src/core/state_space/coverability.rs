@@ -7,6 +7,7 @@ use petgraph::visit::EdgeRef;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::iter;
+use std::iter::Sum;
 
 /// A token count that is either finite or ω (unbounded).
 ///
@@ -76,6 +77,15 @@ impl Ord for Omega {
 impl PartialOrd for Omega {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl Sum for Omega {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.fold(Self::ZERO, |acc, o| match (acc, o) {
+            (Omega::Unbounded, _) | (_, Omega::Unbounded) => Omega::Unbounded,
+            (Omega::Finite(a), Omega::Finite(b)) => Omega::Finite(a + b),
+        })
     }
 }
 

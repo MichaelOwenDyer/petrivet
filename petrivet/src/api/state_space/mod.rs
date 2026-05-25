@@ -1,5 +1,8 @@
-pub mod coverability;
-pub mod reachability;
+mod coverability;
+mod reachability;
+
+pub use coverability::*;
+pub use reachability::*;
 
 use crate::core::mapping::DenseMapping;
 use crate::core::marking::IdxMarking;
@@ -87,8 +90,7 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     /// All markings discovered so far which enable no transitions.
     pub fn deadlocks(&self) -> impl Iterator<Item = Marking<T>> {
         self.core.state_space
-            .deadlock_indices()
-            .map(|idx| self.core.state_space.marking_at(idx))
+            .deadlocks()
             .cloned()
             .map(|marking| self.mapping.marking(marking))
     }
@@ -131,9 +133,10 @@ impl<T: TokenOps> StateGraph<'_, T> {
 
     /// Iterator over all distinct markings in the graph.
     pub fn markings(&self) -> impl Iterator<Item = Marking<T>> {
-        self.state_space.markings().map(|marking| {
-            self.mapping.marking(marking.clone())
-        })
+        self.state_space
+            .markings()
+            .cloned()
+            .map(|marking| self.mapping.marking(marking))
     }
 
     /// Whether the given marking has been discovered.
@@ -184,25 +187,24 @@ impl<T: TokenOps> StateGraph<'_, T> {
     pub fn cover(&self, target: Marking<T>) -> Option<Marking<T>> {
         let target = self.mapping.idx_marking(target);
         self.state_space
-            .graph
-            .node_indices()
-            .map(|idx| self.state_space.marking_at(idx))
+            .markings()
             .find(|&marking| marking >= &target)
-            .map(|marking| self.mapping.marking(marking.clone()))
+            .cloned()
+            .map(|marking| self.mapping.marking(marking))
     }
 
     /// All discovered markings that have no enabled transitions.
     pub fn deadlocks(&self) -> impl Iterator<Item = Marking<T>> {
         self.state_space
-            .deadlock_indices()
-            .map(|idx| self.state_space.marking_at(idx))
-            .map(|marking| self.mapping.marking(marking.clone()))
+            .deadlocks()
+            .cloned()
+            .map(|marking| self.mapping.marking(marking))
     }
 
     /// Whether the graph contains no deadlocks.
     #[must_use]
     pub fn is_deadlock_free(&self) -> bool {
-        self.state_space.deadlock_indices().next().is_none()
+        self.state_space.deadlocks().next().is_none()
     }
 
     /// Whether some reachable marking has no enabled transitions.
@@ -220,10 +222,10 @@ impl<T: TokenOps> StateGraph<'_, T> {
     #[must_use]
     pub fn max_token_in_any_place(&self) -> T {
         self.state_space.markings()
-            .map(|m| m.iter().max().expect("marking must not be empty"))
+            .map(|m| m.iter().max().expect("marking must have length > 0"))
             .max()
             .copied()
-            .expect("state space must not be empty")
+            .expect("initial marking is always present")
     }
 
     /// The largest total token count across all reachable markings.
@@ -232,42 +234,25 @@ impl<T: TokenOps> StateGraph<'_, T> {
         self.state_space.markings()
             .map(|m| m.iter().copied().sum::<T>())
             .max()
-            .expect("state space must not be empty")
+            .expect("initial marking is always present")
     }
 
     /// Whether every reachable marking puts at most one token in every place.
-    ///
-    /// This answers `∀p AG tokens-count(p) ≤ 1`, used by the MCC `OneSafe`
-    /// examination. Equivalent to `max_token_in_any_place() <= 1`, exposed
-    /// under this name to match the formula it answers.
     #[must_use]
     pub fn is_one_safe(&self) -> bool {
         self.max_token_in_any_place() <= T::ONE
     }
 
     /// Whether some place holds the same token count in every reachable marking.
-    ///
-    /// This answers `∃p ∃x AG tokens-count(p) = x`, used by the MCC
-    /// `StableMarking` examination. Note: the constant `x` is allowed to be
-    /// zero, so a place that's never marked still counts as "stable".
     #[must_use]
     pub fn has_stable_place(&self) -> bool {
-        let n_places = self.state_space.net.place_count() as usize;
-        if n_places == 0 {
-            return true;
-        }
-
         let mut markings = self.state_space.markings();
-        let Some(first) = markings.next() else {
-            // No reachable markings at all: every place is vacuously stable.
-            return true;
-        };
-        let baseline: Vec<T> = first.iter().copied().collect();
+        let first = markings.next().expect("initial marking is always present");
         // Per-place flag: is the count still equal to its first-observed value?
-        let mut still_stable: Vec<bool> = vec![true; n_places];
+        let mut still_stable: Box<[bool]> = vec![true; self.state_space.net.place_count() as usize].into_boxed_slice();
         for marking in markings {
             for (p_idx, token_count) in marking.iter().copied().enumerate() {
-                if still_stable[p_idx] && token_count != baseline[p_idx] {
+                if still_stable[p_idx] && token_count != first[p_idx] {
                     still_stable[p_idx] = false;
                 }
             }

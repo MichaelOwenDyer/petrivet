@@ -342,7 +342,7 @@ pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
 mod tests {
     use crate::core::analysis::semi_decision::*;
     use crate::core::marking::IdxMarking;
-    use crate::{Net, NetBuilder};
+    use crate::{Net, NetBuilder, NetClass};
 
     fn two_place_cycle() -> Net {
         let mut b = NetBuilder::new();
@@ -483,7 +483,7 @@ mod tests {
     fn s_net_reachability_positive() {
         // Two-place cycle is an S-net (circuit, actually)
         let net = two_place_cycle();
-        assert!(net.is_state_machine());
+        assert_eq!(net.class(), NetClass::Circuit);
         let m0 = IdxMarking::from([1u32, 0]);
         // (0,1) is reachable: token moves from p0 to p1
         assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 1])).is_some());
@@ -510,7 +510,7 @@ mod tests {
         b.add_arc((p0, t0)); b.add_arc((t0, p1));
         b.add_arc((p1, t1)); b.add_arc((t1, p2));
         let net = b.build().unwrap();
-        assert!(net.is_state_machine());
+        assert_eq!(net.class(), NetClass::StateMachine);
 
         let m0 = IdxMarking::from([1u32, 0, 0]);
         // (0, 0, 1) reachable: token flows down the chain
@@ -536,7 +536,7 @@ mod tests {
     #[test]
     fn t_net_reachability_positive() {
         let net = t_net_sync();
-        assert!(net.is_marked_graph());
+        assert_eq!(net.class(), NetClass::MarkedGraph);
         let m0 = IdxMarking::from([1u32, 1, 0]);
         // Fire t0: (1,1,0) → (0,0,1)
         assert!(find_marking_equation_integer_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 0, 1])).is_some());

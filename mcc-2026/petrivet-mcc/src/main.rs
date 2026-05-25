@@ -1,12 +1,11 @@
 mod protocol;
 
-use std::path::{Path, PathBuf};
-
-use petrivet::state_space::reachability::ReachabilityGraph;
+use petrivet::state_space::ReachabilityGraph;
 use petrivet::{Net, PetriNet};
 use protocol::{
     BooleanFormulaReport, Examination, ParticipationError, RunContext, StateSpaceReport, Technique,
 };
+use std::path::{Path, PathBuf};
 
 const HELP: &str =
     "Usage: petrivet-mcc [--help|-h]
@@ -150,7 +149,7 @@ fn run_liveness(input_dir: &Path) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
     let name = Examination::Liveness.as_str();
 
-    if system.is_free_choice() && system.commoner_hack_criterion().is_satisfied() {
+    if system.class().is_free_choice() && system.commoner_hack_criterion().is_satisfied() {
         print_boolean_result(name, true, STRUCTURAL_TECHNIQUES);
         return Ok(());
     }

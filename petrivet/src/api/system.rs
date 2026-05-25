@@ -54,27 +54,28 @@
 //! sys.fire_any();
 //! ```
 
-use crate::api::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CommonerHackCriterionResult, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessAnalysis, LivenessLevel, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, SiphonTrapPair, UnreachabilityProof};
+use crate::api::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CommonerHackCriterionResult, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, SiphonTrapPair, UnreachabilityProof};
 use crate::core::analysis::semi_decision;
 use crate::core::analysis::siphon_trap;
+use crate::core::liveness::LivenessLevel;
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::core::state_space::ExplorationOrder;
-use crate::state_space::coverability::{CoverabilityExplorer, CoverabilityGraph, Omega, OmegaMarking};
-use crate::state_space::reachability::{ReachabilityExplorer, ReachabilityGraph};
+use crate::model::LivenessAnalysis;
+use crate::state_space::{CoverabilityExplorer, CoverabilityGraph, Omega, OmegaMarking};
+use crate::state_space::{ReachabilityExplorer, ReachabilityGraph};
 use crate::{Marking, Net, Place, Transition};
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-/// A Petri net system `(N, M₀)`,
-/// where `N` is the structure of the net and `M₀` is the initial marking.
+/// A Petri net system `(N, M₀)`, where `N` is the structure of the net
+/// and `M₀` is the initial marking.
 ///
-/// Additionally, the system tracks the current marking, which can be mutated by firing transitions:
+/// In addition to these two elements, this implementation holds a *current* marking,
+/// which can be mutated by firing transitions:
 /// see [`try_fire`](Self::try_fire), [`choose_and_fire`](Self::choose_and_fire), and [`fire_any`](Self::fire_any).
-/// The current marking can be reset to the initial marking via [`reset`](Self::reset).
-///
-/// **Note:** Analysis methods will use the **current** marking as the starting point.
+/// The current marking can be reset to the initial marking at any time via [`reset()`](Self::reset).
 #[derive(Debug, Clone)]
 pub struct PetriNet<N: AsRef<Net> = Net> {
     pub net: N,
@@ -183,16 +184,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         CoverabilityExplorer::new(self, ExplorationOrder::BreadthFirst).build_reachability_or_coverability()
     }
 
-    /// Whether some reachable marking puts more than one token in any place
-    /// (a FALSE witness for the MCC `OneSafe` examination), short-circuiting
-    /// on the first witness.
-    ///
-    /// **Termination is the caller's responsibility.** On unbounded nets
-    /// this does not terminate; rule out unboundedness first via
-    /// [`Net::is_structurally_bounded`] or
-    /// [`Self::build_reachability_or_coverability`].
-    ///
-    /// [`Net::is_structurally_bounded`]: crate::Net::is_structurally_bounded
+    /// Returns true if some reachable marking puts more than one token in any place.
     pub fn has_reachable_unsafe_marking(&self) -> bool {
         self.explore_reachability(ExplorationOrder::BreadthFirst)
             .core
@@ -202,8 +194,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Returns true if state space enumeration encounters any deadlock marking.
     pub fn has_reachable_deadlock_marking(&self) -> bool {
-        let mut explorer = self.explore_reachability(ExplorationOrder::BreadthFirst);
-        explorer
+        self.explore_reachability(ExplorationOrder::BreadthFirst)
             .core
             .search(|m| self.dense_net.is_deadlock(m))
             .is_some()
@@ -419,7 +410,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         // TODO: Optimize for state machines and marked graphs
         //  by analyzing SCCs of the appropriate graph
 
-        if self.is_free_choice()
+        if self.class().is_free_choice()
             && let chc = self.commoner_hack_criterion()
             && chc.is_satisfied() {
             return LivenessAnalysis {
@@ -433,7 +424,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 let levels = rg.liveness_levels();
                 LivenessAnalysis {
                     levels: self.transitions().zip(levels).collect(),
-                    method: LivenessMethod::ReachabilityGraphSCC,
+                    method: LivenessMethod::ReachabilityGraph,
                 }
             }
             Err(_cg) => {
@@ -503,7 +494,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             return ReachabilityProof::FiringSequence(Box::new([])).into();
         }
 
-        if self.is_state_machine() {
+        if self.class().is_state_machine() {
             if self.is_strongly_connected() {
                 let initial_marking_sum = self.current_marking.iter().sum::<u32>();
                 let target_marking_sum = idx_target.iter().sum::<u32>();
@@ -528,7 +519,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             )
         }
 
-        if self.is_marked_graph() {
+        if self.class().is_marked_graph() {
             return semi_decision::find_marking_equation_integer_solution(
                 &self.dense_net,
                 &self.current_marking,
@@ -650,7 +641,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Delegates to [`analyze_liveness`](Self::analyze_liveness).
     #[must_use]
     pub fn is_live(&self) -> bool {
-        self.analyze_liveness().net_level().is_live()
+        self.analyze_liveness().global_level().is_live()
     }
 
     /// Whether the system is deadlock-free: no reachable marking has zero
@@ -831,9 +822,10 @@ mod pnml {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::model::{CoverabilityProof, CoverabilityResult, LivenessLevel, LivenessMethod, NonCoverabilityProof};
-    use crate::state_space::coverability::Omega;
+    use crate::api::model::{CoverabilityProof, CoverabilityResult, LivenessMethod, NonCoverabilityProof};
+    use crate::state_space::Omega;
     use crate::{Marking, Net, NetBuilder, NetClass, PetriNet, Place, Transition};
+    use crate::core::liveness::LivenessLevel;
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
     fn two_place_cycle() -> (Net, Place, Transition, Place, Transition) {
@@ -953,8 +945,8 @@ mod tests {
         // With [0, 0], both transitions are dead (never fireable)
         let sys = net.with_initial_marking([]);
         let liveness = sys.analyze_liveness();
-        assert!(liveness.transition_level(t0).is_some_and(|l| l.is_dead()));
-        assert!(liveness.transition_level(t1).is_some_and(|l| l.is_dead()));
+        assert!(liveness.level(t0).is_dead());
+        assert!(liveness.level(t1).is_dead());
     }
 
     #[test]
@@ -962,8 +954,8 @@ mod tests {
         let (net, p0, t0, _p1, t1) = two_place_cycle();
         let sys = net.with_initial_marking([(p0, 1)]);
         let liveness = sys.analyze_liveness();
-        assert!(liveness.transition_level(t0).is_some_and(|l| !l.is_dead()));
-        assert!(liveness.transition_level(t1).is_some_and(|l| !l.is_dead()));
+        assert_eq!(liveness.level(t0), LivenessLevel::L1);
+        assert_eq!(liveness.level(t1), LivenessLevel::L1);
     }
 
     #[test]
@@ -982,8 +974,8 @@ mod tests {
 
     #[test]
     fn s_net_reachability_dispatches() {
-        let (net, p0, _t0, p1, _t1)= two_place_cycle();
-        assert!(net.is_state_machine());
+        let (net, p0, _t0, p1, _t1) = two_place_cycle();
+        assert_eq!(net.class(), NetClass::StateMachine);
         let sys = net.with_initial_marking([(p0, 1)]);
         assert!(sys.is_reachable([(p1, 1)].into()));
         assert!(sys.is_reachable([(p0, 1)].into()));
@@ -1002,7 +994,7 @@ mod tests {
         b.add_arc((t1, p0));
         b.add_arc((t1, p1));
         let net = b.build().unwrap();
-        assert!(net.is_marked_graph());
+        assert_eq!(net.class(), NetClass::MarkedGraph);
         let sys = net.with_initial_marking([(p0, 1), (p1, 1)]);
         assert!(sys.is_reachable([(p2, 1)].into()));
         assert!(sys.is_reachable([(p0, 1), (p1, 1)].into()));
@@ -1019,8 +1011,7 @@ mod tests {
         b.add_arcs((p1, t2, p0));
         b.add_arcs((p2, t2, p0));
         let net = b.build().unwrap();
-        assert!(!net.is_state_machine());
-        assert!(!net.is_marked_graph());
+        assert_eq!(net.class(), NetClass::General);
         let sys = net.with_initial_marking([(p0, 1)]);
         assert!(sys.is_reachable([(p0, 1)].into()));
         assert!(sys.is_reachable([(p1, 1)].into()));
@@ -1061,8 +1052,8 @@ mod tests {
         let net = b.build().unwrap();
         let sys = PetriNet::new(net, [(p0, 1), (p1, 0)]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L4));
-        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L4));
+        assert_eq!(analysis.level(t0), LivenessLevel::L4);
+        assert_eq!(analysis.level(t1), LivenessLevel::L4);
         assert!(matches!(analysis.method, LivenessMethod::SNet(_)));
     }
 
@@ -1077,8 +1068,8 @@ mod tests {
         let net = b.build().unwrap();
         let sys = PetriNet::new(net, [(p0, 0), (p1, 0)]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
-        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
+        assert_eq!(analysis.level(t0), LivenessLevel::L0);
+        assert_eq!(analysis.level(t1), LivenessLevel::L0);
     }
 
     #[test]
@@ -1091,18 +1082,18 @@ mod tests {
         b.add_arcs((p0, t2, p2, t3, p3, t4, p2));
 
         let net = b.build().unwrap();
-        assert!(net.is_state_machine());
+        assert_eq!(net.class(), NetClass::StateMachine);
         let sys = PetriNet::new(net, [(p0, 1), (p1, 0), (p2, 0), (p3, 0)]);
         let analysis = sys.analyze_liveness();
 
         // SCC_A is non-sink and marked → internal transitions L3
-        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L3));
-        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L3));
+        assert_eq!(analysis.level(t0), LivenessLevel::L3);
+        assert_eq!(analysis.level(t1), LivenessLevel::L3);
         // Inter-SCC transition → L1
-        assert_eq!(analysis.transition_level(t2), Some(LivenessLevel::L1));
+        assert_eq!(analysis.level(t2), LivenessLevel::L1);
         // SCC_B is sink and reachable (receives tokens from SCC_A) → L4
-        assert_eq!(analysis.transition_level(t3), Some(LivenessLevel::L4));
-        assert_eq!(analysis.transition_level(t4), Some(LivenessLevel::L4));
+        assert_eq!(analysis.level(t3), LivenessLevel::L4);
+        assert_eq!(analysis.level(t4), LivenessLevel::L4);
     }
 
     /// Non-SC S-net: unreachable sink SCC → L0.
@@ -1121,14 +1112,14 @@ mod tests {
         b.add_arc((p3, t3)); b.add_arc((t3, p1));
 
         let net = b.build().unwrap();
-        assert!(net.is_state_machine());
+        assert_eq!(net.class(), NetClass::StateMachine);
 
         let sys = PetriNet::new(net, [(p0, 0), (p1, 0), (p2, 0), (p3, 0)]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
-        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
-        assert_eq!(analysis.transition_level(t2), Some(LivenessLevel::L0));
-        assert_eq!(analysis.transition_level(t3), Some(LivenessLevel::L0));
+        assert_eq!(analysis.level(t0), LivenessLevel::L0);
+        assert_eq!(analysis.level(t1), LivenessLevel::L0);
+        assert_eq!(analysis.level(t2), LivenessLevel::L0);
+        assert_eq!(analysis.level(t3), LivenessLevel::L0);
     }
 
     /// SC T-net: all circuits marked → all L4.
@@ -1141,12 +1132,12 @@ mod tests {
         b.add_arc((t1, p1)); b.add_arc((p1, t0));
         b.add_arc((t0, p2)); b.add_arc((p2, t1)); // second path
         let net = b.build().unwrap();
-        assert!(net.is_marked_graph());
+        assert_eq!(net.class(), NetClass::MarkedGraph);
 
         let sys = PetriNet::new(net, [(p0, 1), (p1, 1), (p2, 1)]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L4));
-        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L4));
+        assert_eq!(analysis.level(t0), LivenessLevel::L4);
+        assert_eq!(analysis.level(t1), LivenessLevel::L4);
         assert!(matches!(analysis.method, LivenessMethod::TNet(_)));
     }
 
@@ -1159,12 +1150,12 @@ mod tests {
         b.add_arc((t0, p0)); b.add_arc((p0, t1));
         b.add_arc((t1, p1)); b.add_arc((p1, t0));
         let net = b.build().unwrap();
-        assert!(net.is_marked_graph());
+        assert_eq!(net.class(), NetClass::MarkedGraph);
 
         let sys = PetriNet::new(net, [(p0, 0), (p1, 0)]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
-        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
+        assert_eq!(analysis.level(t0), LivenessLevel::L0);
+        assert_eq!(analysis.level(t1), LivenessLevel::L0);
     }
 
     /// Non-SC T-net with source transition: source always L4, downstream L4
@@ -1183,16 +1174,16 @@ mod tests {
         b.add_arc((t0, p0)); b.add_arc((p0, t1));
         b.add_arc((t1, p1)); b.add_arc((p1, t0));
         let net = b.build().unwrap();
-        assert!(net.is_marked_graph());
+        assert_eq!(net.class(), NetClass::MarkedGraph);
 
         // Cycle {p0, p1} has 1 token → marked
         let sys = PetriNet::new(net, [(p_src, 0), (p0, 1), (p1, 0)]);
         let analysis = sys.analyze_liveness();
         // t_src is always enabled (no inputs) → L4
-        assert_eq!(analysis.transition_level(t_src), Some(LivenessLevel::L4));
+        assert_eq!(analysis.level(t_src), LivenessLevel::L4);
         // t0 depends on p_src (from L4 t_src) and p1 (from marked cycle) → L4
-        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L4));
-        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L4));
+        assert_eq!(analysis.level(t0), LivenessLevel::L4);
+        assert_eq!(analysis.level(t1), LivenessLevel::L4);
     }
 
     /// Non-SC T-net: predecessor SCC dead → downstream dead.
@@ -1211,15 +1202,15 @@ mod tests {
         b.add_arc((t3, p3)); b.add_arc((p3, t2));
 
         let net = b.build().unwrap();
-        assert!(net.is_marked_graph());
+        assert_eq!(net.class(), NetClass::MarkedGraph);
 
         // SCC_A unmarked, SCC_B marked but predecessor dead
         let sys = PetriNet::new(net, [(p0, 0), (p1, 0), (p_link, 0), (p2, 1), (p3, 0)]);
         let analysis = sys.analyze_liveness();
-        assert_eq!(analysis.transition_level(t0), Some(LivenessLevel::L0));
-        assert_eq!(analysis.transition_level(t1), Some(LivenessLevel::L0));
-        assert_eq!(analysis.transition_level(t2), Some(LivenessLevel::L0));
-        assert_eq!(analysis.transition_level(t3), Some(LivenessLevel::L0));
+        assert_eq!(analysis.level(t0), LivenessLevel::L0);
+        assert_eq!(analysis.level(t1), LivenessLevel::L0);
+        assert_eq!(analysis.level(t2), LivenessLevel::L0);
+        assert_eq!(analysis.level(t3), LivenessLevel::L0);
     }
 
     /// Free-choice net liveness dispatch (via CHC).
@@ -1249,8 +1240,6 @@ mod tests {
 
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::FreeChoice);
-        assert!(!net.is_state_machine());
-        assert!(!net.is_marked_graph());
 
         let sys = PetriNet::new(net, [
             (s1, 1),
@@ -1263,7 +1252,7 @@ mod tests {
             (s8, 0)
         ]);
         let analysis = sys.analyze_liveness();
-        assert!(analysis.net_level().is_live());
+        assert_eq!(analysis.global_level(), LivenessLevel::L4);
         assert!(matches!(analysis.method, LivenessMethod::FreeChoice(_)));
     }
 
