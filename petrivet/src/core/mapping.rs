@@ -5,7 +5,7 @@ use crate::core::marking::IdxMarking;
 use crate::core::net::{PlaceIdx, TransitionIdx};
 use crate::core::state_space::TokenOps;
 use crate::{Marking, Place, Transition};
-use std::collections::HashMap;
+use ahash::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DenseMapping {

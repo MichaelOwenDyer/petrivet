@@ -175,13 +175,11 @@ impl ReachabilityGraph<'_> {
     /// - L1: `t` labels at least one edge.
     /// - L3 (≡L2 for bounded): `t` labels an edge within some non-trivial SCC.
     /// - L4 (live): `t` labels an edge in **every** terminal SCC.
-    #[must_use]
     pub(crate) fn liveness_levels(&self) -> impl Iterator<Item = LivenessLevel> {
         use petgraph::visit::EdgeRef;
 
         let transition_count = self.state_space.net.transition_count() as usize;
         let graph = &self.state_space.graph;
-
         let sccs = petgraph::algo::tarjan_scc(graph);
 
         let mut node_to_scc = vec![0usize; graph.node_count()];

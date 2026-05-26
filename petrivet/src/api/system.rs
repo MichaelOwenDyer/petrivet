@@ -77,7 +77,7 @@ use std::ops::Deref;
 /// see [`try_fire`](Self::try_fire), [`choose_and_fire`](Self::choose_and_fire), and [`fire_any`](Self::fire_any).
 /// The current marking can be reset to the initial marking at any time via [`reset()`](Self::reset).
 #[derive(Debug, Clone)]
-pub struct PetriNet<N: AsRef<Net> = Net> {
+pub struct PetriNet<N = Net> {
     pub net: N,
     pub(crate) initial_marking: IdxMarking<u32>,
     pub(crate) current_marking: IdxMarking<u32>,
@@ -823,9 +823,9 @@ mod pnml {
 #[cfg(test)]
 mod tests {
     use crate::api::model::{CoverabilityProof, CoverabilityResult, LivenessMethod, NonCoverabilityProof};
+    use crate::core::liveness::LivenessLevel;
     use crate::state_space::Omega;
     use crate::{Marking, Net, NetBuilder, NetClass, PetriNet, Place, Transition};
-    use crate::core::liveness::LivenessLevel;
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
     fn two_place_cycle() -> (Net, Place, Transition, Place, Transition) {

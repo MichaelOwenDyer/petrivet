@@ -2,10 +2,10 @@ use crate::core::marking;
 use crate::core::marking::IdxMarking;
 use crate::core::net::TransitionIdx;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, TokenOps};
+use ahash::{HashSet, HashSetExt};
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::iter;
 use std::iter::Sum;
 

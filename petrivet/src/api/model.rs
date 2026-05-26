@@ -18,10 +18,10 @@
 //! All public APIs in this module use [`Place`] and [`Transition`] as the
 //! authoritative identifiers. Dense internal indices are implementation details.
 
+use crate::core::liveness::LivenessLevel;
 use crate::state_space::{Omega, OmegaMarking};
 use crate::{Marking, Place, Transition};
-use std::collections::HashSet;
-use crate::core::liveness::LivenessLevel;
+use ahash::HashSet;
 
 /// A siphon is a set of places D such that •D ⊆ D•.
 ///

@@ -7,9 +7,10 @@ repository = "https://github.com/MichaelOwenDyer/petrivet"
 keywords = ["petrinets", "modeling", "analysis"]
 
 [dependencies]
-good_lp = { version = "1.15.0", default-features = false, features = ["microlp"] }
-petgraph = "0.8.2"
-quick-xml = { version = "0.39.2", features = ["serialize"], optional = true }
+ahash = "0.8.12"
+good_lp = { version = "1.15.1", default-features = false, features = ["microlp"] }
+petgraph = "0.8.3"
+quick-xml = { version = "0.40.1", features = ["serialize"], optional = true }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 
 [features]

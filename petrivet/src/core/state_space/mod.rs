@@ -3,8 +3,9 @@ pub mod coverability;
 
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
+use ahash::{HashMap, HashMapExt, HashSet};
 use petgraph::graph::NodeIndex;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::hash::Hash;
 use std::iter::Sum;
 

@@ -41,7 +41,7 @@ use super::{net, net_type, nupn::NupnMetadata, PageObject, PnmlDocument};
 use crate::pnml::graphics::PnmlGraphics;
 use crate::pnml::labels::NetLabels;
 use crate::{Arc, Marking, Net, NetBuilder, NetError, PetriNet, Place, Transition};
-use std::collections::HashMap;
+use ahash::{HashMap, HashMapExt};
 
 /// Errors that can occur when converting a [`super::PnmlNet`] PNML model into a
 /// native petrivet [`PetriNet`].

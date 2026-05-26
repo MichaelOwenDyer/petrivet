@@ -1,6 +1,6 @@
+use crate::{Node, Place, Transition};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::{fmt, iter};
-use crate::{Node, Place, Transition};
 
 /// Structural classification of Petri nets based on their graph structure.
 ///

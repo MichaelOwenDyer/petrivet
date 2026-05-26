@@ -28,8 +28,8 @@
 //!
 //! Run: `cargo run --example mutex`
 
-use petrivet::{Net, PetriNet, Place, Transition, NetBuilder};
-use std::collections::HashMap;
+use petrivet::{Net, PetriNet, NetBuilder};
+use petrivet::pnml::labels::NetLabels;
 
 fn main() {
     println!("=== Mutual Exclusion Protocol ===\n");
@@ -54,29 +54,35 @@ fn main() {
     let net = b.build().expect("valid net");
     println!("Structural class: {}", net.class());
 
-    // Name lookups by key
-    let transition_names: HashMap<Transition, &str> = HashMap::from([
-        (t_req1, "req1"), (t_enter1, "enter1"), (t_exit1, "exit1"),
-        (t_req2, "req2"), (t_enter2, "enter2"), (t_exit2, "exit2"),
-    ]);
+    let mut labels = NetLabels::new();
+    labels.set_transition_name(t_req1, "req1");
+    labels.set_transition_name(t_enter1, "enter1");
+    labels.set_transition_name(t_exit1, "exit1");
+    labels.set_transition_name(t_req2, "req2");
+    labels.set_transition_name(t_enter2, "enter2");
+    labels.set_transition_name(t_exit2, "exit2");
 
-    let place_names: HashMap<Place, &str> = HashMap::from([
-        (idle1, "idle1"), (wait1, "wait1"), (crit1, "crit1"),
-        (idle2, "idle2"), (wait2, "wait2"), (crit2, "crit2"),
-        (mutex, "mutex"),
-    ]);
+    labels.set_place_name(idle1, "idle1");
+    labels.set_place_name(wait1, "wait1");
+    labels.set_place_name(crit1, "crit1");
+    labels.set_place_name(idle2, "idle2");
+    labels.set_place_name(wait2, "wait2");
+    labels.set_place_name(crit2, "crit2");
+    labels.set_place_name(mutex, "mutex");
 
     // Initial marking: both processes idle, mutex available
     // Places: idle1, wait1, crit1, idle2, wait2, crit2, mutex
     let mut sys = PetriNet::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
+    // todo: fix
+    // sys.labels = Some(Box::new(labels));
 
     println!();
-    print_state(&sys, &net, &place_names);
+    print_state(&sys, &net);
 
     // Simulate 12 steps, always picking the first enabled transition
     for step in 1..=12 {
         if let Some(t) = sys.fire_any() {
-            let name = transition_names[&t];
+            let name = sys.labels.as_ref().unwrap().transition_name(t).unwrap_or("unnamed transition");
             println!("Step {step:>2}: fire {name:<8} → {:?}", sys.current_marking());
         } else {
             println!("Step {step:>2}: DEADLOCK");
@@ -91,11 +97,11 @@ fn main() {
     }
 
     println!();
-    print_state(&sys, &net, &place_names);
+    print_state(&sys, &net);
 
     println!("\n--- Priority simulation: process 2 has priority ---\n");
     let mut sys = PetriNet::new(&net, [(idle1, 1), (idle2, 1), (mutex, 1)]);
-    print_state(&sys, &net, &place_names);
+    print_state(&sys, &net);
 
     for step in 1..=12 {
         // Prefer process 2 transitions (indices 3, 4, 5) over process 1
@@ -107,7 +113,7 @@ fn main() {
         });
 
         if let Some(t) = fired {
-            let name = transition_names[&t];
+            let name = net.labels.as_ref().unwrap().transition_name(t).unwrap_or("unnamed transition");
             println!("Step {step:>2}: fire {name:<8} → {:?}", sys.current_marking());
         } else {
             println!("Step {step:>2}: DEADLOCK");
@@ -150,12 +156,13 @@ fn main() {
     println!("\n=== Done ===");
 }
 
-fn print_state(sys: &PetriNet<impl AsRef<Net>>, net: &Net, names: &HashMap<Place, &str>) {
+fn print_state(sys: &PetriNet<impl AsRef<Net>>, net: &Net) {
     print!("State: ");
+    let labels = net.labels.as_ref().unwrap();
     for p in net.places() {
         let tokens = sys.current_tokens(p);
         if tokens > 0 {
-            let name = names[&p];
+            let name = labels.place_name(p).unwrap_or("unnamed place");
             print!("{name}={tokens} ");
         }
     }

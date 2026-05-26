@@ -32,7 +32,7 @@
 
 use crate::pnml::nupn::NupnMetadata;
 use crate::{Arc, Place, Transition};
-use std::collections::HashMap;
+use ahash::{HashMap, HashMapExt};
 
 /// Human-readable labels and metadata for the elements of a single Petri net.
 ///

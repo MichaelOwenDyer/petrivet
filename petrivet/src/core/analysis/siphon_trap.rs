@@ -79,10 +79,10 @@ pub fn maximal_trap_in<S: std::hash::BuildHasher>(
 
 /// Finds all minimal siphons of a net as sets of [`PlaceIdx`].
 #[must_use]
-pub fn minimal_siphons(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
-    let mut results: Vec<HashSet<PlaceIdx>> = Vec::new();
-    let mut stack: Vec<HashSet<PlaceIdx>> = vec![net.place_indices().collect()];
-    let mut visited: HashSet<Vec<PlaceIdx>> = HashSet::new();
+pub fn minimal_siphons(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
+    let mut results: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
+    let mut stack: Vec<ahash::HashSet<PlaceIdx>> = vec![net.place_indices().collect()];
+    let mut visited: ahash::HashSet<Vec<PlaceIdx>> = HashSet::default();
 
     while let Some(candidate_set) = stack.pop() {
         let siphon = maximal_siphon_in(net, candidate_set);
@@ -129,11 +129,11 @@ pub fn minimal_siphons(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
 /// in a trap, the trap can never become unmarked again.
 #[must_use]
 #[expect(unused)]
-pub fn minimal_traps(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
-    let all_places: HashSet<PlaceIdx> = net.place_indices().collect();
-    let mut results: Vec<HashSet<PlaceIdx>> = Vec::new();
-    let mut stack: Vec<HashSet<PlaceIdx>> = vec![all_places];
-    let mut visited: HashSet<Vec<PlaceIdx>> = HashSet::new();
+pub fn minimal_traps(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
+    let all_places: ahash::HashSet<PlaceIdx> = net.place_indices().collect();
+    let mut results: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
+    let mut stack: Vec<ahash::HashSet<PlaceIdx>> = vec![all_places];
+    let mut visited: ahash::HashSet<Vec<PlaceIdx>> = HashSet::default();
 
     while let Some(candidate_set) = stack.pop() {
         let trap = maximal_trap_in(net, candidate_set);
@@ -181,16 +181,14 @@ pub fn minimal_traps(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
 /// approach for small nets but more systematic.
 #[must_use]
 #[expect(unused)]
-pub fn minimal_siphons_ilp(
-    net: &DenseNet
-) -> Box<[HashSet<PlaceIdx>]> {
+pub fn minimal_siphons_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
     if net.place_count() == 0 {
         return Box::new([]);
     }
 
-    let mut results: Vec<HashSet<PlaceIdx>> = Vec::new();
+    let mut results: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
 
     let mut vars = ProblemVariables::new();
     let place_selectors: Box<[Variable]> = net
@@ -222,7 +220,7 @@ pub fn minimal_siphons_ilp(
         .with_all(constraints.clone())
         .solve() {
 
-        let siphon: HashSet<PlaceIdx> = net
+        let siphon: ahash::HashSet<PlaceIdx> = net
             .place_indices()
             .filter(|&p| solution.value(place_selectors[p]) > 0.5)
             .collect();
@@ -248,15 +246,15 @@ pub fn minimal_siphons_ilp(
 /// Finds all minimal traps using ILP enumeration.
 #[must_use]
 #[expect(unused)]
-pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
+pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
     if net.place_count() == 0 {
         return Box::new([]);
     }
 
-    let mut results: Vec<HashSet<PlaceIdx>> = Vec::new();
-    let mut no_good_sets: Vec<HashSet<PlaceIdx>> = Vec::new();
+    let mut results: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
+    let mut no_good_sets: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
 
     loop {
         let mut vars = ProblemVariables::new();
@@ -293,7 +291,7 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
             .with_all(constraints)
             .solve() else { break };
 
-        let trap: HashSet<PlaceIdx> = net
+        let trap: ahash::HashSet<PlaceIdx> = net
             .place_indices()
             .filter(|&p| solution.value(x[p]) > 0.5)
             .collect();
@@ -364,7 +362,7 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[HashSet<PlaceIdx>]> {
 pub fn commoner_hack_criterion(
     net: &DenseNet,
     marking: &IdxMarking<u32>,
-) -> impl Iterator<Item = (HashSet<PlaceIdx>, HashSet<PlaceIdx>, bool)> {
+) -> impl Iterator<Item = (ahash::HashSet<PlaceIdx>, ahash::HashSet<PlaceIdx>, bool)> {
     minimal_siphons(net)
         .into_iter()
         .map(|siphon| {
