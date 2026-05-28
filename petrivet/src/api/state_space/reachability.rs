@@ -5,7 +5,8 @@ use crate::model::{LivenessAnalysis, LivenessMethod};
 use crate::state_space::{CoverabilityGraph, ExplorationOrder, ExplorationStep, Omega, StateGraph, StateGraphExplorer};
 use crate::{Net, PetriNet};
 
-/// An incremental exploration handle for a Petri net's reachability graph.
+/// An incremental exploration handle which lazily enumerates every single marking which can be
+/// reached from the initial marking by firing enabled transitions, the "state space" of the [`PetriNet`]
 ///
 /// Works for any net (bounded or unbounded). For unbounded nets, the frontier
 /// never empties - the caller must impose their own termination condition.

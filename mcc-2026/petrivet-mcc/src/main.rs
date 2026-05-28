@@ -105,7 +105,7 @@ fn run(ctx: &RunContext) -> Result<(), ParticipationError> {
 fn run_state_space(input_dir: &Path) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
     let rg = system
-        .build_reachability_or_coverability()
+        .try_build_reachability_graph()
         .map_err(|_| ParticipationError::DoNotCompete)?;
     let report = StateSpaceReport {
         states: rg.marking_count(),
@@ -155,7 +155,7 @@ fn run_liveness(input_dir: &Path) -> Result<(), ParticipationError> {
     }
 
     let rg = system
-        .build_reachability_or_coverability()
+        .try_build_reachability_graph()
         .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
     print_boolean_result(name, rg.is_live(), DEFAULT_TECHNIQUES);
     Ok(())
@@ -170,7 +170,7 @@ fn run_global_property_via_rg(
 ) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
     let rg = system
-        .build_reachability_or_coverability()
+        .try_build_reachability_graph()
         .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
     print_boolean_result(formula_name, answer(&rg), DEFAULT_TECHNIQUES);
     Ok(())

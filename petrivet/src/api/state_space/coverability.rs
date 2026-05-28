@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn rg_or_cg_short_circuits_on_unbounded() {
         let (sys, _, _) = unbounded_producer();
-        match sys.build_reachability_or_coverability() {
+        match sys.try_build_reachability_graph() {
             Ok(_) => panic!("unbounded net must short-circuit"),
             Err(cg) => assert!(!cg.is_fully_explored(), "frontier preserved on bail-out"),
         }
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn rg_or_cg_completes_for_bounded() {
         let (sys, _p0, p1) = two_place_cycle();
-        let rg = sys.build_reachability_or_coverability()
+        let rg = sys.try_build_reachability_graph()
             .expect("bounded net must yield reachability graph");
         assert_eq!(rg.marking_count(), 2);
     }

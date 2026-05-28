@@ -12,7 +12,7 @@ use crate::Place;
 ///
 /// The canonical way to create a marking is to use the [`From`] trait on an array of `(Place, T)`:
 /// ```
-/// use petrivet::{Marking, Net};
+/// use petrivet::{Marking, Net, PetriNet};
 /// let mut b = Net::builder();
 /// let [p0, p1] = b.add_places();
 /// let t0 = b.add_transition();
@@ -20,7 +20,7 @@ use crate::Place;
 /// let net = b.build().expect("valid net");
 ///
 /// let marking: Marking<u32> = [(p0, 1)].into();
-/// let petri_net = net.with_initial_marking(marking);
+/// let petri_net = PetriNet::new(&net, marking);
 /// ```
 ///
 /// You can also collect an iterator of `(Place, T)` into a marking:

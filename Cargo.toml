@@ -1,5 +1,5 @@
 [workspace]
-members = ["petrivet", "petrivet-wasm", "mcc-2026/petrivet-mcc", "mcc-2026/mcc-orchestrator"]
+members = ["petrivet", "petrivet-wasm", "mcc-2026/petrivet-mcc", "mcc-2026/mcc-orchestrator", "mcc-tests"]
 default-members = ["petrivet"]
 resolver = "2"
 

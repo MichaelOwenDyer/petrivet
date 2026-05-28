@@ -49,7 +49,7 @@ pub type Trap = HashSet<Place>;
 /// References:
 /// - [Murata 1989, Theorem 12](crate::literature#theorem-12--commonerhack-criterion)
 /// - [Primer, Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommonerHackCriterionResult {
     /// Each minimal siphon paired with the maximal trap contained within it.
     /// If the trap is empty, no marked trap was found in that siphon.
@@ -67,7 +67,7 @@ impl CommonerHackCriterionResult {
 
 /// A minimal siphon and the maximal trap found within it,
 /// and whether that trap is marked.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiphonTrapPair {
     /// The minimal siphon (a set of places D with •D ⊆ D•), identified by stable handles.
     pub siphon: Siphon,
@@ -174,14 +174,14 @@ impl LivenessAnalysis {
 /// - [Murata 1989, Theorem 5](crate::literature#theorem-5--safety-of-s-nets-state-machines) (safety via token count)
 /// - [Primer, Corollary 5.30](crate::literature#corollary-530--liveness-of-s-systems)
 /// - [Primer, Proposition 5.39](crate::literature#proposition-539--boundedness-criterion-for-live-s-systems) (per-place bounds)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SNetLivenessEvidence {
     /// The SCCs of the place graph, in topological order (sources first).
     pub components: Box<[SNetComponent]>,
 }
 
 /// A strongly connected component in the place graph of an S-net.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SNetComponent {
     /// Places in this SCC.
     pub places: Box<[Place]>,
@@ -214,7 +214,7 @@ pub struct SNetComponent {
 /// - [Murata 1989, Theorem 9](crate::literature#theorem-9--safety-of-t-nets-marked-graphs) (safety iff every circuit carries 1 token)
 /// - [Murata 1989, Theorem 26](crate::literature#theorem-26--circuit-token-invariance-in-t-nets) (circuit token invariance)
 /// - [Primer, Theorem 5.31](crate::literature#theorem-531--liveness-and-realisability-in-t-systems)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TNetLivenessEvidence {
     /// The SCCs of the transition graph, in topological order (sources first).
     /// Each SCC is live (all transitions L4) iff all internal circuits are
@@ -223,7 +223,7 @@ pub struct TNetLivenessEvidence {
 }
 
 /// A strongly connected component in the transition graph of a T-net.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TNetComponent {
     /// Transitions in this SCC.
     pub transitions: Box<[Transition]>,
@@ -238,7 +238,7 @@ pub struct TNetComponent {
 }
 
 /// Evidence for a liveness result.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LivenessMethod {
     /// S-net SCC analysis.

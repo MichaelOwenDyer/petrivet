@@ -69,18 +69,24 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
-/// A Petri net system `(N, M₀)`, where `N` is the structure of the net
-/// and `M₀` is the initial marking.
+/// A Petri net system `(N, M₀)` consists of a [`Net`] `N` and an initial [`Marking`] `M₀`.
+/// ```
+/// let pn = PetriNet::new(&net, [(p0, 1), (p2, 5)]);
+/// // ..or..
+/// let pn = net.with
+/// ```
 ///
-/// In addition to these two elements, this implementation holds a *current* marking,
-/// which can be mutated by firing transitions:
+/// You may simulate the behavior of the system, mutating its marking,
+/// by firing [`Transitions`](Transition).
 /// see [`try_fire`](Self::try_fire), [`choose_and_fire`](Self::choose_and_fire), and [`fire_any`](Self::fire_any).
 /// The current marking can be reset to the initial marking at any time via [`reset()`](Self::reset).
 #[derive(Debug, Clone)]
 pub struct PetriNet<N = Net> {
+    /// The [`Net`] structure, which is immutable and can be shared across
+    /// [`PetriNet`]s depending on the choice of `N` (e.g. `Arc<Net>`).
     pub net: N,
-    pub(crate) initial_marking: IdxMarking<u32>,
-    pub(crate) current_marking: IdxMarking<u32>,
+    pub(crate) reset: IdxMarking<u32>,
+    pub(crate) marking: IdxMarking<u32>,
 }
 
 impl<N: AsRef<Net>> Deref for PetriNet<N> {
@@ -98,19 +104,19 @@ impl<N: AsRef<Net>> PetriNet<N> {
         let initial_marking = initial_marking.into();
         let initial_marking = net.as_ref().mapping.idx_marking(initial_marking);
         let current_marking = initial_marking.clone();
-        Self { net, initial_marking, current_marking }
+        Self { net, reset: initial_marking, marking: current_marking }
     }
 
     /// Returns the current marking of the system.
     #[must_use]
     pub fn current_marking(&self) -> Marking<u32> {
-        let current_marking = self.current_marking.clone();
+        let current_marking = self.marking.clone();
         self.mapping.marking(current_marking)
     }
 
     /// Returns the initial marking of the system.
     pub fn initial_marking(&self) -> Marking<u32> {
-        let initial_marking = self.initial_marking.clone();
+        let initial_marking = self.reset.clone();
         self.mapping.marking(initial_marking)
     }
 
@@ -118,8 +124,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns the marking before the reset.
     pub fn reset(&mut self) -> Marking<u32> {
         let previous = std::mem::replace(
-            &mut self.current_marking,
-            self.initial_marking.clone()
+            &mut self.marking,
+            self.reset.clone()
         );
         self.mapping.marking(previous)
     }
@@ -130,19 +136,20 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn current_tokens(&self, p: Place) -> u32 {
         self.mapping
             .place_idx(p)
-            .map_or(0, |p_idx| self.current_marking[p_idx])
+            .map_or(0, |p_idx| self.marking[p_idx])
     }
 
     /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
     #[must_use]
     pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
-        let PetriNet { net, initial_marking, current_marking } = self;
+        let PetriNet { net, reset: initial_marking, marking: current_marking } = self;
         let initial_marking = net.as_ref().mapping.marking(initial_marking);
         let current_marking = net.as_ref().mapping.marking(current_marking);
         (net, initial_marking, current_marking)
     }
 
-    /// Returns a reachability explorer for this system, using the specified exploration order.
+    /// Returns an explorer for the marking state space of this system,
+    /// using the specified exploration order.
     pub fn explore_reachability(&self, order: ExplorationOrder) -> ReachabilityExplorer<'_> {
         ReachabilityExplorer::new(self, order)
     }
@@ -166,10 +173,19 @@ impl<N: AsRef<Net>> PetriNet<N> {
         ReachabilityGraph::build(self)
     }
 
-    /// Drive Karp–Miller exploration, returning a reachability graph if the
-    /// system is bounded, or a partially-explored coverability explorer as
-    /// soon as the first ω is introduced.
-    ///
+    /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
+    /// returning either itself if the system is bounded or a partially-explored
+    /// [`CoverabilityExplorer`] if it is unbounded.
+    /// 
+    /// Not knowing whether we will encounter unboundedness, this method first
+    /// constructs a Karp-Miller coverability tree which introduces ω as soon
+    /// as unbounded growth is detected. This comes at the cost of an additional
+    /// check per explored marking (omega acceleration). If we finish exploring
+    /// the coverability tree without ever introducing ω, we have in fact explored
+    /// the full reachability graph and can return it directly. Otherwise, we return
+    /// the [`CoverabilityExplorer`] in its current state, which contains the explored
+    /// portion of the coverability graph up to the first ω, and can be further explored.
+    /// 
     /// This is the right entry point when you want the speed of exploring
     /// the reachability graph directly but cannot rule out unboundedness
     /// upfront. For unbounded nets you avoid the cost of completing the
@@ -180,7 +196,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns `Err(partial_explorer)` as soon as any explored marking
     /// contains ω. The frontier is preserved, so callers may resume.
     #[allow(clippy::result_large_err)]
-    pub fn build_reachability_or_coverability(&self) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
+    pub fn try_build_reachability_graph(&self) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
         CoverabilityExplorer::new(self, ExplorationOrder::BreadthFirst).build_reachability_or_coverability()
     }
 
@@ -214,7 +230,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             return false;
         };
         let weighted_sum: f64 = weights.iter()
-            .zip(self.initial_marking.iter())
+            .zip(self.reset.iter())
             .map(|(&w, &m)| w * f64::from(m))
             .sum();
         #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -229,7 +245,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn is_enabled(&self, t: Transition) -> bool {
         self.mapping
             .transition_idx(t)
-            .is_some_and(|t_idx| self.dense_net.is_enabled_in(t_idx, &self.current_marking))
+            .is_some_and(|t_idx| self.dense_net.is_enabled_in(t_idx, &self.marking))
     }
 
     /// Returns the set of currently enabled transitions.
@@ -239,7 +255,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn enabled_transitions(&self) -> impl Iterator<Item = Transition> + '_ {
         self.dense_net
             .transition_indices()
-            .filter(|&t_idx| self.dense_net.is_enabled_in(t_idx, &self.current_marking))
+            .filter(|&t_idx| self.dense_net.is_enabled_in(t_idx, &self.marking))
             .map(|idx| self.mapping.transition(idx))
     }
 
@@ -259,7 +275,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             .transition_idx(t)
             .ok_or(())
             .and_then(|t_idx| {
-                if self.dense_net.is_enabled_in(t_idx, &self.current_marking) {
+                if self.dense_net.is_enabled_in(t_idx, &self.marking) {
                     self.fire_unchecked(t);
                     Ok(())
                 } else {
@@ -332,10 +348,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn fire_unchecked(&mut self, t: Transition) {
         if let Some(t_idx) = self.mapping.transition_idx(t) {
             for &p_idx in &self.net.as_ref().dense_net.preset_t[t_idx] {
-                self.current_marking[p_idx] -= 1;
+                self.marking[p_idx] -= 1;
             }
             for &p_idx in &self.net.as_ref().dense_net.postset_t[t_idx] {
-                self.current_marking[p_idx] += 1;
+                self.marking[p_idx] += 1;
             }
         }
     }
@@ -349,7 +365,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn commoner_hack_criterion(&self) -> CommonerHackCriterionResult {
         let siphon_trap_pairs = siphon_trap::commoner_hack_criterion(
             &self.dense_net,
-            &self.current_marking
+            &self.marking
         ).map(|(siphon, trap, trap_is_marked)| {
             let siphon = siphon.into_iter().map(|p_idx| self.mapping.place(p_idx)).collect();
             let trap = trap.into_iter().map(|p_idx| self.mapping.place(p_idx)).collect();
@@ -371,7 +387,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         if let Some(place_weights) = semi_decision::find_positive_place_subvariant(&self.dense_net) {
             // Esparza lecture notes proposition 4.3.8
             let weighted_sum: f64 = place_weights.iter()
-                .zip(self.initial_marking.iter())
+                .zip(self.reset.iter())
                 .map(|(&weight, &tokens)| weight * f64::from(tokens))
                 .sum();
             let bounds = self.places()
@@ -490,13 +506,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn analyze_reachability(&self, target: Marking<u32>) -> ReachabilityResult {
         let idx_target = self.mapping.idx_marking(target.clone());
 
-        if self.current_marking == idx_target {
+        if self.marking == idx_target {
             return ReachabilityProof::FiringSequence(Box::new([])).into();
         }
 
         if self.class().is_state_machine() {
             if self.is_strongly_connected() {
-                let initial_marking_sum = self.current_marking.iter().sum::<u32>();
+                let initial_marking_sum = self.marking.iter().sum::<u32>();
                 let target_marking_sum = idx_target.iter().sum::<u32>();
                 return if initial_marking_sum == target_marking_sum {
                     ReachabilityProof::StronglyConnectedSNetTokenConservation {
@@ -508,7 +524,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
             return semi_decision::find_marking_equation_rational_solution(
                 &self.dense_net,
-                &self.current_marking,
+                &self.marking,
                 &idx_target
             ).map_or_else(
                 || UnreachabilityProof::MarkingEquationNoRationalSolution.into(),
@@ -522,7 +538,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         if self.class().is_marked_graph() {
             return semi_decision::find_marking_equation_integer_solution(
                 &self.dense_net,
-                &self.current_marking,
+                &self.marking,
                 &idx_target
             ).map_or_else(
                 || UnreachabilityProof::MarkingEquationNoIntegerSolution.into(),
@@ -535,7 +551,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
         if semi_decision::find_marking_equation_rational_solution(
             &self.dense_net,
-            &self.current_marking,
+            &self.marking,
             &idx_target,
         ).is_none() {
             return UnreachabilityProof::MarkingEquationNoRationalSolution.into();
@@ -544,7 +560,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         // todo: only test ILP if the rational solution is already an integer solution
         if semi_decision::find_marking_equation_integer_solution(
             &self.dense_net,
-            &self.current_marking,
+            &self.marking,
             &idx_target,
         ).is_none() {
             return UnreachabilityProof::MarkingEquationNoIntegerSolution.into();
@@ -586,16 +602,16 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn analyze_coverability(&self, target: Marking<u32>) -> CoverabilityResult {
         let target_idx_marking = self.mapping.idx_marking(target.clone());
 
-        if self.current_marking >= target_idx_marking {
+        if self.marking >= target_idx_marking {
             return CoverabilityProof {
                 firing_sequence: Box::new([]),
-                covering_marking: self.mapping.marking(IdxOmegaMarking::from(self.current_marking.clone())),
+                covering_marking: self.mapping.marking(IdxOmegaMarking::from(self.marking.clone())),
             }.into();
         }
 
         if semi_decision::find_covering_equation_rational_solution(
             &self.dense_net,
-            &self.current_marking,
+            &self.marking,
             &target_idx_marking
         ).is_none() {
             return NonCoverabilityProof::MarkingEquationNoRationalSolution.into();
@@ -604,7 +620,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         // todo: only test ILP if the rational solution is not already an integer solution
         if semi_decision::find_covering_equation_integer_solution(
             &self.dense_net,
-            &self.current_marking,
+            &self.marking,
             &target_idx_marking
         ).is_none() {
             return NonCoverabilityProof::MarkingEquationNoIntegerSolution.into();
