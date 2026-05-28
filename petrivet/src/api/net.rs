@@ -7,7 +7,7 @@
 
 use crate::core::mapping::DenseMapping;
 use crate::core::net::{DenseNet, IdxArc};
-use crate::{Marking, NetBuilder, NetClass, PetriNet};
+use crate::prelude::{Marking, NetBuilder, NetClass, PetriNet};
 use std::num::NonZeroU32;
 
 /// A place in a net, often represented visually by a circle.
@@ -266,7 +266,7 @@ impl AsRef<Net> for Net {
 
 #[cfg(test)]
 mod tests {
-    use crate::Net;
+    use crate::net::Net;
 
     fn example_net() -> Net {
         let mut net = Net::builder();

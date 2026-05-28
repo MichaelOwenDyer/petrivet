@@ -342,7 +342,7 @@ pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
 mod tests {
     use crate::core::analysis::semi_decision::*;
     use crate::core::marking::IdxMarking;
-    use crate::{Net, NetBuilder, NetClass};
+    use crate::prelude::{Net, NetBuilder, NetClass};
 
     fn two_place_cycle() -> Net {
         let mut b = NetBuilder::new();

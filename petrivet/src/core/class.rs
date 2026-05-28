@@ -1,4 +1,4 @@
-use crate::{Node, Place, Transition};
+use crate::net::{Node, Place, Transition};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::{fmt, iter};
 

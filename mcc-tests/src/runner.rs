@@ -1,6 +1,6 @@
 use crate::oracle::{Examination, Verdict};
 use petrivet::model::LivenessMethod;
-use petrivet::PetriNet;
+use petrivet::system::PetriNet;
 
 /// Outcome of running petrivet on one (model, examination) pair.
 #[derive(Debug)]
@@ -239,7 +239,7 @@ mod tests {
     }
 
     fn tiny_system() -> PetriNet {
-        use petrivet::NetBuilder;
+        use petrivet::builder::NetBuilder;
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();

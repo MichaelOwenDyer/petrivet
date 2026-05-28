@@ -6,3 +6,4 @@ pub mod analysis;
 pub mod mapping;
 pub mod class;
 pub mod liveness;
+pub mod boundedness;

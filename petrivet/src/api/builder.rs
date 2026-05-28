@@ -28,7 +28,7 @@
 use crate::core::mapping::DenseMapping;
 use crate::core::net::{DenseNet, PlaceIdx, TransitionIdx};
 use crate::core::unique_sorted_slice::UniqueSortedSlice;
-use crate::{Arc, Net, NetClass, Node, Place, Transition};
+use crate::prelude::{Arc, Net, NetClass, Node, Place, Transition};
 use ahash::{HashMap, HashMapExt, HashSet, HashSetExt};
 use std::collections::VecDeque;
 use std::error::Error;
@@ -749,7 +749,7 @@ impl_into_arcs_for_tuples!(a b c d e f g h i j k l);
 
 #[cfg(test)]
 mod tests {
-    use crate::{Arc, NetBuilder, NetClass, NetError};
+    use crate::prelude::{Arc, NetBuilder, NetClass, NetError};
 
     #[test]
     fn build_simple_net() {

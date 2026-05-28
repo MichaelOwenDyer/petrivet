@@ -77,7 +77,7 @@ use crate::core::state_space::coverability::IdxOmegaMarking;
 pub use crate::core::state_space::coverability::Omega;
 use crate::state_space::reachability::ReachabilityGraph;
 use crate::state_space::{ExplorationOrder, ExplorationStep, StateGraph, StateGraphExplorer};
-use crate::{Marking, Net, PetriNet};
+use crate::prelude::{Marking, Net, PetriNet};
 
 /// An ω-marking: a marking where token counts can either be a finite number or `ω`.
 ///
@@ -244,7 +244,7 @@ impl<'a> CoverabilityGraph<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Net, NetBuilder, NetClass, Place};
+    use crate::prelude::{Net, NetBuilder, NetClass, Place};
 
     /// Two-place cycle: p0 → t0 → p1 → t1 → p0 (bounded)
     fn two_place_cycle() -> (PetriNet<Net>, Place, Place) {

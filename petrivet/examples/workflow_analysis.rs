@@ -35,48 +35,43 @@
 //! Run: `cargo run --example workflow_analysis`
 
 use petrivet::state_space::{ExplorationOrder, ReachabilityGraph};
-use petrivet::{NetBuilder, PetriNet};
+use petrivet::prelude::{NetBuilder, PetriNet};
 
 fn main() {
     println!("=== PCB Assembly Line Analysis ===\n");
 
     let mut b = NetBuilder::new();
 
-    let raw = b.add_place();
-    let station = b.add_place(); // solder station capacity
-    let soldered = b.add_place();
-    let passed = b.add_place();
-    let failed = b.add_place();
-    let done = b.add_place();
+    let [
+        raw,
+        station,
+        soldered,
+        passed,
+        failed,
+        done,
+    ] = b.add_places();
 
-    let t_solder = b.add_transition();
-    let t_inspect = b.add_transition();
-    let t_ship = b.add_transition();
-    let t_rework = b.add_transition();
+    let transitions @ [
+        solder,
+        inspect_pass,
+        inspect_fail,
+        ship,
+        rework,
+    ] = b.add_transitions();
 
     // Solder: raw + station → soldered + station
-    b.add_arc((raw, t_solder));
-    b.add_arc((station, t_solder));
-    b.add_arc((t_solder, soldered));
-    b.add_arc((t_solder, station));
+    b.add_arcs((raw, solder, soldered));
+    b.add_arcs((station, solder, station));
 
     // Inspect: soldered → passed  OR  soldered → failed
-    b.add_arc((soldered, t_inspect));
-    b.add_arc((t_inspect, passed));
+    b.add_arcs((soldered, inspect_pass, passed));
+    b.add_arcs((soldered, inspect_fail, failed));
 
     // Ship: passed → done
-    b.add_arc((passed, t_ship));
-    b.add_arc((t_ship, done));
+    b.add_arcs((passed, ship, done));
 
     // Rework: failed → raw (retry)
-    b.add_arc((failed, t_rework));
-    b.add_arc((t_rework, raw));
-
-    // Make it a choice: inspection can also fail
-    // We need a second inspect transition for the failure branch
-    let t_inspect_fail = b.add_transition();
-    b.add_arc((soldered, t_inspect_fail));
-    b.add_arc((t_inspect_fail, failed));
+    b.add_arcs((failed, rework, raw));
 
     let net = b.build().expect("valid net");
 
@@ -90,28 +85,19 @@ fn main() {
         net.is_structurally_bounded()
     );
 
-    // TODO: need public key-based API for siphon/trap iteration
-    // minimal_siphons/minimal_traps return HashSet<Place> where Place is pub(crate),
-    // so we cannot call them or display their contents from an example.
-    // let siphons = structural::minimal_siphons(&net);
-    // let traps = structural::minimal_traps(&net);
-
     println!("\n--- Behavioral Analysis (3 boards, 1 station) ---\n");
 
     // 3 raw boards, 1 station slot, everything else empty
     let sys = PetriNet::new(&net, [(raw, 3), (station, 1)]);
     let boundedness = sys.analyze_boundedness();
+    let liveness = sys.analyze_liveness();
 
     println!("Bounded: {:?}", boundedness.system_bound());
-    println!("Live (every transition always eventually firable): {}", sys.is_live());
+    println!("Live (every transition always eventually firable): {}", liveness.global_level().is_live());
 
-    // TODO: need public key-based API for analysis results
-    // LivenessAnalysis::transition_level takes dense Transition, not accessible from examples
-    // println!("\nPer-transition liveness levels:");
-    // for (t, name) in trans_names.iter().enumerate() {
-    //     let level = liveness.transition_level(t);
-    //     println!("  {}: {:?} (dead: {})", name, level, level.is_dead());
-    // }
+    for t in &transitions {
+        println!("Transition {:?} liveness: {}", t, liveness.level(*t));
+    }
 
     println!("\n--- Reachability Analysis ---\n");
 

@@ -1,7 +1,7 @@
 mod protocol;
 
 use petrivet::state_space::ReachabilityGraph;
-use petrivet::{Net, PetriNet};
+use petrivet::prelude::{Net, PetriNet};
 use protocol::{
     BooleanFormulaReport, Examination, ParticipationError, RunContext, StateSpaceReport, Technique,
 };

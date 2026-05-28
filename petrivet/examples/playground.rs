@@ -1,5 +1,5 @@
 use petrivet::pnml::labels::NetLabels;
-use petrivet::{Marking, PetriNet};
+use petrivet::prelude::{Marking, PetriNet};
 
 fn main() {
     let path = concat!(

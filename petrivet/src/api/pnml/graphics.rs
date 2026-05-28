@@ -1,4 +1,4 @@
-use crate::{Arc, Place, Transition};
+use crate::net::{Arc, Place, Transition};
 use ahash::HashMap;
 use serde::{Deserialize, Serialize};
 

@@ -41,12 +41,30 @@ pub(crate) mod api;
 pub(crate) mod core;
 
 pub use api::{
-    builder::{NetBuilder, NetError},
-    marking::Marking,
+    builder,
+    marking,
     model,
-    net::{Arc, Net, Node, Place, Transition},
+    net,
     pnml,
     state_space,
-    system::PetriNet,
+    system,
 };
-pub use core::class::NetClass;
+pub use core::{
+    boundedness,
+    class,
+    liveness,
+};
+
+pub mod prelude {
+    pub use crate::api::{
+        builder::{NetBuilder, NetError},
+        marking::Marking,
+        net::{Arc, Net, Node, Place, Transition},
+        system::PetriNet,
+    };
+    pub use crate::core::{
+        boundedness::Boundedness,
+        class::NetClass,
+        liveness::LivenessLevel,
+    };
+}

@@ -28,7 +28,7 @@
 //!
 //! Run: `cargo run --example mutex`
 
-use petrivet::{Net, PetriNet, NetBuilder};
+use petrivet::prelude::{Net, PetriNet, NetBuilder};
 use petrivet::pnml::labels::NetLabels;
 
 fn main() {
@@ -107,10 +107,10 @@ fn main() {
         // Prefer process 2 transitions (indices 3, 4, 5) over process 1
         let priority = [t_req2, t_enter2, t_exit2, t_req1, t_enter1, t_exit1];
 
-        let fired = sys.choose_and_fire(|enabled| {
-            priority.iter()
-                .find_map(|&t| enabled.iter().find(|et| *et == t))
-        });
+        let fired = sys
+            .enabled_transitions()
+            .min_by_key(|t| priority.iter().position(|&p| p == *t).unwrap_or(usize::MAX))
+            .and_then(|t| sys.try_fire(t).ok());
 
         if let Some(t) = fired {
             let name = net.labels.as_ref().unwrap().transition_name(t).unwrap_or("unnamed transition");
@@ -126,7 +126,7 @@ fn main() {
 
     println!("Trying to enter critical section without requesting first...");
     match sys.try_fire(t_enter1) {
-        Ok(()) => println!("  Entered (unexpected!)"),
+        Ok(_) => println!("  Entered (unexpected!)"),
         Err(e) => println!("  Blocked: {e}"),
     }
 
@@ -141,7 +141,7 @@ fn main() {
     println!("Process 2 requests and tries to enter...");
     sys.try_fire(t_req2).expect("should succeed");
     match sys.try_fire(t_enter2) {
-        Ok(()) => println!("  Entered (mutex violation!)"),
+        Ok(_) => println!("  Entered (mutex violation!)"),
         Err(e) => println!("  Blocked: {e} (mutex held by process 1)"),
     }
 

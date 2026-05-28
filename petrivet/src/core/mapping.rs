@@ -4,7 +4,7 @@
 use crate::core::marking::IdxMarking;
 use crate::core::net::{PlaceIdx, TransitionIdx};
 use crate::core::state_space::TokenOps;
-use crate::{Marking, Place, Transition};
+use crate::prelude::{Marking, Place, Transition};
 use ahash::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

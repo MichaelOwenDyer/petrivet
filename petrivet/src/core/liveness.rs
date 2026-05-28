@@ -69,8 +69,16 @@ pub enum LivenessLevel {
 impl LivenessLevel {
     /// Returns true if the transition is L0-live (dead).
     #[must_use]
-    pub const fn is_dead(self) -> bool {
+    pub const fn is_l0_live(self) -> bool {
         matches!(self, Self::L0)
+    }
+
+    /// Returns true if the transition is L0-live (dead).
+    /// 
+    /// This is a synonym for `is_l0_live`.
+    #[must_use]
+    pub const fn is_dead(self) -> bool {
+        self.is_l0_live()
     }
 
     /// Returns true if the transition is [`L1-live`](LivenessLevel::L1) or higher.
@@ -111,7 +119,27 @@ impl LivenessLevel {
 
     /// Returns true if the transition is [`L4-live`](LivenessLevel::L4) (live).
     #[must_use]
-    pub const fn is_live(self) -> bool {
+    pub const fn is_l4_live(self) -> bool {
         matches!(self, Self::L4)
+    }
+
+    /// Returns true if the transition is [`L4-live`](LivenessLevel::L4) (live).
+    /// 
+    /// This is a synonym for `is_l4_live`.
+    #[must_use]
+    pub const fn is_live(self) -> bool {
+        self.is_l4_live()
+    }
+}
+
+impl std::fmt::Display for LivenessLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::L0 => write!(f, "L0-live"),
+            Self::L1 => write!(f, "L1-live"),
+            Self::L2 => write!(f, "L2-live"),
+            Self::L3 => write!(f, "L3-live"),
+            Self::L4 => write!(f, "L4-live"),
+        }
     }
 }

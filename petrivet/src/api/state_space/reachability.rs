@@ -3,10 +3,12 @@ use crate::core::marking::IdxMarking;
 use crate::core::state_space::DenseStateGraph;
 use crate::model::{LivenessAnalysis, LivenessMethod};
 use crate::state_space::{CoverabilityGraph, ExplorationOrder, ExplorationStep, Omega, StateGraph, StateGraphExplorer};
-use crate::{Net, PetriNet};
+use crate::prelude::{Net, PetriNet};
 
-/// An incremental exploration handle which lazily enumerates every single marking which can be
-/// reached from the initial marking by firing enabled transitions, the "state space" of the [`PetriNet`]
+/// An incremental exploration handle which lazily enumerates every single marking
+/// in the state space of the [`PetriNet`].
+///
+/// Note that an [`unbounded`](crate::literature#Boundedness)
 ///
 /// Works for any net (bounded or unbounded). For unbounded nets, the frontier
 /// never empties - the caller must impose their own termination condition.

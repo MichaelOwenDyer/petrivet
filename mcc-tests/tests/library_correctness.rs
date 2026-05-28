@@ -1,5 +1,5 @@
 use datatest_stable::Result;
-use petrivet::PetriNet;
+use petrivet::system::PetriNet;
 use std::path::Path;
 use std::str::FromStr;
 use mcc_tests::oracle::{parse_oracle_file, Examination, Verdict};

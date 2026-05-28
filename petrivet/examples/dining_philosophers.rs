@@ -19,7 +19,7 @@
 //! Run: `cargo run --example dining_philosophers`
 
 use petrivet::state_space::ReachabilityGraph;
-use petrivet::{Marking, NetBuilder, PetriNet};
+use petrivet::prelude::{Marking, NetBuilder, PetriNet};
 
 const N: usize = 4;
 

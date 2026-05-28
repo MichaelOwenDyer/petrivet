@@ -8,7 +8,7 @@ use crate::core::mapping::DenseMapping;
 use crate::core::marking::IdxMarking;
 pub use crate::core::state_space::ExplorationOrder;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, TokenOps};
-use crate::{Marking, Net, PetriNet, Place, Transition};
+use crate::prelude::{Marking, Net, PetriNet, Place, Transition};
 use std::iter::Sum;
 
 /// An in-progress exploration of the state graph of a Petri net.

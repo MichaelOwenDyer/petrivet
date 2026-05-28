@@ -6,7 +6,7 @@
 
 use crate::core::state_space::TokenOps;
 use crate::core::unique_sorted_slice::UniqueSortedSlice;
-use crate::Place;
+use crate::net::Place;
 
 /// A mapping from [`Place`] to tokens of type `T`.
 ///

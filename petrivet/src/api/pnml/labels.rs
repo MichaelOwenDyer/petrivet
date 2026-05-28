@@ -31,7 +31,7 @@
 //! ```
 
 use crate::pnml::nupn::NupnMetadata;
-use crate::{Arc, Place, Transition};
+use crate::net::{Arc, Place, Transition};
 use ahash::{HashMap, HashMapExt};
 
 /// Human-readable labels and metadata for the elements of a single Petri net.
@@ -277,7 +277,7 @@ impl NetLabels {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Arc, NetBuilder};
+    use crate::prelude::{Arc, NetBuilder};
     use crate::pnml::labels::NetLabels;
 
     #[test]

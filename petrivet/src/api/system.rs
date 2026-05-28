@@ -62,24 +62,34 @@ use crate::core::marking::IdxMarking;
 use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::core::state_space::ExplorationOrder;
 use crate::model::LivenessAnalysis;
+use crate::prelude::{Marking, Net, Place, Transition};
 use crate::state_space::{CoverabilityExplorer, CoverabilityGraph, Omega, OmegaMarking};
 use crate::state_space::{ReachabilityExplorer, ReachabilityGraph};
-use crate::{Marking, Net, Place, Transition};
 use std::fmt;
-use std::marker::PhantomData;
 use std::ops::Deref;
 
 /// A Petri net system `(N, M₀)` consists of a [`Net`] `N` and an initial [`Marking`] `M₀`.
-/// ```
+///
+/// ```no_run
 /// let pn = PetriNet::new(&net, [(p0, 1), (p2, 5)]);
-/// // ..or..
-/// let pn = net.with
 /// ```
 ///
 /// You may simulate the behavior of the system, mutating its marking,
 /// by firing [`Transitions`](Transition).
-/// see [`try_fire`](Self::try_fire), [`choose_and_fire`](Self::choose_and_fire), and [`fire_any`](Self::fire_any).
-/// The current marking can be reset to the initial marking at any time via [`reset()`](Self::reset).
+///
+/// ```no_run
+/// pn.try_fire(t0).ok_or(|| "not enabled!")?;
+/// ```
+///
+/// If you want to fire any enabled transition without caring which one,
+/// use [`fire_any()`](Self::fire_any).
+///
+/// ```no_run
+/// pn.fire_any().ok_or("deadlock!")?;
+/// ```
+///
+/// To reset the system back to the marking it was initialized with,
+/// use [`reset()`](Self::reset).
 #[derive(Debug, Clone)]
 pub struct PetriNet<N = Net> {
     /// The [`Net`] structure, which is immutable and can be shared across
@@ -148,13 +158,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
         (net, initial_marking, current_marking)
     }
 
-    /// Returns an explorer for the marking state space of this system,
-    /// using the specified exploration order.
+    /// Returns a [`ReachabilityExplorer`] for this system
+    /// initialized with the given [`ExplorationOrder`].
     pub fn explore_reachability(&self, order: ExplorationOrder) -> ReachabilityExplorer<'_> {
         ReachabilityExplorer::new(self, order)
     }
 
-    /// Returns a coverability explorer for this system, using the specified exploration order.
+    /// Returns a
     pub fn explore_coverability(&self, order: ExplorationOrder) -> CoverabilityExplorer<'_> {
         CoverabilityExplorer::new(self, order)
     }
@@ -176,7 +186,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
     /// returning either itself if the system is bounded or a partially-explored
     /// [`CoverabilityExplorer`] if it is unbounded.
-    /// 
+    ///
     /// Not knowing whether we will encounter unboundedness, this method first
     /// constructs a Karp-Miller coverability tree which introduces ω as soon
     /// as unbounded growth is detected. This comes at the cost of an additional
@@ -185,7 +195,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// the full reachability graph and can return it directly. Otherwise, we return
     /// the [`CoverabilityExplorer`] in its current state, which contains the explored
     /// portion of the coverability graph up to the first ω, and can be further explored.
-    /// 
+    ///
     /// This is the right entry point when you want the speed of exploring
     /// the reachability graph directly but cannot rule out unboundedness
     /// upfront. For unbounded nets you avoid the cost of completing the
@@ -265,24 +275,25 @@ impl<N: AsRef<Net>> PetriNet<N> {
         self.enabled_transitions().next().is_none()
     }
 
-    /// Check-and-fire a specific transition.
+    /// Check-and-fire a specific transition `t`.
     ///
-    /// Returns `Ok(())` if the transition was enabled and has been fired.
+    /// Returns `Ok(t)` if the transition was enabled and has been fired.
+    ///
     /// # Errors
-    /// Returns `Err(NotEnabled)` if it was not enabled.
-    pub fn try_fire(&mut self, t: Transition) -> Result<(), NotEnabled> {
+    /// Returns `Err(NotEnabled(t))` if it was not enabled (i.e. if any input place had zero tokens),
+    /// or if the transition does not exist in the net.
+    pub fn try_fire(&mut self, t: Transition) -> Result<Transition, NotEnabled> {
         self.mapping
             .transition_idx(t)
-            .ok_or(())
+            .ok_or(NotEnabled(t))
             .and_then(|t_idx| {
                 if self.dense_net.is_enabled_in(t_idx, &self.marking) {
                     self.fire_unchecked(t);
-                    Ok(())
+                    Ok(t)
                 } else {
-                    Err(())
+                    Err(NotEnabled(t))
                 }
             })
-            .map_err(|()| NotEnabled(t))
     }
 
     /// Fire any single enabled transition.
@@ -295,63 +306,22 @@ impl<N: AsRef<Net>> PetriNet<N> {
         Some(t)
     }
 
-    /// Compute the enabled set, let the caller choose one, and fire it.
-    ///
-    /// The closure receives an [`EnabledSet`] and returns an
-    /// [`EnabledTransition`] proof token for the chosen transition. The token
-    /// cannot be fabricated (private fields), duplicated (not Copy/Clone), or
-    /// stashed outside the closure (higher-ranked lifetime). This makes the
-    /// subsequent fire infallible with zero redundant enablement checks.
-    ///
-    /// Returns the fired transition, or `None` if the closure chose not to fire
-    /// (or no transitions were enabled).
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use petrivet::builder::NetBuilder;
-    /// use petrivet::net::system::PetriNet;
-    ///
-    /// let mut b = NetBuilder::new();
-    /// let [p0, p1] = b.add_places();
-    /// let [t0, t1] = b.add_transitions();
-    /// b.add_arc((p0, t0)); b.add_arc((t0, p1));
-    /// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-    /// let net = b.build().unwrap();
-    /// let mut sys = PetriNet::new(net, [1, 0]);
-    ///
-    /// // Pick the first enabled transition
-    /// let fired = sys.choose_and_fire(|enabled| enabled.first());
-    /// assert_eq!(fired, Some(t0));
-    ///
-    /// // Pick a specific transition (t1 is now enabled since marking is [0,1])
-    /// let fired = sys.choose_and_fire(|enabled| {
-    ///     enabled.iter().find(|et| *et == t1)
-    /// });
-    /// assert_eq!(fired, Some(t1));
-    /// ```
-    pub fn choose_and_fire<F>(&mut self, choose: F) -> Option<Transition>
-    where
-        F: for<'a> FnOnce(EnabledSet<'a>) -> Option<EnabledTransition<'a>>,
-    {
-        let enabled = self.enabled_transitions().collect();
-        let set = EnabledSet(enabled, PhantomData);
-        let chosen = choose(set)?.0;
-        self.fire_unchecked(chosen);
-        Some(chosen)
-    }
-
     /// Fire a transition without checking enablement.
     ///
     /// The caller must guarantee the transition is enabled. Underflow will
     /// panic in debug mode and wrap in release mode.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the transition is not enabled (i.e. if any input place has zero tokens)
+    /// or if any token count would overflow `u32::MAX`.
     pub fn fire_unchecked(&mut self, t: Transition) {
         if let Some(t_idx) = self.mapping.transition_idx(t) {
             for &p_idx in &self.net.as_ref().dense_net.preset_t[t_idx] {
-                self.marking[p_idx] -= 1;
+                self.marking[p_idx].checked_sub(1).expect("fire_unchecked: token underflow");
             }
             for &p_idx in &self.net.as_ref().dense_net.postset_t[t_idx] {
-                self.marking[p_idx] += 1;
+                self.marking[p_idx].checked_add(1).expect("fire_unchecked: token overflow");
             }
         }
     }
@@ -689,80 +659,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
     }
 }
 
-/// Proof that a transition was found enabled in the current marking.
-///
-/// Cannot be constructed outside this module (private fields), cannot be
-/// copied or cloned, and cannot escape the [`choose_and_fire`](PetriNet::choose_and_fire)
-/// closure (higher-ranked lifetime bound).
-pub struct EnabledTransition<'a>(Transition, PhantomData<&'a ()>);
-
-impl std::ops::Deref for EnabledTransition<'_> {
-    type Target = Transition;
-    fn deref(&self) -> &Transition {
-        &self.0
-    }
-}
-
-impl PartialEq<Transition> for EnabledTransition<'_> {
-    fn eq(&self, other: &Transition) -> bool {
-        self.0 == *other
-    }
-}
-
-impl PartialEq<EnabledTransition<'_>> for Transition {
-    fn eq(&self, other: &EnabledTransition<'_>) -> bool {
-        *self == other.0
-    }
-}
-
-impl fmt::Debug for EnabledTransition<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "EnabledTransition({:?})", self.0)
-    }
-}
-
-/// The set of transitions enabled in a specific marking.
-///
-/// Only exists inside the [`choose_and_fire`](PetriNet::choose_and_fire) closure.
-pub struct EnabledSet<'a>(Box<[Transition]>, PhantomData<&'a ()>);
-
-impl<'a> EnabledSet<'a> {
-    /// Returns the first enabled transition, if any.
-    #[must_use]
-    pub fn first(&self) -> Option<EnabledTransition<'a>> {
-        self.0.first().map(|&t| EnabledTransition(t, PhantomData))
-    }
-
-    /// Returns the enabled transition at the given index.
-    #[must_use]
-    pub fn get(&self, index: usize) -> Option<EnabledTransition<'a>> {
-        self.0.get(index).map(|&t| EnabledTransition(t, PhantomData))
-    }
-
-    /// Iterator over enabled transitions as proof tokens.
-    pub fn iter(&self) -> impl Iterator<Item = EnabledTransition<'a>> + '_ {
-        self.0.iter().map(|&t| EnabledTransition(t, PhantomData))
-    }
-
-    /// Number of enabled transitions.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Whether no transitions are enabled.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl fmt::Debug for EnabledSet<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("EnabledSet").field(&self.0).finish()
-    }
-}
-
 /// Error returned when attempting to fire a transition that is not enabled.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotEnabled(Transition);
@@ -781,7 +677,7 @@ impl std::error::Error for NotEnabled {}
 mod pnml {
     use crate::pnml::convert::PnmlConversionError;
     use crate::pnml::PnmlDocument;
-    use crate::{Net, PetriNet};
+    use crate::prelude::{Net, PetriNet};
     use std::error::Error;
     use std::fmt;
     use std::fmt::{Display, Formatter};
@@ -841,7 +737,7 @@ mod tests {
     use crate::api::model::{CoverabilityProof, CoverabilityResult, LivenessMethod, NonCoverabilityProof};
     use crate::core::liveness::LivenessLevel;
     use crate::state_space::Omega;
-    use crate::{Marking, Net, NetBuilder, NetClass, PetriNet, Place, Transition};
+    use crate::prelude::{Marking, Net, NetBuilder, NetClass, PetriNet, Place, Transition};
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
     fn two_place_cycle() -> (Net, Place, Transition, Place, Transition) {
@@ -876,43 +772,6 @@ mod tests {
         let mut sys = net.with_initial_marking([]);
         assert!(sys.is_deadlocked());
         assert!(sys.fire_any().is_none());
-    }
-
-    #[test]
-    fn choose_and_fire_first() {
-        let (net, p0, t0, p1, _t1) = two_place_cycle();
-        let mut sys = net.with_initial_marking([(p0, 1)]);
-        let fired = sys.choose_and_fire(|enabled| enabled.first());
-        assert_eq!(fired, Some(t0));
-        assert_eq!(sys.current_marking(), [(p1, 1)].into());
-    }
-
-    #[test]
-    fn choose_and_fire_specific() {
-        let (net, p0, _t0, p1, t1) = two_place_cycle();
-        let mut sys = net.with_initial_marking([(p1, 1)]);
-        let fired = sys.choose_and_fire(|enabled| {
-            enabled.iter().find(|et| *et == t1)
-        });
-        assert_eq!(fired, Some(t1));
-        assert_eq!(sys.current_marking(), [(p0, 1)].into());
-    }
-
-    #[test]
-    fn choose_and_fire_none_enabled() {
-        let (net, _p0, _t0, _p1, _t1) = two_place_cycle();
-        let mut sys = net.with_initial_marking([]);
-        let fired = sys.choose_and_fire(|enabled| enabled.first());
-        assert_eq!(fired, None);
-    }
-
-    #[test]
-    fn choose_and_fire_user_declines() {
-        let (net, p0, _t0, _p1, _t1) = two_place_cycle();
-        let mut sys = net.with_initial_marking([(p0, 1)]);
-        let fired = sys.choose_and_fire(|_enabled| None);
-        assert_eq!(fired, None);
-        assert_eq!(sys.current_marking(), [(p0, 1)].into());
     }
 
     #[test]

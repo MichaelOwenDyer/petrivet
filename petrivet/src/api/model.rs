@@ -20,7 +20,7 @@
 
 use crate::core::liveness::LivenessLevel;
 use crate::state_space::{Omega, OmegaMarking};
-use crate::{Marking, Place, Transition};
+use crate::prelude::{Marking, Place, Transition};
 use ahash::HashSet;
 
 /// A siphon is a set of places D such that •D ⊆ D•.
