@@ -21,20 +21,19 @@
 use crate::core::liveness::LivenessLevel;
 use crate::state_space::{Omega, OmegaMarking};
 use crate::prelude::{Marking, Place, Transition};
-use ahash::HashSet;
 
 /// A siphon is a set of places D such that •D ⊆ D•.
 ///
 /// In other words, every transition that produces to D also consumes from D.
 /// This is significant because it means once a siphon is unmarked,
 /// it can never be marked again (all transitions which could mark it are dead).
-pub type Siphon = HashSet<Place>;
+pub type Siphon = ahash::HashSet<Place>;
 
 /// A trap is a set of places Q such that Q• ⊆ •Q.
 ///
 /// In other words, every transition that consumes from Q also produces to Q.
 /// This is significant because it means once a trap is marked, it can never be unmarked again.
-pub type Trap = HashSet<Place>;
+pub type Trap = ahash::HashSet<Place>;
 
 /// Result of the Commoner/Hack criterion check.
 ///
@@ -49,33 +48,16 @@ pub type Trap = HashSet<Place>;
 /// References:
 /// - [Murata 1989, Theorem 12](crate::literature#theorem-12--commonerhack-criterion)
 /// - [Primer, Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc)
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommonerHackCriterionResult {
-    /// Each minimal siphon paired with the maximal trap contained within it.
-    /// If the trap is empty, no marked trap was found in that siphon.
-    pub siphon_trap_pairs: Box<[SiphonTrapPair]>,
-}
+pub type CommonerHackCriterionResult = Result<Box<[SiphonTrapPair]>, SiphonTrapPair>;
 
-impl CommonerHackCriterionResult {
-    /// Whether the Commoner/Hack criterion holds: every siphon contains a marked trap.
-    #[must_use]
-    pub fn is_satisfied(&self) -> bool {
-        self.siphon_trap_pairs.iter().all(|pair| pair.trap_is_marked)
-    }
-}
-
-
-/// A minimal siphon and the maximal trap found within it,
-/// and whether that trap is marked.
+/// A minimal siphon and the maximal trap found within it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiphonTrapPair {
-    /// The minimal siphon (a set of places D with •D ⊆ D•), identified by stable handles.
+    /// A minimal siphon in the net.
     pub siphon: Siphon,
     /// The maximal trap contained in this siphon (a set of places Q with Q• ⊆ •Q).
     /// Empty if no trap was found.
     pub trap: Trap,
-    /// Whether at least one place in the trap is marked in the reference marking.
-    pub trap_is_marked: bool,
 }
 
 /// Result of boundedness analysis.

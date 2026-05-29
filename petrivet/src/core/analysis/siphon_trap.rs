@@ -311,6 +311,45 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
     results.into_boxed_slice()
 }
 
+/// A siphon is a set of places D such that •D ⊆ D•.
+///
+/// In other words, every transition that produces to D also consumes from D.
+/// This is significant because it means once a siphon is unmarked,
+/// it can never be marked again (all transitions which could mark it are dead).
+pub type Siphon = ahash::HashSet<PlaceIdx>;
+
+/// A trap is a set of places Q such that Q• ⊆ •Q.
+///
+/// In other words, every transition that consumes from Q also produces to Q.
+/// This is significant because it means once a trap is marked, it can never be unmarked again.
+pub type Trap = ahash::HashSet<PlaceIdx>;
+
+/// A minimal siphon and the maximal trap found within it,
+/// and whether that trap is marked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiphonTrapPair {
+    /// The minimal siphon (a set of places D with •D ⊆ D•), identified by stable handles.
+    pub siphon: Siphon,
+    /// The maximal trap contained in this siphon (a set of places Q with Q• ⊆ •Q).
+    /// Empty if no trap was found.
+    pub trap: Trap,
+}
+
+/// Result of the Commoner/Hack criterion check.
+///
+/// For free-choice nets, this criterion is both necessary and sufficient for
+/// liveness: a free-choice system (N, M₀) is live if and only if every proper
+/// siphon of N contains a trap that is marked under M₀.
+///
+/// For general nets, the condition is sufficient for deadlock-freedom but
+/// not necessary: if every siphon contains a marked trap, the net is
+/// deadlock-free, but the converse does not hold.
+///
+/// References:
+/// - [Murata 1989, Theorem 12](crate::literature#theorem-12--commonerhack-criterion)
+/// - [Primer, Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc)
+pub type CommonerHackCriterionResult = Result<Box<[SiphonTrapPair]>, SiphonTrapPair>;
+
 /// Checks the Commoner/Hack Criterion (CHC): every proper siphon contains
 /// a trap that is marked under the given marking.
 ///
@@ -331,29 +370,6 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
 /// the siphon satisfies the condition; if it is empty or unmarked,
 /// no trap inside the siphon can be marked.
 ///
-/// # Examples
-///
-/// ```
-/// use petrivet::builder::NetBuilder;
-/// use petrivet::marking::IdxMarking;
-/// use petrivet::analysis::structural::{minimal_siphons, commoner_hack_criterion_inner};
-///
-/// let mut b = NetBuilder::new();
-/// let [p0, p1] = b.add_places();
-/// let [t0, t1] = b.add_transitions();
-/// b.add_arc((p0, t0)); b.add_arc((t0, p1));
-/// b.add_arc((p1, t1)); b.add_arc((t1, p0));
-/// let net = b.build().unwrap();
-///
-/// let m0 = IdxMarking::from([1u32, 0]);
-/// // With a token, the siphon {p0, p1} contains a marked trap → live
-/// assert!(commoner_hack_criterion_inner(&net, &m0).is_satisfied());
-///
-/// // Without tokens, the trap is unmarked → not live
-/// let m_empty = IdxMarking::from([0u32, 0]);
-/// assert!(!commoner_hack_criterion_inner(&net, &m_empty).is_satisfied());
-/// ```
-///
 /// References:
 /// - [Murata 1989, Theorem 12](crate::literature#theorem-12--commonerhack-criterion):
 ///   "A free-choice net (N, M₀) is live iff every siphon in N contains a marked trap."
@@ -362,12 +378,25 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
 pub fn commoner_hack_criterion(
     net: &DenseNet,
     marking: &IdxMarking<u32>,
-) -> impl Iterator<Item = (ahash::HashSet<PlaceIdx>, ahash::HashSet<PlaceIdx>, bool)> {
+) -> CommonerHackCriterionResult {
     minimal_siphons(net)
         .into_iter()
-        .map(|siphon| {
+        .try_fold(Vec::new(),
+            |mut acc, siphon| {
             let trap = maximal_trap_in(net, siphon.clone());
             let trap_is_marked = !trap.is_empty() && trap.iter().any(|&p| marking[p] > 0);
-            (siphon, trap, trap_is_marked)
+            if trap_is_marked {
+                acc.push(SiphonTrapPair {
+                    siphon,
+                    trap,
+                });
+                Ok(acc)
+            } else {
+                Err(SiphonTrapPair {
+                    siphon,
+                    trap,
+                })
+            }
         })
+        .map(Vec::into_boxed_slice)
 }

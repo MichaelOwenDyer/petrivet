@@ -54,14 +54,15 @@
 //! sys.fire_any();
 //! ```
 
-use crate::api::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CommonerHackCriterionResult, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, SiphonTrapPair, UnreachabilityProof};
+use crate::api::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof};
 use crate::core::analysis::semi_decision;
 use crate::core::analysis::siphon_trap;
 use crate::core::liveness::LivenessLevel;
+use crate::core::mapping::DenseMapping;
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::core::state_space::ExplorationOrder;
-use crate::model::LivenessAnalysis;
+use crate::model::{CommonerHackCriterionResult, LivenessAnalysis, SiphonTrapPair};
 use crate::prelude::{Marking, Net, Place, Transition};
 use crate::state_space::{CoverabilityExplorer, CoverabilityGraph, Omega, OmegaMarking};
 use crate::state_space::{ReachabilityExplorer, ReachabilityGraph};
@@ -333,15 +334,20 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// This is a necessary and sufficient condition for liveness in free-choice nets,
     /// and a sufficient condition for deadlock-freedom in general nets.
     pub fn commoner_hack_criterion(&self) -> CommonerHackCriterionResult {
-        let siphon_trap_pairs = siphon_trap::commoner_hack_criterion(
-            &self.dense_net,
-            &self.marking
-        ).map(|(siphon, trap, trap_is_marked)| {
-            let siphon = siphon.into_iter().map(|p_idx| self.mapping.place(p_idx)).collect();
-            let trap = trap.into_iter().map(|p_idx| self.mapping.place(p_idx)).collect();
-            SiphonTrapPair { siphon, trap, trap_is_marked }
-        }).collect();
-        CommonerHackCriterionResult { siphon_trap_pairs }
+        fn to_api(mapping: &DenseMapping, pair: siphon_trap::SiphonTrapPair) -> SiphonTrapPair {
+            SiphonTrapPair {
+                siphon: pair.siphon.into_iter().map(|p_idx| mapping.place(p_idx)).collect(),
+                trap: pair.trap.into_iter().map(|p_idx| mapping.place(p_idx)).collect(),
+            }
+        }
+
+        siphon_trap::commoner_hack_criterion(&self.dense_net, &self.marking)
+            .map(|siphon_trap_pairs| {
+                siphon_trap_pairs.into_iter().map(|pair| to_api(&self.mapping, pair)).collect()
+            })
+            .map_err(|counterexample| {
+                to_api(&self.mapping, counterexample)
+            })
     }
 
     /// Analyzes boundedness and returns per-place bounds with evidence.
@@ -398,7 +404,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
         if self.class().is_free_choice()
             && let chc = self.commoner_hack_criterion()
-            && chc.is_satisfied() {
+            && chc.is_ok() {
             return LivenessAnalysis {
                 levels: self.transitions().zip(std::iter::repeat(LivenessLevel::L4)).collect(),
                 method: LivenessMethod::FreeChoice(chc),
@@ -434,7 +440,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn analyze_deadlock_freedom(&self) -> DeadlockAnalysis {
         if let chc = self.commoner_hack_criterion()
-            && chc.is_satisfied() {
+            && chc.is_ok() {
             return DeadlockAnalysis {
                 deadlocks: Box::new([]),
                 evidence: DeadlockAnalysisMethod::CommonerTheorem(chc),
@@ -736,8 +742,8 @@ mod pnml {
 mod tests {
     use crate::api::model::{CoverabilityProof, CoverabilityResult, LivenessMethod, NonCoverabilityProof};
     use crate::core::liveness::LivenessLevel;
-    use crate::state_space::Omega;
     use crate::prelude::{Marking, Net, NetBuilder, NetClass, PetriNet, Place, Transition};
+    use crate::state_space::Omega;
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
     fn two_place_cycle() -> (Net, Place, Transition, Place, Transition) {
