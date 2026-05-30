@@ -134,7 +134,7 @@ impl<'a> CoverabilityGraph<'a> {
     /// If this returns `false`, the system is unbounded and the reachability graph is infinite.
     #[must_use]
     pub fn is_bounded(&self) -> bool {
-        self.state_space.graph.node_weights().any(IdxOmegaMarking::has_omega)
+        !self.state_space.graph.node_weights().any(IdxOmegaMarking::has_omega)
     }
 
     /// Promote to a [`ReachabilityGraph`] if the system is bounded.
