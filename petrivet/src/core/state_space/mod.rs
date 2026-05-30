@@ -3,11 +3,12 @@ pub mod coverability;
 
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
-use ahash::{HashMap, HashMapExt, HashSet};
+use ahash::{HashMap, HashMapExt};
 use petgraph::graph::NodeIndex;
 use std::collections::VecDeque;
 use std::hash::Hash;
 use std::iter::Sum;
+use crate::core::unique_sorted_slice::UniqueSortedSlice;
 
 /// Controls frontier traversal order.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -84,13 +85,14 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
             .filter(|&t| net.preset_t[t].is_empty())
             .collect();
 
-        let frontier: VecDeque<_> = initial_marking
-            .support()
-            .flat_map(|p| net.postset_p[p].iter().copied())
-            .chain(source_transitions.iter().copied())
-            .collect::<HashSet<TransitionIdx>>()
+        let frontier: VecDeque<_> =
+            Self::potentially_enabled_transitions(
+                &initial_marking,
+                &net.postset_p,
+                &source_transitions,
+            )
             .into_iter()
-            .map(|t| (initial_idx, t))
+            .map(|t_idx| (initial_idx, t_idx))
             .collect();
 
         let mut seen = HashMap::new();
@@ -99,6 +101,28 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         let state_space = DenseStateGraph { net, initial_idx, graph, seen };
 
         Self { state_space, order, frontier, source_transitions }
+    }
+
+    /// Compute the transitions which could possibly be enabled at a marking, based on
+    /// the support of the marking and the postset of places in the net,
+    /// plus source transitions which are always enabled.
+    ///
+    /// The transitions are not guaranteed to be enabled, since the preset of a transition may
+    /// include places not in the support of the marking, but this is a sound over-approximation
+    /// which allows us to avoid iterating over all transitions.
+    fn potentially_enabled_transitions(
+        marking: &IdxMarking<T>,
+        postset_p: &[UniqueSortedSlice<TransitionIdx>],
+        source_transitions: &[TransitionIdx],
+    ) -> Vec<TransitionIdx> {
+        let mut possibly_enabled_transitions = marking
+            .support()
+            .flat_map(|p| postset_p[p].iter().copied())
+            .chain(source_transitions.iter().copied())
+            .collect::<Vec<_>>();
+        possibly_enabled_transitions.sort_unstable();
+        possibly_enabled_transitions.dedup();
+        possibly_enabled_transitions
     }
 
     /// The number of items in the frontier.
@@ -152,24 +176,26 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         over: TransitionIdx,
         marking: IdxMarking<T>,
     ) -> (bool, NodeIndex) {
+        // if we have seen this marking before, just add an edge from the source to the existing node
         if let Some(&idx) = self.state_space.seen.get(&marking) {
             self.state_space.graph.add_edge(from, idx, over);
             return (false, idx);
         }
 
+        // add the marking as a new node, and an edge from the source to it
         let idx = self.state_space.graph.add_node(marking.clone());
         self.state_space.graph.add_edge(from, idx, over);
 
-        // seed frontier with all transitions which could possibly be enabled at this marking
-        // note that we do not actually check whether they are enabled at this point
-        marking
-            .support()
-            .flat_map(|p_idx| self.state_space.net.postset_p[p_idx].iter().copied())
-            .chain(self.source_transitions.iter().copied())
-            .collect::<HashSet<TransitionIdx>>() // dedup
-            .into_iter()
-            .for_each(|t_idx| self.frontier.push_back((idx, t_idx)));
+        // seed frontier with all potentially enabled transitions from this marking
+        for t_idx in Self::potentially_enabled_transitions(
+            &marking,
+            &self.state_space.net.postset_p,
+            &self.source_transitions,
+        ) {
+            self.frontier.push_back((idx, t_idx));
+        }
 
+        // record the marking as seen at this index
         self.state_space.seen.insert(marking, idx);
 
         (true, idx)
