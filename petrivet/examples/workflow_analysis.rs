@@ -34,8 +34,8 @@
 //!
 //! Run: `cargo run --example workflow_analysis`
 
-use petrivet::state_space::{ExplorationOrder, ReachabilityGraph};
 use petrivet::prelude::{NetBuilder, PetriNet};
+use petrivet::state_space::ExplorationOrder;
 
 fn main() {
     println!("=== PCB Assembly Line Analysis ===\n");
@@ -137,7 +137,7 @@ fn main() {
 
     println!("\n--- Reachability Graph ---\n");
 
-    let rg = ReachabilityGraph::build(&sys);
+    let rg = sys.build_reachability_graph();
     println!("States: {}, Edges: {}", rg.marking_count(), rg.transition_count());
     println!("Deadlock-free: {}", rg.is_deadlock_free());
 
@@ -148,7 +148,7 @@ fn main() {
         }
     }
 
-    println!("\nLiveness (from RG): {}", rg.is_live());
+    println!("\nLiveness (from RG): {}", rg.transition_liveness().is_live());
 
     println!("\n--- Incremental Exploration ---\n");
 
@@ -169,14 +169,12 @@ fn main() {
     );
 
     // Continue exploring until done
-    explorer.explore_all();
+    let rg = explorer.build_graph();
     println!(
         "After full exploration: {} states, {} edges",
-        explorer.marking_count(),
-        explorer.transition_count()
+        rg.marking_count(),
+        rg.transition_count()
     );
 
-    // Promote to ReachabilityGraph for analysis
-    let rg2 = ReachabilityGraph::try_from(explorer).expect("fully explored");
-    println!("Promoted to ReachabilityGraph: live: {}", rg2.is_live());
+    println!("Promoted to ReachabilityGraph: live: {}", rg.transition_liveness().is_live());
 }

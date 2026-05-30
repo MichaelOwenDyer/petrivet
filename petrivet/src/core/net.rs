@@ -67,16 +67,16 @@ impl DenseNet {
 
     /// Iterator over all internal places.
     pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
-        0..self.place_count() as usize
+        0..self.place_count() as PlaceIdx
     }
 
     /// Iterator over all internal transitions.
     pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
-        0..self.transition_count() as usize
+        0..self.transition_count() as TransitionIdx
     }
 
     /// Iterator over all arcs in the net, represented as pairs of internal indices.
-    pub fn idx_arcs(&self) -> impl Iterator<Item = IdxArc> + '_ {
+    pub fn arc_indices(&self) -> impl Iterator<Item = IdxArc> + '_ {
         self.place_indices()
             .zip(self.preset_p.iter().zip(self.postset_p.iter()))
             .flat_map(|(p_idx, (preset, postset))| {

@@ -140,7 +140,7 @@ fn bench_scc_liveness(c: &mut Criterion) {
             BenchmarkId::new("hub_spoke", format!("m{m}k{k}")),
             &rg,
             |b, rg| {
-                b.iter(|| std::hint::black_box(rg.liveness()));
+                b.iter(|| std::hint::black_box(rg.transition_liveness()));
             },
         );
     }

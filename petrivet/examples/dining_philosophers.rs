@@ -18,7 +18,6 @@
 //!
 //! Run: `cargo run --example dining_philosophers`
 
-use petrivet::state_space::ReachabilityGraph;
 use petrivet::prelude::{Marking, NetBuilder, PetriNet};
 
 const N: usize = 4;
@@ -90,7 +89,7 @@ fn main() {
 
 
     let sys = PetriNet::new(&net, initial.clone());
-    let rg = ReachabilityGraph::build(&sys);
+    let rg = sys.build_reachability_graph();
     println!("Reachable states: {}", rg.marking_count());
     println!("Edges: {}", rg.transition_count());
     println!("Deadlock-free: {}", rg.is_deadlock_free());

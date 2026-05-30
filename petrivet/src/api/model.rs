@@ -134,6 +134,21 @@ impl LivenessAnalysis {
             .find(|(t, _)| *t == transition)
             .map_or(LivenessLevel::L0, |(_, level)| *level)
     }
+
+    /// Returns true if all transitions in the Petri net are live.
+    ///
+    /// This is a convenience method which 
+    #[must_use]
+    pub fn is_live(&self) -> bool {
+        self.levels.iter().all(|(_, level)| level.is_l4_live())
+    }
+
+    /// Whether every transition appears on some edge of the reachability graph,
+    /// i.e. no transition in the Petri net is dead.
+    #[must_use]
+    pub fn is_quasi_live(&self) -> bool {
+        self.levels.iter().all(|(_, level)| level.is_l1_live())
+    }
 }
 
 /// Evidence for liveness analysis of an S-net.

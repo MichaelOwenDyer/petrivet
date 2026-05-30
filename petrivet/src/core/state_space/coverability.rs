@@ -1,7 +1,7 @@
 use crate::core::marking;
 use crate::core::marking::IdxMarking;
 use crate::core::net::TransitionIdx;
-use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, TokenOps};
+use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
 use ahash::{HashSet, HashSetExt};
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
@@ -29,16 +29,10 @@ impl Omega {
         matches!(self, Omega::Finite(_))
     }
 
-    /// Returns `true` if this value is unbounded (omega).
+    /// Returns `true` if this value is unbounded (ω).
     #[must_use]
-    pub const fn is_unbounded(self) -> bool {
+    pub const fn is_omega(self) -> bool {
         matches!(self, Omega::Unbounded)
-    }
-
-    /// Returns true if this is a finite value less than or equal to `b`.
-    #[must_use]
-    pub const fn is_b_bounded(self, b: u32) -> bool {
-        matches!(self, Omega::Finite(bound) if bound <= b)
     }
 
     /// Returns the finite value, or `None` if unbounded.
@@ -80,6 +74,36 @@ impl PartialOrd for Omega {
     }
 }
 
+impl PartialEq<u32> for Omega {
+    fn eq(&self, other: &u32) -> bool {
+        match self {
+            Omega::Finite(n) => n == other,
+            Omega::Unbounded => false,
+        }
+    }
+}
+
+impl PartialEq<Omega> for u32 {
+    fn eq(&self, other: &Omega) -> bool {
+        other == self
+    }
+}
+
+impl PartialOrd<u32> for Omega {
+    fn partial_cmp(&self, other: &u32) -> Option<Ordering> {
+        match self {
+            Omega::Finite(n) => n.partial_cmp(other),
+            Omega::Unbounded => Some(Ordering::Greater),
+        }
+    }
+}
+
+impl PartialOrd<Omega> for u32 {
+    fn partial_cmp(&self, other: &Omega) -> Option<Ordering> {
+        other.partial_cmp(self).map(Ordering::reverse)
+    }
+}
+
 impl Sum for Omega {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.fold(Self::ZERO, |acc, o| match (acc, o) {
@@ -111,10 +135,10 @@ impl TokenOps for Omega {
 pub type IdxOmegaMarking = IdxMarking<Omega>;
 
 impl IdxMarking<Omega> {
-    /// Returns `true` if all components are finite (no ω).
+    /// Returns `true` if any marking component is unbounded (ω).
     #[must_use]
-    pub fn is_finite(&self) -> bool {
-        self.iter().all(|o| o.is_finite())
+    pub fn has_omega(&self) -> bool {
+        self.iter().any(|o| o.is_omega())
     }
 }
 
@@ -167,11 +191,14 @@ impl PartialOrd<IdxMarking<u32>> for IdxMarking<Omega> {
     }
 }
 
-impl DenseStateGraphExplorer<'_, Omega> {
-    pub fn explore_next(&mut self) -> Option<(TransitionIdx, NodeIndex, bool)> {
+/// Karp-Miller coverability graph exploration.
+impl ExploreNext<Omega> for DenseStateGraphExplorer<'_, Omega> {
+    fn explore_next(&mut self) -> Option<(TransitionIdx, NodeIndex, bool)> {
         /// Karp–Miller acceleration: if any ancestor of `src` (including `src`
         /// itself) carries a marking strictly smaller than `new_marking`,
         /// promote each strictly-greater component of `new_marking` to ω.
+        ///
+        /// TODO: Find a more efficient algorithm for this if possible
         fn omega_accelerate(
             state_space: &DenseStateGraph<'_, Omega>,
             new_marking: &mut IdxOmegaMarking, src: NodeIndex
@@ -204,35 +231,11 @@ impl DenseStateGraphExplorer<'_, Omega> {
             if !self.is_enabled(src_node_idx, transition_idx) {
                 continue;
             }
-            let mut marking = self.fire(src_node_idx, transition_idx);
-            omega_accelerate(&self.state_space, &mut marking, src_node_idx);
-            let (is_new, node_idx) = self.register(src_node_idx, transition_idx, marking.clone());
+            let mut new_marking = self.fire(src_node_idx, transition_idx);
+            omega_accelerate(&self.state_space, &mut new_marking, src_node_idx);
+            let (is_new, node_idx) = self.register(src_node_idx, transition_idx, new_marking);
             return Some((transition_idx, node_idx, is_new));
         }
-    }
-
-    /// Drive exploration until either:
-    ///
-    /// - `predicate` returns `true` for some reachable marking — in which
-    ///   case the marking is returned immediately, or
-    /// - the frontier is exhausted (the entire reachability graph has been
-    ///   explored without the predicate ever firing) — in which case
-    ///   `None` is returned.
-    pub fn find(
-        &mut self,
-        mut predicate: impl FnMut(&IdxMarking<Omega>) -> bool,
-    ) -> Option<&IdxOmegaMarking> {
-        for &node in self.state_space.seen.values() {
-            if predicate(self.state_space.marking_at(node)) {
-                return Some(self.state_space.marking_at(node));
-            }
-        }
-        while let Some((_t_idx, node, is_new)) = self.explore_next() {
-            if is_new && predicate(self.state_space.marking_at(node)) {
-                return Some(self.state_space.marking_at(node));
-            }
-        }
-        None
     }
 }
 

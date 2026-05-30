@@ -94,7 +94,7 @@ pub fn run_analysis(sys: &PetriNet, examination: Examination) -> RunResult {
                 RunResult::Verdicts(Box::new([
                     Verdict::Formula {
                         name: examination.to_string(),
-                        value: Some(rg.is_quasi_live()),
+                        value: Some(rg.transition_liveness().is_quasi_live()),
                     }
                 ]))
             },

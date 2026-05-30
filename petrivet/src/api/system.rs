@@ -72,6 +72,7 @@ use std::ops::Deref;
 /// A Petri net system `(N, M₀)` consists of a [`Net`] `N` and an initial [`Marking`] `M₀`.
 ///
 /// ```no_run
+/// use petrivet::prelude::PetriNet;
 /// let pn = PetriNet::new(&net, [(p0, 1), (p2, 5)]);
 /// ```
 ///
@@ -93,10 +94,19 @@ use std::ops::Deref;
 /// use [`reset()`](Self::reset).
 #[derive(Debug, Clone)]
 pub struct PetriNet<N = Net> {
-    /// The [`Net`] structure, which is immutable and can be shared across
-    /// [`PetriNet`]s depending on the choice of `N` (e.g. `Arc<Net>`).
+    /// The [`Net`] structure, which is immutable and can be shared across multiple
+    /// Petri nets depending on the choice of `N` (e.g. `&Net`, `Arc<Net>`, ...).
     pub net: N,
+    /// The marking which the Petri net was initialized with. This will never change.
+    ///
+    /// This is purposefully not called the *initial* marking because the other marking
+    /// field serves as the de-facto initial marking for analysis questions, even if it
+    /// was previously mutated through simulation.
     pub(crate) reset: IdxMarking<u32>,
+    /// The mutable current marking of the system, which changes as transitions are fired.
+    ///
+    /// The current state of this marking is used as the starting point, or "initial marking",
+    /// for all analysis procedures.
     pub(crate) marking: IdxMarking<u32>,
 }
 
@@ -150,15 +160,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
             .map_or(0, |p_idx| self.marking[p_idx])
     }
 
-    /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
-    #[must_use]
-    pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
-        let PetriNet { net, reset: initial_marking, marking: current_marking } = self;
-        let initial_marking = net.as_ref().mapping.marking(initial_marking);
-        let current_marking = net.as_ref().mapping.marking(current_marking);
-        (net, initial_marking, current_marking)
-    }
-
     /// Returns a [`ReachabilityExplorer`] for this system
     /// initialized with the given [`ExplorationOrder`].
     pub fn explore_reachability(&self, order: ExplorationOrder) -> ReachabilityExplorer<'_> {
@@ -174,14 +175,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ///
     /// Warning! This may be a HUGE structure!
     pub fn build_coverability_graph(&self) -> CoverabilityGraph<'_> {
-        CoverabilityGraph::new(self)
+        self.explore_coverability(ExplorationOrder::BreadthFirst).build_graph()
     }
 
     /// Returns the complete reachability graph for this system.
     ///
     /// WARNING! For unbounded nets, this will not terminate!
     pub fn build_reachability_graph(&self) -> ReachabilityGraph<'_> {
-        ReachabilityGraph::build(self)
+        self.explore_reachability(ExplorationOrder::BreadthFirst).build_graph()
     }
 
     /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
@@ -208,14 +209,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// contains ω. The frontier is preserved, so callers may resume.
     #[allow(clippy::result_large_err)]
     pub fn try_build_reachability_graph(&self) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
-        CoverabilityExplorer::new(self, ExplorationOrder::BreadthFirst).build_reachability_or_coverability()
+        CoverabilityExplorer::new(self, ExplorationOrder::BreadthFirst).try_build_reachability_graph()
     }
 
     /// Returns true if some reachable marking puts more than one token in any place.
     pub fn has_reachable_unsafe_marking(&self) -> bool {
         self.explore_reachability(ExplorationOrder::BreadthFirst)
             .core
-            .search(|m| m.iter().any(|&t| t > 1))
+            .find(|m| m.iter().any(|&t| t > 1))
             .is_some()
     }
 
@@ -223,7 +224,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn has_reachable_deadlock_marking(&self) -> bool {
         self.explore_reachability(ExplorationOrder::BreadthFirst)
             .core
-            .search(|m| self.dense_net.is_deadlock(m))
+            .find(|m| self.dense_net.is_deadlock(m))
             .is_some()
     }
 
@@ -326,6 +327,15 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
         }
     }
+
+    /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
+    #[must_use]
+    pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
+        let PetriNet { net, reset: initial_marking, marking: current_marking } = self;
+        let initial_marking = net.as_ref().mapping.marking(initial_marking);
+        let current_marking = net.as_ref().mapping.marking(current_marking);
+        (net, initial_marking, current_marking)
+    }
 }
 
 impl<N: AsRef<Net>> PetriNet<N> {
@@ -411,14 +421,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
             };
         }
 
-        match self.build_coverability_graph().into_reachability_graph() {
-            Ok(rg) => {
-                let levels = rg.liveness_levels();
-                LivenessAnalysis {
-                    levels: self.transitions().zip(levels).collect(),
-                    method: LivenessMethod::ReachabilityGraph,
-                }
-            }
+        match self.try_build_reachability_graph() {
+            Ok(rg) => rg.transition_liveness(),
             Err(_cg) => {
                 // TODO: liveness for unbounded nets
                 LivenessAnalysis {

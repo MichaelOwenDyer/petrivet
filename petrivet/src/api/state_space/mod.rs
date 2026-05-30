@@ -7,7 +7,7 @@ pub use reachability::*;
 use crate::core::mapping::DenseMapping;
 use crate::core::marking::IdxMarking;
 pub use crate::core::state_space::ExplorationOrder;
-use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, TokenOps};
+use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
 use crate::prelude::{Marking, Net, PetriNet, Place, Transition};
 use std::iter::Sum;
 
@@ -65,26 +65,27 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     /// Number of distinct markings discovered so far.
     #[must_use]
     pub fn marking_count(&self) -> usize {
-        self.core.state_space.graph.node_count()
+        self.core.marking_count()
     }
 
     /// Number of edges (transition firings) in the graph so far.
     #[must_use]
     pub fn transition_count(&self) -> usize {
-        self.core.state_space.graph.edge_count()
+        self.core.transition_count()
     }
 
-    /// The initial marking.
+    /// Returns the initial marking of the state graph.
     #[must_use]
     pub fn initial_marking(&self) -> Marking<T> {
-        let marking = self.core.state_space.marking_at(self.core.state_space.initial_idx).clone();
+        let marking = self.core.initial_marking().clone();
         self.mapping.marking(marking)
     }
 
-    /// Whether the given marking has been discovered so far in the exploration.
+    /// Returns `true` if the given marking has been discovered so far in the exploration.
     #[must_use]
     pub fn contains_marking(&self, marking: Marking<T>) -> bool {
-        self.core.state_space.seen.contains_key(&self.mapping.idx_marking(marking))
+        let idx_marking = self.mapping.idx_marking(marking);
+        self.core.contains_marking(&idx_marking)
     }
 
     /// All markings discovered so far which enable no transitions.
@@ -96,16 +97,69 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     }
 
     /// Returns a firing sequence from the initial marking to `target`,
-    /// among states discovered so far.
+    /// among states discovered so far in the exploration, if one exists.
     #[must_use]
     pub fn find_path_from_initial(&self, target: Marking<T>) -> Option<Box<[Transition]>> {
         let target = self.mapping.idx_marking(target);
-        let &target_idx = self.core.state_space.seen.get(&target)?;
-        self.core.state_space.path_from_initial_to(target_idx).map(|path| {
+        self.core.path_from_initial_to(&target).map(|path| {
             path.into_iter()
                 .map(|t_idx| self.mapping.transition(t_idx))
                 .collect()
         })
+    }
+}
+
+impl<'a, T: TokenOps> StateGraphExplorer<'a, T>
+where
+    DenseStateGraphExplorer<'a, T>: ExploreNext<T>
+{
+    /// Explore the next item in the frontier: fire a transition from a marking
+    /// and record the new edge (and possibly new marking) in the state graph.
+    ///
+    /// Return the transition which was fired, the graph index referencing the
+    /// resulting marking, and whether the marking was newly discovered (vs. already seen).
+    ///
+    /// Return `None` if the frontier is empty and exploration is complete.
+    pub fn explore_next(&mut self) -> Option<ExplorationStep<T>> {
+        self.core.explore_next().map(|(transition_idx, node_idx, is_new)| {
+            let idx_marking = self.core.state_space.marking_at(node_idx);
+            ExplorationStep {
+                transition: self.mapping.transition(transition_idx),
+                marking: self.mapping.marking(idx_marking.clone()),
+                is_new,
+            }
+        })
+    }
+
+    /// Returns an iterator that drives exploration step by step.
+    ///
+    /// See [`explore_next`](StateGraphExplorer::explore_next).
+    pub fn explore_iter(&mut self) -> impl Iterator<Item = ExplorationStep<T>> + '_ {
+        std::iter::from_fn(move || self.explore_next())
+    }
+
+    /// Advances exploration until a marking covering `target` is found,
+    /// and returns the marking and a firing sequence from the initial marking to it.
+    pub fn find_cover(&mut self, target: Marking<T>) -> Option<Marking<T>> {
+        let target_idx_marking = self.mapping.idx_marking(target);
+        self.core
+            .find(|idx_marking| *idx_marking >= target_idx_marking)
+            .map(|idx_marking| self.mapping.marking(idx_marking.clone()))
+    }
+
+    /// Drive exploration until the entire reachable state space is discovered,
+    /// returning the resulting state graph.
+    ///
+    /// **Note**: if the graph is large, this may take a long time and consume a lot of memory.
+    /// If the state space is infinite, this will not terminate and will eventually exhaust all available memory.
+    /// Use with caution, and consider incremental exploration via `explore_next` or `explore_iter` instead.
+    #[must_use]
+    pub fn build_graph(mut self) -> StateGraph<'a, T> {
+        while self.core.explore_next().is_some() {}
+        StateGraph {
+            state_space: self.core.state_space,
+            mapping: self.mapping,
+        }
     }
 }
 

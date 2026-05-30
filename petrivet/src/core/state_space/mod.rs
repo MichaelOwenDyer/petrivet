@@ -28,6 +28,19 @@ pub trait TokenOps: Clone + Copy + Eq + Ord + Hash + Sum {
     fn decrement(&mut self);
 }
 
+/// The core trait for state space exploration,
+/// implemented by both reachability and coverability graph explorers.
+pub trait ExploreNext<T: TokenOps> {
+    /// Explore the next item in the frontier: fire a transition from a marking
+    /// and record the new edge (and possibly new marking) in the state graph.
+    ///
+    /// Return the transition which was fired, the graph index referencing the
+    /// resulting marking, and whether the marking was newly discovered (vs. already seen).
+    ///
+    /// Return `None` if the frontier is empty and exploration is complete.
+    fn explore_next(&mut self) -> Option<(TransitionIdx, NodeIndex, bool)>;
+}
+
 /// The shared exploration engine for both reachability and coverability graphs.
 ///
 /// Manages the petgraph, seen-set, and frontier. Both `CoverabilityGraph` and
@@ -91,6 +104,33 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     /// The number of items in the frontier, for debugging or instrumentation.
     pub fn frontier_count(&self) -> usize {
         self.frontier.len()
+    }
+
+    /// Number of distinct markings discovered so far.
+    pub fn marking_count(&self) -> usize {
+        self.state_space.graph.node_count()
+    }
+
+    /// Number of edges (transition firings) in the graph so far.
+    pub fn transition_count(&self) -> usize {
+        self.state_space.graph.edge_count()
+    }
+
+    /// Returns a reference to the initial marking, the starting point of exploration.
+    pub fn initial_marking(&self) -> &IdxMarking<T> {
+        self.state_space.marking_at(self.state_space.initial_idx)
+    }
+
+    /// Returns `true` if the given marking has been discovered so far in the exploration.
+    pub fn contains_marking(&self, marking: &IdxMarking<T>) -> bool {
+        self.state_space.seen.contains_key(marking)
+    }
+
+    /// Returns a firing sequence from the initial marking to `target`,
+    /// among states discovered so far in the exploration, if one exists.
+    pub fn path_from_initial_to(&self, target: &IdxMarking<T>) -> Option<Box<[TransitionIdx]>> {
+        let target_idx = self.state_space.seen.get(target)?;
+        Some(self.state_space.path_from_initial_to(*target_idx).expect("target must be reachable from initial"))
     }
 
     /// Whether the frontier is empty (exploration complete).
@@ -157,6 +197,65 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         self.state_space.seen.insert(marking, idx);
 
         (true, idx)
+    }
+
+    /// Check all currently discovered markings for one satisfying `predicate`,
+    /// and return it if found.
+    #[allow(dead_code)]
+    pub fn any_matched(
+        &self,
+        mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
+    ) -> Option<&IdxMarking<T>> {
+        self.state_space.seen.values()
+            .map(|&node| self.state_space.marking_at(node))
+            .find(|marking| predicate(marking))
+    }
+}
+
+impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T>
+where
+    DenseStateGraphExplorer<'a, T>: ExploreNext<T>,
+{
+    /// Check all currently discovered markings for one satisfying `predicate`,
+    /// and return it if found.
+    ///
+    /// Otherwise, drive exploration until either a marking satisfying `predicate` is found
+    /// (and returned), or the frontier is exhausted (in which case `None` is returned).
+    /// See [`search`](DenseStateGraphExplorer::search) for the latter behavior.
+    ///
+    /// **Does not terminate** if there are infinite states and the predicate never returns true.
+    pub fn find(
+        &mut self,
+        mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
+    ) -> Option<&IdxMarking<T>> {
+        // todo: possible to call .any_matched() here instead?
+        for &node in self.state_space.seen.values() {
+            if predicate(self.state_space.marking_at(node)) {
+                return Some(self.state_space.marking_at(node));
+            }
+        }
+        self.search(predicate)
+    }
+
+    /// Drive exploration until either:
+    ///
+    /// - `predicate` returns `true` for some reachable marking — in which
+    ///   case the marking is returned immediately, or
+    /// - the frontier is exhausted (the entire reachability graph has been
+    ///   explored without the predicate ever firing) — in which case
+    ///   `None` is returned.
+    ///
+    /// **Does not terminate** if there are infinite states and the predicate never returns true.
+    pub fn search(
+        &mut self,
+        mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
+    ) -> Option<&IdxMarking<T>> {
+        while let Some((_t_idx, node_idx, is_new)) = self.explore_next() {
+            if is_new && predicate(self.state_space.marking_at(node_idx)) {
+                return Some(self.state_space.marking_at(node_idx));
+            }
+        }
+        None
     }
 }
 

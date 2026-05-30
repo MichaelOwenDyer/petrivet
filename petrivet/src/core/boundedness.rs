@@ -3,7 +3,7 @@
 ///
 /// It is a fundamental property of Petri nets that has significant
 /// implications for their behavior and the complexity of analyzing them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Boundedness {
     /// A [`Place`] is bounded in a given [`PetriNet`] if there exists
     /// an upper limit on the number of tokens it will ever hold in any
@@ -65,5 +65,17 @@ impl Boundedness {
     #[must_use]
     pub const fn is_unbounded(self) -> bool {
         matches!(self, Boundedness::Unbounded)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Boundedness;
+
+    #[test]
+    fn test_ord() {
+        assert!(Boundedness::Bounded(None) < Boundedness::Bounded(Some(0)));
+        assert!(Boundedness::Bounded(Some(0)) < Boundedness::Bounded(Some(1)));
+        assert!(Boundedness::Bounded(Some(1)) < Boundedness::Unbounded);
     }
 }
