@@ -56,8 +56,8 @@ pub struct DenseStateGraphExplorer<'a, T: TokenOps> {
     /// The exploration order: breadth-first or depth-first.
     /// Corresponds to queue vs stack behavior of the frontier.
     pub order: ExplorationOrder,
-    /// The worklist of potentially enabled transitions which we have not
-    /// yet investigated firing from their source markings.
+    /// The worklist of source markings and *potentially* enabled transitions
+    /// which we have not yet investigated.
     frontier: VecDeque<(NodeIndex, TransitionIdx)>,
     /// Transitions with empty presets - always enabled, and should
     /// always be explored from every new marking regardless of the
@@ -101,29 +101,9 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         Self { state_space, order, frontier, source_transitions }
     }
 
-    /// The number of items in the frontier, for debugging or instrumentation.
+    /// The number of items in the frontier.
     pub fn frontier_count(&self) -> usize {
         self.frontier.len()
-    }
-
-    /// Number of distinct markings discovered so far.
-    pub fn marking_count(&self) -> usize {
-        self.state_space.graph.node_count()
-    }
-
-    /// Number of edges (transition firings) in the graph so far.
-    pub fn transition_count(&self) -> usize {
-        self.state_space.graph.edge_count()
-    }
-
-    /// Returns a reference to the initial marking, the starting point of exploration.
-    pub fn initial_marking(&self) -> &IdxMarking<T> {
-        self.state_space.marking_at(self.state_space.initial_idx)
-    }
-
-    /// Returns `true` if the given marking has been discovered so far in the exploration.
-    pub fn contains_marking(&self, marking: &IdxMarking<T>) -> bool {
-        self.state_space.seen.contains_key(marking)
     }
 
     /// Returns a firing sequence from the initial marking to `target`,
@@ -131,11 +111,6 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     pub fn path_from_initial_to(&self, target: &IdxMarking<T>) -> Option<Box<[TransitionIdx]>> {
         let target_idx = self.state_space.seen.get(target)?;
         Some(self.state_space.path_from_initial_to(*target_idx).expect("target must be reachable from initial"))
-    }
-
-    /// Whether the frontier is empty (exploration complete).
-    pub fn is_fully_explored(&self) -> bool {
-        self.frontier.is_empty()
     }
 
     /// Pop the next `(NodeIndex, Transition)` from the frontier.
@@ -185,7 +160,8 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         let idx = self.state_space.graph.add_node(marking.clone());
         self.state_space.graph.add_edge(from, idx, over);
 
-        // seed frontier with all transitions that could possibly be enabled at this marking
+        // seed frontier with all transitions which could possibly be enabled at this marking
+        // note that we do not actually check whether they are enabled at this point
         marking
             .support()
             .flat_map(|p_idx| self.state_space.net.postset_p[p_idx].iter().copied())
@@ -274,6 +250,16 @@ pub struct DenseStateGraph<'a, T: TokenOps> {
 }
 
 impl<T: TokenOps> DenseStateGraph<'_, T> {
+    /// Number of distinct markings discovered so far.
+    pub fn marking_count(&self) -> usize {
+        self.graph.node_count()
+    }
+
+    /// Number of edges (transition firings) in the graph so far.
+    pub fn transition_count(&self) -> usize {
+        self.graph.edge_count()
+    }
+
     /// Returns an iterator over all markings in the graph.
     pub fn markings(&self) -> impl Iterator<Item = &IdxMarking<T>> + '_ {
         self.graph.node_weights()
@@ -282,6 +268,16 @@ impl<T: TokenOps> DenseStateGraph<'_, T> {
     /// Get the marking stored at node index `idx`.
     pub fn marking_at(&self, idx: NodeIndex) -> &IdxMarking<T> {
         &self.graph[idx]
+    }
+
+    /// Returns a reference to the initial marking, the starting point of exploration.
+    pub fn initial_marking(&self) -> &IdxMarking<T> {
+        self.marking_at(self.initial_idx)
+    }
+
+    /// Returns `true` if the given marking has been discovered so far in the exploration.
+    pub fn contains_marking(&self, marking: &IdxMarking<T>) -> bool {
+        self.seen.contains_key(marking)
     }
 
     /// Returns an iterator over markings which enable no transitions (deadlocks).

@@ -59,25 +59,25 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     /// Whether exploration has completed.
     #[must_use]
     pub fn is_fully_explored(&self) -> bool {
-        self.core.is_fully_explored()
+        self.core.frontier_count() == 0
     }
 
     /// Number of distinct markings discovered so far.
     #[must_use]
     pub fn marking_count(&self) -> usize {
-        self.core.marking_count()
+        self.core.state_space.marking_count()
     }
 
     /// Number of edges (transition firings) in the graph so far.
     #[must_use]
     pub fn transition_count(&self) -> usize {
-        self.core.transition_count()
+        self.core.state_space.transition_count()
     }
 
     /// Returns the initial marking of the state graph.
     #[must_use]
     pub fn initial_marking(&self) -> Marking<T> {
-        let marking = self.core.initial_marking().clone();
+        let marking = self.core.state_space.initial_marking().clone();
         self.mapping.marking(marking)
     }
 
@@ -85,7 +85,7 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     #[must_use]
     pub fn contains_marking(&self, marking: Marking<T>) -> bool {
         let idx_marking = self.mapping.idx_marking(marking);
-        self.core.contains_marking(&idx_marking)
+        self.core.state_space.contains_marking(&idx_marking)
     }
 
     /// All markings discovered so far which enable no transitions.

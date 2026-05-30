@@ -1,7 +1,7 @@
-use petgraph::graph::NodeIndex;
 use crate::core::net::TransitionIdx;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
 use crate::liveness::LivenessLevel;
+use petgraph::graph::NodeIndex;
 
 impl TokenOps for u32 {
     const ZERO: Self = 0;
@@ -14,12 +14,6 @@ impl TokenOps for u32 {
 /// The core reachability graph exploration algorithm,
 /// implemented for the case of markings with `u32` tokens.
 impl ExploreNext<u32> for DenseStateGraphExplorer<'_, u32> {
-    /// Advance exploration by one step.
-    ///
-    /// Returns `None` when the frontier is exhausted (fully explored).
-    ///
-    /// The second tuple element is the graph [`NodeIndex`] of the marking
-    /// reached by firing the transition (new or existing).
     fn explore_next(&mut self) -> Option<(TransitionIdx, NodeIndex, bool)> {
         loop {
             let (src_idx, t_idx) = self.pop_frontier()?;
