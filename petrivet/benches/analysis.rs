@@ -99,10 +99,9 @@ fn bench_build(c: &mut Criterion) {
 /// Benchmarks the BFS loop itself without omega-acceleration overhead.
 fn bench_explore_reachability(c: &mut Criterion) {
     let mut group = c.benchmark_group("explore_reachability");
-    // m=4 arms, k=10: large enough state space for 100K steps
-    let sys = hub_spoke_system(4, 10);
-    for n in [1_000, 10_000, 100_000] {
-        group.bench_with_input(BenchmarkId::new("hub_spoke/m4k10", n), &n, |b, &n| {
+    let sys = hub_spoke_system(5, 10);
+    for n in [1_000, 10_000, 100_000, 1_000_000] {
+        group.bench_with_input(BenchmarkId::new("hub_spoke/m5k10", n), &n, |b, &n| {
             b.iter(|| {
                 let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
                 std::hint::black_box(explorer.explore_iter().take(n).count())
