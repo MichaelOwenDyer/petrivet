@@ -128,11 +128,11 @@ impl NetBuilder {
             .next_place_id
             .checked_add(1)
             .expect("nets with more than u32::MAX places are not supported");
-        let pk = Place(id);
-        self.places.push(pk);
-        self.preset_p.insert(pk, HashSet::new());
-        self.postset_p.insert(pk, HashSet::new());
-        pk
+        let place = Place(id);
+        self.places.push(place);
+        self.preset_p.insert(place, HashSet::new());
+        self.postset_p.insert(place, HashSet::new());
+        place
     }
 
     /// Adds `N` places simultaneously and returns their handles in an array.
@@ -156,11 +156,11 @@ impl NetBuilder {
             .next_transition_id
             .checked_add(1)
             .expect("nets with more than u32::MAX transitions are not supported");
-        let tk = Transition(id);
-        self.transitions.push(tk);
-        self.preset_t.insert(tk, HashSet::new());
-        self.postset_t.insert(tk, HashSet::new());
-        tk
+        let transition = Transition(id);
+        self.transitions.push(transition);
+        self.preset_t.insert(transition, HashSet::new());
+        self.postset_t.insert(transition, HashSet::new());
+        transition
     }
 
     /// Adds `N` transitions simultaneously and returns their handles in an array.
@@ -261,15 +261,22 @@ impl NetBuilder {
     /// assert_eq!(b.place_count(), 2);
     /// assert_eq!(b.arc_count(), 2);
     /// ```
+    ///
+    /// # Implementation
+    ///
+    /// This currently runs in linear time in the number of places.
     pub fn remove_place(&mut self, place: Place) -> bool {
-        let Some(preset) = self.preset_p.remove(&place) else {
+        if let Some(pos) = self.places.iter().position(|&p| p == place) {
+            self.places.swap_remove(pos);
+        } else {
             return false;
-        };
-        let postset = self
-            .postset_p
+        }
+        let preset = self.preset_p
             .remove(&place)
             .expect("adjacency map desynchronization detected");
-
+        let postset = self.postset_p
+            .remove(&place)
+            .expect("adjacency map desynchronization detected");
         for &input_transition in &preset {
             self.postset_t
                 .get_mut(&input_transition)
@@ -282,12 +289,6 @@ impl NetBuilder {
                 .expect("adjacency map desynchronization detected")
                 .remove(&place);
         }
-        let pos = self
-            .places
-            .iter()
-            .position(|&k| k == place)
-            .expect("adjacency map desynchronization detected");
-        self.places.swap_remove(pos);
         true
     }
 
@@ -310,20 +311,33 @@ impl NetBuilder {
     /// assert_eq!(b.transition_count(), 2);
     /// assert_eq!(b.arc_count(), 2);
     /// ```
+    ///
+    /// # Implementation
+    ///
+    /// This currently runs in linear time in the number of transitions.
     pub fn remove_transition(&mut self, transition: Transition) -> bool {
-        let Some(inputs) = self.preset_t.remove(&transition) else {
-            return false;
-        };
-        let outputs = self.postset_t.remove(&transition).unwrap_or_default();
-
-        for &p in &inputs {
-            self.postset_p.get_mut(&p).map(|s| s.remove(&transition));
-        }
-        for &p in &outputs {
-            self.preset_p.get_mut(&p).map(|s| s.remove(&transition));
-        }
-        if let Some(pos) = self.transitions.iter().position(|&k| k == transition) {
+        if let Some(pos) = self.transitions.iter().position(|&t| t == transition) {
             self.transitions.swap_remove(pos);
+        } else {
+            return false;
+        }
+        let preset = self.preset_t
+            .remove(&transition)
+            .expect("adjacency map desynchronization detected");
+        let postset = self.postset_t
+            .remove(&transition)
+            .expect("adjacency map desynchronization detected");
+        for &p in &preset {
+            self.postset_p
+                .get_mut(&p)
+                .expect("adjacency map desynchronization detected")
+                .remove(&transition);
+        }
+        for &p in &postset {
+            self.preset_p
+                .get_mut(&p)
+                .expect("adjacency map desynchronization detected")
+                .remove(&transition);
         }
         true
     }
@@ -370,13 +384,13 @@ impl NetBuilder {
 
     /// Returns the number of places currently in the builder.
     #[must_use]
-    pub const fn place_count(&self) -> usize {
+    pub fn place_count(&self) -> usize {
         self.places.len()
     }
 
     /// Returns the number of transitions currently in the builder.
     #[must_use]
-    pub const fn transition_count(&self) -> usize {
+    pub fn transition_count(&self) -> usize {
         self.transitions.len()
     }
 
@@ -529,18 +543,17 @@ fn compute_rcm_ordering(
     preset_t: &HashMap<Transition, HashSet<Place>>,
     postset_t: &HashMap<Transition, HashSet<Place>>,
 ) -> (Box<[Place]>, Box<[Transition]>) {
-    let p_count = places.len();
-    let t_count = transitions.len();
-    let total_nodes = p_count + t_count;
-
-    // 1. Establish dense temporary indices mapping
-    // Places -> [0 .. P), Transitions -> [P .. P + T)
+    // 1. Assign temporary indices to places and transitions for building the unified adjacency list.
     let p_map: HashMap<Place, PlaceIdx> = places.iter().copied().zip(0..).collect();
     let t_map: HashMap<Transition, TransitionIdx> = transitions.iter().copied().zip(0..).collect();
 
+    let p_count = p_map.len();
+    let t_count = t_map.len();
+    let total_nodes = p_count + t_count;
+
     // 2. Build the unified undirected adjacency list.
     //
-    // Per the convention above, transitions live in [p_count, p_count + t_count)
+    // Transitions live in the range [p_count, p_count + t_count)
     // in the unified index space, so we shift each transition's local index
     // by `p_count` before using it as an `adj` index.
     let mut adj = vec![Vec::new(); total_nodes];

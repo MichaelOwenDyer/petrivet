@@ -9,7 +9,6 @@ use petrivet::{
 ///
 /// With `m` tokens circulating independently through `m` distinguishable arms,
 /// the state space grows combinatorially with both `m` and `k`.
-/// Use for: build, explore_reachability, explore_coverability, liveness.
 fn hub_spoke(m: usize, k: usize) -> (Net, Place) {
     assert!(k >= 2, "arm length k must be at least 2");
     let mut b = NetBuilder::new();
@@ -43,8 +42,7 @@ fn hub_spoke_system(m: usize, k: usize) -> PetriNet<Net> {
 /// middle place → commit transition), both paths leading to the next stage's
 /// entry place. One token circulates.
 ///
-/// Satisfies the free-choice property. Use for: commoner_hack_criterion,
-/// analyze_liveness.
+/// Satisfies the free-choice property.
 fn diamond_chain(n: usize) -> (Net, Place) {
     assert!(n >= 1);
     let mut b = NetBuilder::new();
@@ -55,13 +53,9 @@ fn diamond_chain(n: usize) -> (Net, Place) {
         let p_out = stages[(i + 1) % n];
 
         for _ in 0..2 {
-            let t_choose = b.add_transition();
+            let [t_choose, t_commit] = b.add_transitions();
             let q = b.add_place();
-            let t_commit = b.add_transition();
-            b.add_arc((p_in, t_choose));
-            b.add_arc((t_choose, q));
-            b.add_arc((q, t_commit));
-            b.add_arc((t_commit, p_out));
+            b.add_arcs((p_in, t_choose, q, t_commit, p_out));
         }
     }
 
@@ -73,9 +67,7 @@ fn diamond_chain_system(n: usize) -> PetriNet<Net> {
     PetriNet::new(net, [(start, 1)])
 }
 
-// ── Benchmarks ───────────────────────────────────────────────────────────────
-
-/// NetBuilder::build() — construction and validation cost at varying arm lengths.
+/// `NetBuilder::build()` — construction and validation cost at varying arm lengths.
 fn bench_build(c: &mut Criterion) {
     let mut group = c.benchmark_group("build");
     for k in [5, 10, 20, 50] {
@@ -95,7 +87,7 @@ fn bench_build(c: &mut Criterion) {
     group.finish();
 }
 
-/// explore_iter().take(N) — reachability exploration step throughput.
+/// `explore_iter().take(N)` — reachability exploration step throughput.
 /// Benchmarks the BFS loop itself without omega-acceleration overhead.
 fn bench_explore_reachability(c: &mut Criterion) {
     let mut group = c.benchmark_group("explore_reachability");
@@ -111,8 +103,8 @@ fn bench_explore_reachability(c: &mut Criterion) {
     group.finish();
 }
 
-/// explore_iter().take(N) via coverability explorer — same bounded net as above,
-/// so omega never triggers. The delta vs. bench_explore_reachability isolates
+/// `explore_iter().take(N)` via coverability explorer — same bounded net as above,
+/// so omega never triggers. The delta vs. `bench_explore_reachability` isolates
 /// the per-step cost of the omega-domination check.
 fn bench_explore_coverability_overhead(c: &mut Criterion) {
     let mut group = c.benchmark_group("explore_coverability_overhead");
@@ -128,7 +120,7 @@ fn bench_explore_coverability_overhead(c: &mut Criterion) {
     group.finish();
 }
 
-/// rg.liveness() — SCC-based liveness analysis on a pre-built reachability graph.
+/// `rg.transition_liveness()` — SCC-based liveness analysis on a pre-built reachability graph.
 /// The hub-spoke RG has m SCCs (one per arm cycle).
 fn bench_scc_liveness(c: &mut Criterion) {
     let mut group = c.benchmark_group("liveness");
@@ -146,7 +138,7 @@ fn bench_scc_liveness(c: &mut Criterion) {
     group.finish();
 }
 
-/// commoner_hack_criterion() — structural free-choice liveness shortcut.
+/// `commoner_hack_criterion()` — structural free-choice liveness shortcut.
 /// Diamond chain is a valid free-choice net at various sizes.
 fn bench_commoner_hack_criterion(c: &mut Criterion) {
     let mut group = c.benchmark_group("commoner_hack_criterion");
