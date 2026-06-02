@@ -8,7 +8,7 @@ use crate::core::mapping::DenseMapping;
 use crate::core::marking::IdxMarking;
 pub use crate::core::state_space::ExplorationOrder;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
-use crate::prelude::{Marking, Net, PetriNet, Place, Transition};
+use crate::prelude::{Boundedness, Marking, Net, PetriNet, Place, Transition};
 use std::iter::Sum;
 
 /// An in-progress exploration of the state graph of a Petri net.
@@ -211,12 +211,12 @@ impl<T: TokenOps> StateGraph<'_, T> {
 
     /// Upper bound on the token count for each place across all discovered markings.
     #[must_use]
-    pub fn place_bounds(&self) -> Marking<T> {
+    pub fn place_bounds(&self) -> Box<[(Place, Boundedness)]> where Boundedness: From<T> {
         let place_bounds = self.state_space.markings().fold(
             IdxMarking::zeros(self.mapping.place_count()),
             IdxMarking::componentwise_max,
-        );
-        self.mapping.marking(place_bounds)
+        ).into_iter().map(Boundedness::from);
+        self.mapping.places().zip(place_bounds).collect()
     }
 
     /// Upper bound on the token count for a given place across all

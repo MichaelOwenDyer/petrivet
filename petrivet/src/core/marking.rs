@@ -48,9 +48,7 @@ impl<T: TokenOps> IdxMarking<T> {
     pub fn zeros(n_places: u32) -> Self {
         Self(vec![T::ZERO; n_places as usize].into_boxed_slice())
     }
-}
 
-impl<T: Ord + Clone> IdxMarking<T> {
     /// Returns the componentwise maximum of `self` and `other`.
     pub fn componentwise_max(mut acc: Self, other: &Self) -> Self {
         for (bound, tokens) in acc.0.iter_mut().zip(other.0.iter()) {

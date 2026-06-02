@@ -1,3 +1,5 @@
+use crate::state_space::Omega;
+
 /// Boundedness describes the maximum number of tokens that can
 /// appear on a place in any reachable marking of a Petri net.
 ///
@@ -65,6 +67,21 @@ impl Boundedness {
     #[must_use]
     pub const fn is_unbounded(self) -> bool {
         matches!(self, Boundedness::Unbounded)
+    }
+}
+
+impl From<u32> for Boundedness {
+    fn from(value: u32) -> Self {
+        Self::Bounded(Some(value as K))
+    }
+}
+
+impl From<Omega> for Boundedness {
+    fn from(value: Omega) -> Self {
+        match value {
+            Omega::Finite(n) => Self::Bounded(Some(n as K)),
+            Omega::Unbounded => Self::Unbounded,
+        }
     }
 }
 

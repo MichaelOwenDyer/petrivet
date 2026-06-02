@@ -320,7 +320,7 @@ pub type Trap = ahash::HashSet<PlaceIdx>;
 /// and whether that trap is marked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiphonTrapPair {
-    /// The minimal siphon (a set of places D with •D ⊆ D•), identified by stable handles.
+    /// The minimal siphon (a set of places D with •D ⊆ D•).
     pub siphon: Siphon,
     /// The maximal trap contained in this siphon (a set of places Q with Q• ⊆ •Q).
     /// Empty if no trap was found.

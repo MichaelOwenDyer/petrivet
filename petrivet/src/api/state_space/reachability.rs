@@ -4,8 +4,8 @@
 //! from a given initial marking in a Petri net, and analyzing the resulting
 //! reachability graph for properties like liveness and deadlock-freedom.
 
-use crate::model::{LivenessAnalysis, LivenessMethod};
 use crate::state_space::{StateGraph, StateGraphExplorer};
+use crate::system::liveness::{LivenessAnalysis, LivenessMethod};
 
 /// An incremental exploration handle which lazily enumerates every single marking
 /// in the state space of the [`PetriNet`].

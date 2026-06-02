@@ -88,61 +88,61 @@ impl NetLabels {
 
     /// Returns the human-readable name of `place`, if set.
     #[must_use]
-    pub fn place_name(&self, pk: Place) -> Option<&str> {
-        self.place_names.get(&pk).map(String::as_str)
+    pub fn place_name(&self, p: Place) -> Option<&str> {
+        self.place_names.get(&p).map(String::as_str)
     }
 
     /// Sets the human-readable name of `place`. Returns `&mut self` for chaining.
-    pub fn set_place_name(&mut self, pk: Place, name: impl Into<String>) -> &mut Self {
-        self.place_names.insert(pk, name.into());
+    pub fn set_place_name(&mut self, p: Place, name: impl Into<String>) -> &mut Self {
+        self.place_names.insert(p, name.into());
         self
     }
 
     /// Clears the name of `place`.
-    pub fn clear_place_name(&mut self, pk: Place) -> &mut Self {
-        self.place_names.remove(&pk);
+    pub fn clear_place_name(&mut self, p: Place) -> &mut Self {
+        self.place_names.remove(&p);
         self
     }
 
     /// Returns the stable identifier of `place`, if set.
     #[must_use]
-    pub fn place_id(&self, pk: Place) -> Option<&str> {
-        self.place_ids.get(&pk).map(String::as_str)
+    pub fn place_id(&self, p: Place) -> Option<&str> {
+        self.place_ids.get(&p).map(String::as_str)
     }
 
     /// Sets the stable identifier of `place`.
-    pub fn set_place_id(&mut self, pk: &Place, id: impl Into<String>) -> &mut Self {
-        self.place_ids.insert(*pk, id.into());
+    pub fn set_place_id(&mut self, p: &Place, id: impl Into<String>) -> &mut Self {
+        self.place_ids.insert(*p, id.into());
         self
     }
 
     /// Returns the human-readable name of `transition`, if set.
     #[must_use]
-    pub fn transition_name(&self, tk: Transition) -> Option<&str> {
-        self.transition_names.get(&tk).map(String::as_str)
+    pub fn transition_name(&self, t: Transition) -> Option<&str> {
+        self.transition_names.get(&t).map(String::as_str)
     }
 
     /// Sets the human-readable name of `transition`.
-    pub fn set_transition_name(&mut self, tk: Transition, name: impl Into<String>) -> &mut Self {
-        self.transition_names.insert(tk, name.into());
+    pub fn set_transition_name(&mut self, t: Transition, name: impl Into<String>) -> &mut Self {
+        self.transition_names.insert(t, name.into());
         self
     }
 
     /// Clears the name of `transition`.
-    pub fn clear_transition_name(&mut self, tk: Transition) -> &mut Self {
-        self.transition_names.remove(&tk);
+    pub fn clear_transition_name(&mut self, t: Transition) -> &mut Self {
+        self.transition_names.remove(&t);
         self
     }
 
     /// Returns the stable identifier of `transition`, if set.
     #[must_use]
-    pub fn transition_id(&self, tk: Transition) -> Option<&str> {
-        self.transition_ids.get(&tk).map(String::as_str)
+    pub fn transition_id(&self, t: Transition) -> Option<&str> {
+        self.transition_ids.get(&t).map(String::as_str)
     }
 
     /// Sets the stable identifier of `transition`.
-    pub fn set_transition_id(&mut self, tk: Transition, id: impl Into<String>) -> &mut Self {
-        self.transition_ids.insert(tk, id.into());
+    pub fn set_transition_id(&mut self, t: Transition, id: impl Into<String>) -> &mut Self {
+        self.transition_ids.insert(t, id.into());
         self
     }
 
@@ -242,11 +242,7 @@ impl NetLabels {
 }
 
 impl NetLabels {
-    /// Constructs a `NetLabels` directly from pre-built maps. Used internally
-    /// by the PNML converter; not part of the public API surface.
-    ///
-    /// Key-to-dense maps must be attached separately via `with_net` if
-    /// key-based public accessors are needed.
+    /// Constructs a `NetLabels` directly from pre-built maps.
     #[expect(clippy::too_many_arguments)]
     #[expect(clippy::missing_const_for_fn)]
     pub(crate) fn from_raw(

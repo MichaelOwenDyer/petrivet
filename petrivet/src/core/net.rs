@@ -6,13 +6,13 @@ use crate::core::unique_sorted_slice::UniqueSortedSlice;
 
 /// A place in a built [`Net`], identified by a dense index in `0 .. place_count`.
 ///
-/// This is a crate-internal handle used by analysis algorithms. External users
+/// This is a crate-internal index used by analysis algorithms. External users
 /// interact with [`Place`] instead.
 pub type PlaceIdx = usize;
 
 /// A transition in a built [`DenseNet`], identified by a dense index in `0 .. transition_count`.
 ///
-/// This is a crate-internal handle used by analysis algorithms. External users
+/// This is a crate-internal index used by analysis algorithms. External users
 /// interact with [`Transition`] instead.
 pub type TransitionIdx = usize;
 

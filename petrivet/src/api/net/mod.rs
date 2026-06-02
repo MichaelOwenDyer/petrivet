@@ -1,31 +1,46 @@
-//! Net structure: the static topology of a Petri net.
-//!
-//! A net N = (S, T, F) consists of:
-//! - A finite set of places S
-//! - A finite set of transitions T
-//! - A flow relation F ⊆ (S × T) ∪ (T × S)
+//! The static topology of a Petri net.
+
+pub mod siphon_trap;
+pub mod boundedness;
 
 use crate::core::mapping::DenseMapping;
 use crate::core::net::{DenseNet, IdxArc};
 use crate::prelude::{Marking, NetBuilder, NetClass, PetriNet};
 use std::num::NonZeroU32;
 
-/// A place in a net, often represented visually by a circle.
+/// A *place* is one of the two types of nodes in a Petri net,
+/// often represented visually by a circle.
+///
+/// Places can hold tokens, and the distribution of tokens across
+/// places is called a *marking* of the net.
+///
+/// The set of places `S` defines the *place set* of a [`Net`],
+/// which is one of the three components of the net structure.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Place(pub(crate) NonZeroU32);
 
-/// A transition in a net, often represented visually by a square / rectangle.
+/// A *transition* is one of the two types of nodes in a Petri net,
+/// often represented visually by a rectangle or bar.
+///
+/// Transitions provide the dynamic behavior of a Petri net.
+/// A transition is *enabled* in a given [`Marking`] if all of its preset places have
+/// at least one token. An enabled transition can *fire*, consuming one token from each
+/// of its preset places and producing one token on each of its postset places,
+/// resulting in a new marking.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Transition(pub(crate) NonZeroU32);
 
-/// An arc (edge) in a net, connecting a place to a transition or vice versa.
+/// A directed edge from a [`Place`] to a [`Transition`] or vice versa.
+///
+/// The set of arcs `F` defines the *flow relation* of a [`Net`],
+/// which defines how places and transitions are connected.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Arc {
     PlaceToTransition(Place, Transition),
     TransitionToPlace(Transition, Place),
 }
 
-/// A node in a net, which can be either a place or a transition.
+/// A *node* in [`Net`] is either a [`Place`] or a [`Transition`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Node {
     Place(Place),
@@ -44,14 +59,14 @@ impl From<Transition> for Node {
     }
 }
 
-/// An ordinary Petri net N = (S, T, F), where
-/// - S is a finite, nonempty set of places,
-/// - T is a finite, nonempty set of transitions,
-/// - F ⊆ (S × T) ∪ (T × S) is the flow relation.
+/// The structure of a [`PetriNet`], independent of any
+/// initial marking or dynamic behavior.
 ///
-/// The public API uses [`Place`] and [`Transition`] exclusively.
-/// Dense indices (`PlaceIdx` / `TransitionIdx` in `net::idx`) are `pub(crate)` for
-/// internal analysis code.
+/// A `Net` is formally defined as a three-tuple `(S, T, F)`, where
+/// - `S` is a finite, nonempty set of [`Places`](Place),
+/// - `T` is a finite, nonempty set of [`Transitions`](Transition) disjoint from `S`,
+/// - `F` is a set containing elements from (S × T) ∪ (T × S), called the *flow relation*,
+///    which defines directed [`Arcs`](Arc) between places and transitions.
 #[derive(Debug, Clone)]
 pub struct Net {
     /// Inner net structure, optimized for efficient analysis algorithms.
@@ -237,24 +252,6 @@ impl Net {
     #[must_use]
     pub fn is_strongly_connected(&self) -> bool {
         self.dense_net.is_strongly_connected()
-    }
-
-    /// Checks if the net is structurally bounded.
-    /// This means that there exists no initial marking
-    /// which would cause any place in the net to become unbounded.
-    #[must_use]
-    pub fn is_structurally_bounded(&self) -> bool {
-        self.dense_net.is_structurally_bounded()
-    }
-
-    /// Checks if a single place is structurally bounded.
-    /// This means that there exists no initial marking
-    /// which would cause this place to become unbounded.
-    #[must_use]
-    pub fn is_place_structurally_bounded(&self, place: &Place) -> bool {
-        self.mapping
-            .place_idx(*place)
-            .is_some_and(|p_idx| self.dense_net.is_place_structurally_bounded(&p_idx))
     }
 }
 

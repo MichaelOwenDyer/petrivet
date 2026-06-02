@@ -1,9 +1,59 @@
-use crate::core::analysis::siphon_trap;
-use crate::core::mapping::DenseMapping;
-use crate::model::{CommonerHackCriterionResult, DeadlockAnalysis, DeadlockAnalysisMethod, SiphonTrapPair};
+use crate::marking::Marking;
 use crate::net::Net;
 use crate::prelude::PetriNet;
 use crate::state_space::ExplorationOrder;
+use crate::system::chc::SiphonTrapPair;
+
+/// A **deadlock** is a [`Marking`] which enables no [`Transition`](crate::net::Transition).
+///
+/// **Deadlock-freedom** is a property of a system (N, M₀)
+/// which holds when no reachable marking is a deadlock.
+///
+/// Deadlock-freedom is a desirable property in many systems,
+/// as it guarantees that the system can always make progress
+/// and will never get stuck in a state where no actions are possible.
+pub type Deadlock = Marking<u32>;
+
+/// Evidence for a deadlock-freedom result.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum DeadlockAnalysisMethod {
+    /// The Commoner/Hack criterion is fulfilled: every [`Siphon`](crate::api::system::chc::Siphon)
+    /// contains a [`Trap`](crate::api::system::chc::Trap) marked in `M₀`.
+    /// This is a sufficient condition for deadlock-freedom.
+    /// 
+    /// Provided are all minimal siphons and their maximal traps, all marked in `M₀`.
+    CommonerHackCriterion(Box<[SiphonTrapPair]>),
+    /// State space was fully explored and no deadlocks were found.
+    Exploration,
+    /// The net is an unbounded general net where the reachability graph is infinite;
+    /// this library's current algorithms cannot decide deadlock-freedom here.
+    Inconclusive,
+}
+
+/// Result of deadlock-freedom analysis.
+///
+/// `deadlocks` is always a valid list: empty if the system is deadlock-free,
+/// populated with witnesses if deadlocks exist. When the structural
+/// (siphon/trap) check proves freedom, no exploration is needed and
+/// `deadlocks` is empty. When exploration is required, all reachable
+/// deadlocks are returned with firing sequences.
+#[derive(Debug, Clone)]
+pub struct DeadlockAnalysis {
+    /// All reachable deadlock markings with witness firing sequences.
+    /// Empty if deadlock-free.
+    pub deadlocks: Box<[Deadlock]>,
+    /// How the result was obtained.
+    pub evidence: DeadlockAnalysisMethod,
+}
+
+impl DeadlockAnalysis {
+    /// Whether the system is deadlock-free.
+    #[must_use]
+    pub fn is_deadlock_free(&self) -> bool {
+        self.deadlocks.is_empty()
+    }
+}
 
 impl<N: AsRef<Net>> PetriNet<N> {
     /// Whether the system is deadlock-free: no reachable marking has zero
@@ -26,27 +76,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
             .is_some()
     }
 
-    /// Checks the Commoner/Hack criterion, which is fulfilled when all siphons in the system
-    /// contain a trap marked at the initial marking.
-    /// This is a necessary and sufficient condition for liveness in free-choice nets,
-    /// and a sufficient condition for deadlock-freedom in general nets.
-    pub fn commoner_hack_criterion(&self) -> CommonerHackCriterionResult {
-        fn to_api(mapping: &DenseMapping, pair: siphon_trap::SiphonTrapPair) -> SiphonTrapPair {
-            SiphonTrapPair {
-                siphon: pair.siphon.into_iter().map(|p_idx| mapping.place(p_idx)).collect(),
-                trap: pair.trap.into_iter().map(|p_idx| mapping.place(p_idx)).collect(),
-            }
-        }
-
-        siphon_trap::commoner_hack_criterion(&self.dense_net, &self.marking)
-            .map(|siphon_trap_pairs| {
-                siphon_trap_pairs.into_iter().map(|pair| to_api(&self.mapping, pair)).collect()
-            })
-            .map_err(|counterexample| {
-                to_api(&self.mapping, counterexample)
-            })
-    }
-
     /// Analyzes deadlock-freedom and returns deadlock witnesses with evidence.
     ///
     /// Strategy:
@@ -57,11 +86,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ///    firing sequences.
     #[must_use]
     pub fn analyze_deadlock_freedom(&self) -> DeadlockAnalysis {
-        if let chc = self.commoner_hack_criterion()
-            && chc.is_ok() {
+        if let Ok(chc) = self.commoner_hack_criterion() {
             return DeadlockAnalysis {
                 deadlocks: Box::new([]),
-                evidence: DeadlockAnalysisMethod::CommonerTheorem(chc),
+                evidence: DeadlockAnalysisMethod::CommonerHackCriterion(chc),
             };
         }
 

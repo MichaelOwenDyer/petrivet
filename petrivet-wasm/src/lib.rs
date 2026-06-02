@@ -155,7 +155,7 @@ impl WasmSystem {
             .map(|(i, t)| (i as u32, *t))
             .collect();
 
-        // Build the key maps: `From<Net>` preserves the net’s keys; new ids continue after the
+        // Build the handle maps: `From<Net>` preserves the net's handles; new ids continue after the
         // largest existing id. Dense index `i` maps to `sorted_ids[i]`.
         let sorted_place_ids: Vec<Place> = builder.places().collect();
         let sorted_trans_ids: Vec<Transition> = builder.transitions().collect();

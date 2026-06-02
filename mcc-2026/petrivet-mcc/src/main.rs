@@ -133,7 +133,7 @@ fn run_one_safe(input_dir: &Path) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
     let name = Examination::OneSafe.as_str();
 
-    if system.is_structurally_one_safe() {
+    if system.is_structurally_k_bounded(1) {
         print_boolean_result(name, true, STRUCTURAL_TECHNIQUES);
         return Ok(());
     }

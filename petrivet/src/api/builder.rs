@@ -2,14 +2,14 @@
 //!
 //! As you edit, the builder mints [`Place`] and [`Transition`] values. Those
 //! handles denote **stable identity**: IDs are monotonic and **never reused**, so
-//! a key always refers to the same conceptual node across the lifetime of your
+//! a handle always refers to the same conceptual node across the lifetime of your
 //! program, including if you convert a [`Net`] back into a [`NetBuilder`] and
 //! make further edits.
 //!
 //! Separately, **membership** in the graph you are editing is determined by whether
 //! the node is still present: if you remove a place or transition, its handle
 //! remains the same unique identity (ids are never reused), but the node is no longer
-//! part of the builder’s *live* structure. New nodes are always created with fresh
+//! part of the builder's *live* structure. New nodes are always created with fresh
 //! handles via [`add_place`](NetBuilder::add_place) /
 //! [`add_transition`](NetBuilder::add_transition).
 //! There is currently no way to add a node back into the net after it has been removed;
@@ -18,11 +18,11 @@
 //! When you call [`NetBuilder::build`], every member place and transition is assigned
 //! dense index in `0 .. n`. The exact assignment is an internal implementation detail,
 //! but is currently determined by a bandwidth reduction heuristic (Reverse Cuthill-McKee)
-//! applied to the builder’s sparse adjacency structure. This is intended to improve cache
+//! applied to the builder's sparse adjacency structure. This is intended to improve cache
 //! locality for traversal and state space exploration algorithms on the built net,
 //! but the performance difference has not been benchmarked yet.
 //!
-//! The net stores the bidirectional mapping between public keys and the crate-internal
+//! The net stores the bidirectional mapping between public handles and the crate-internal
 //! indices and the public API is an adapter over the internal dense representation.
 
 use crate::core::mapping::DenseMapping;

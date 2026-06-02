@@ -1,5 +1,5 @@
 use crate::oracle::{Examination, Verdict};
-use petrivet::model::LivenessMethod;
+use petrivet::system::liveness::LivenessMethod;
 use petrivet::system::PetriNet;
 
 /// Outcome of running petrivet on one (model, examination) pair.
@@ -76,7 +76,7 @@ pub fn run_analysis(sys: &PetriNet, examination: Examination) -> RunResult {
         },
 
         Examination::OneSafe => {
-            let result = if sys.is_structurally_one_safe() {
+            let result = if sys.is_structurally_k_bounded(1) {
                 true
             } else {
                 !sys.has_reachable_unsafe_marking()

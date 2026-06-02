@@ -66,14 +66,6 @@ fn philo_all_place_and_transition_names_populated() {
     let doc = load("tests/fixtures/philo.pnml");
     let (sys, labels) = first_pt_net(&doc);
 
-    // NetLabels per-node accessors take dense Place/Transition (pub(crate)),
-    // so from an integration test we verify that the label set has the
-    // expected total count of named elements via the public net_name / net_id
-    // accessors (tested elsewhere) plus the known property of the philo model:
-    // all 30 places and all 30 transitions carry a <name> label in the PNML.
-    //
-    // A more granular per-node check lives in the convert.rs unit tests which
-    // have pub(crate) access.
     assert!(labels.net_name().is_some(), "net name should be populated");
     assert_eq!(sys.place_count(), 30);
     assert_eq!(sys.transition_count(), 30);

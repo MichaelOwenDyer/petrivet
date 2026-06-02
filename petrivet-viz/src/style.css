@@ -119,7 +119,7 @@ body.edit-mode #cy {
   left: 0;
   pointer-events: none;
   display: none;
-  /* Above Cytoscape’s canvas layers (they use high z-index internally) */
+  /* Above Cytoscape's canvas layers (they use high z-index internally) */
   z-index: 100000;
 }
 

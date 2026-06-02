@@ -43,7 +43,6 @@ pub(crate) mod core;
 pub use api::{
     builder,
     marking,
-    model,
     net,
     pnml,
     state_space,
