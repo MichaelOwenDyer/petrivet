@@ -83,7 +83,7 @@ fn main() {
     for step in 1..=12 {
         if let Some(t) = sys.fire_any() {
             let name = sys.labels.as_ref().unwrap().transition_name(t).unwrap_or("unnamed transition");
-            println!("Step {step:>2}: fire {name:<8} → {:?}", sys.current_marking());
+            println!("Step {step:>2}: fire {name:<8} → {:?}", sys.marking());
         } else {
             println!("Step {step:>2}: DEADLOCK");
             break;
@@ -114,7 +114,7 @@ fn main() {
 
         if let Some(t) = fired {
             let name = net.labels.as_ref().unwrap().transition_name(t).unwrap_or("unnamed transition");
-            println!("Step {step:>2}: fire {name:<8} → {:?}", sys.current_marking());
+            println!("Step {step:>2}: fire {name:<8} → {:?}", sys.marking());
         } else {
             println!("Step {step:>2}: DEADLOCK");
             break;
@@ -132,11 +132,11 @@ fn main() {
 
     println!("Requesting access for process 1...");
     sys.try_fire(t_req1).expect("should succeed");
-    println!("  Marking: {:?}", sys.current_marking());
+    println!("  Marking: {:?}", sys.marking());
 
     println!("Entering critical section...");
     sys.try_fire(t_enter1).expect("should succeed");
-    println!("  Marking: {:?}", sys.current_marking());
+    println!("  Marking: {:?}", sys.marking());
 
     println!("Process 2 requests and tries to enter...");
     sys.try_fire(t_req2).expect("should succeed");
@@ -147,11 +147,11 @@ fn main() {
 
     println!("Process 1 exits critical section...");
     sys.try_fire(t_exit1).expect("should succeed");
-    println!("  Marking: {:?}", sys.current_marking());
+    println!("  Marking: {:?}", sys.marking());
 
     println!("Now process 2 can enter...");
     sys.try_fire(t_enter2).expect("should succeed");
-    println!("  Marking: {:?}", sys.current_marking());
+    println!("  Marking: {:?}", sys.marking());
 
     println!("\n=== Done ===");
 }

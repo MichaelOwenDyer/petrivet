@@ -55,8 +55,8 @@ fn philo_initial_marking() {
     let doc = load("tests/fixtures/philo.pnml");
     let (sys, _) = first_pt_net(&doc);
 
-    let total = sys.current_marking().total_tokens();
-    let marked = sys.current_marking().support().count();
+    let total = sys.marking().total_tokens();
+    let marked = sys.marking().support().count();
     assert_eq!(total, 12, "total tokens");
     assert_eq!(marked, 12, "marked places");
 }
@@ -112,7 +112,7 @@ fn token_ring_zero_initial_marking() {
     let doc = load("tests/fixtures/token-ring.pnml");
     let (sys, _) = first_pt_net(&doc);
 
-    let total = sys.current_marking().total_tokens();
+    let total = sys.marking().total_tokens();
     assert_eq!(total, 0, "token-ring has no initial marking in the file");
 }
 
@@ -162,8 +162,8 @@ fn pool_initial_marking() {
     let doc = load("tests/fixtures/swimming-pool.pnml");
     let (sys, _) = first_pt_net(&doc);
 
-    let total = sys.current_marking().total_tokens();
-    let marked = sys.current_marking().support().count();
+    let total = sys.marking().total_tokens();
+    let marked = sys.marking().support().count();
     assert_eq!(total, 5, "total tokens");
     assert_eq!(marked, 3, "marked places");
 }
@@ -211,7 +211,7 @@ fn mcc_champagne_h04_t1u_parses() {
     assert_eq!(sys.place_count(), 285);
     assert_eq!(sys.transition_count(), 351);
     assert_eq!(sys.arc_count(), 820);
-    let total_tokens = sys.initial_marking().total_tokens();
+    let total_tokens = sys.marking().total_tokens();
     assert_eq!(total_tokens, 1);
     let nupn = labels.nupn().expect("MCC Champagne carries NUPN");
     assert_eq!(nupn.size.places, 285);

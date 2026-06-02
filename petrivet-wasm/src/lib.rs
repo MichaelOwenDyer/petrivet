@@ -74,7 +74,7 @@ impl WasmSystem {
             .find_map(|net| net.to_pt_system().ok())
             .ok_or_else(|| JsError::new("no P/T net found in PNML document"))?;
 
-        let initial_marking = system.current_marking().clone();
+        let initial_marking = system.marking().clone();
         let place_keys: Vec<Place> = system.places().collect();
         let transition_keys: Vec<Transition> = system.transitions().collect();
         let (net, _initial_marking, current_marking) = system.into_parts();
@@ -482,13 +482,13 @@ impl WasmSystem {
                     ReachabilityProof::FiringSequence(..) => {
                         WasmReachabilityProof::FiringSequence
                     }
-                    ReachabilityProof::StronglyConnectedSNetTokenConservation {
+                    ReachabilityProof::StronglyConnectedStateMachine {
                         marking_sum,
                     } => WasmReachabilityProof::SNetTokenConservation { marking_sum: *marking_sum },
-                    ReachabilityProof::SNetMarkingEquationRationalSolution(..) => {
+                    ReachabilityProof::StateMachineMarkingEquationRationalSolution(..) => {
                         WasmReachabilityProof::SNetMarkingEquation
                     }
-                    ReachabilityProof::TNetMarkingEquationIntegerSolution(..) => {
+                    ReachabilityProof::MarkedGraphMarkingEquationIntegerSolution(..) => {
                         WasmReachabilityProof::TNetMarkingEquation
                     }
                 };
@@ -496,7 +496,7 @@ impl WasmSystem {
             }
             ReachabilityResult::Unreachable(proof) => {
                 let wasm_proof = match proof {
-                    UnreachabilityProof::SNetTokenConservationViolation {
+                    UnreachabilityProof::StateMachineTokenConservation {
                         initial_marking_sum,
                         target_marking_sum,
                     } => WasmUnreachabilityProof::SNetTokenConservationViolation {

@@ -9,7 +9,7 @@ fn main() {
     let champagne = std::fs::read_to_string(path).unwrap();
 
     let system = PetriNet::from_pnml(&champagne).unwrap();
-    println!("{:?}", system.initial_marking());
+    println!("{:?}", system.marking());
     let enabled = system.enabled_transitions().collect::<Box<_>>();
     println!("{enabled:?}");
 

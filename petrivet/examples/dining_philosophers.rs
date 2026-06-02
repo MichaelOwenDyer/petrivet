@@ -78,7 +78,7 @@ fn main() {
         println!("Philosopher {i} takes left fork");
     }
 
-    println!("Marking after all take left fork: {:?}", sys.current_marking());
+    println!("Marking after all take left fork: {:?}", sys.marking());
     if sys.is_deadlocked() {
         println!("All philosophers have taken their left fork, but no one can eat! DEADLOCK\n");
     } else {

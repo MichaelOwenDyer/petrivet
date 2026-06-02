@@ -54,17 +54,16 @@
 //! sys.fire_any();
 //! ```
 
-use crate::api::model::{BoundednessAnalysis, BoundednessAnalysisMethod, CoverabilityProof, CoverabilityResult, DeadlockAnalysis, DeadlockAnalysisMethod, LivenessMethod, NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof};
-use crate::core::analysis::semi_decision;
-use crate::core::analysis::siphon_trap;
-use crate::core::liveness::LivenessLevel;
-use crate::core::mapping::DenseMapping;
+pub mod boundedness;
+pub mod coverability;
+pub mod reachability;
+pub mod deadlock_freedom;
+pub mod liveness;
+
 use crate::core::marking::IdxMarking;
-use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::core::state_space::ExplorationOrder;
-use crate::model::{CommonerHackCriterionResult, LivenessAnalysis, SiphonTrapPair};
 use crate::prelude::{Marking, Net, Place, Transition};
-use crate::state_space::{CoverabilityExplorer, CoverabilityGraph, Omega, OmegaMarking};
+use crate::state_space::{CoverabilityExplorer, CoverabilityGraph};
 use crate::state_space::{ReachabilityExplorer, ReachabilityGraph};
 use std::fmt;
 use std::ops::Deref;
@@ -102,11 +101,12 @@ pub struct PetriNet<N = Net> {
     /// This is purposefully not called the *initial* marking because the other marking
     /// field serves as the de-facto initial marking for analysis questions, even if it
     /// was previously mutated through simulation.
-    pub(crate) reset: IdxMarking<u32>,
+    reset: IdxMarking<u32>,
     /// The mutable current marking of the system, which changes as transitions are fired.
     ///
     /// The current state of this marking is used as the starting point, or "initial marking",
     /// for all analysis procedures.
+    // todo: make private
     pub(crate) marking: IdxMarking<u32>,
 }
 
@@ -118,37 +118,31 @@ impl<N: AsRef<Net>> Deref for PetriNet<N> {
     }
 }
 
+// construction and simulation
 impl<N: AsRef<Net>> PetriNet<N> {
     /// Creates a new Petri net from a net and initial marking.
     #[must_use]
     pub fn new(net: N, initial_marking: impl Into<Marking<u32>>) -> Self {
         let initial_marking = initial_marking.into();
-        let initial_marking = net.as_ref().mapping.idx_marking(initial_marking);
-        let current_marking = initial_marking.clone();
-        Self { net, reset: initial_marking, marking: current_marking }
+        let marking = net.as_ref().mapping.idx_marking(initial_marking);
+        let reset = marking.clone();
+        Self { net, reset, marking }
+    }
+
+    /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
+    #[must_use]
+    pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
+        let PetriNet { net, reset: initial_marking, marking: current_marking } = self;
+        let initial_marking = net.as_ref().mapping.marking(initial_marking);
+        let current_marking = net.as_ref().mapping.marking(current_marking);
+        (net, initial_marking, current_marking)
     }
 
     /// Returns the current marking of the system.
     #[must_use]
-    pub fn current_marking(&self) -> Marking<u32> {
+    pub fn marking(&self) -> Marking<u32> {
         let current_marking = self.marking.clone();
         self.mapping.marking(current_marking)
-    }
-
-    /// Returns the initial marking of the system.
-    pub fn initial_marking(&self) -> Marking<u32> {
-        let initial_marking = self.reset.clone();
-        self.mapping.marking(initial_marking)
-    }
-
-    /// Resets the current marking to the initial marking.
-    /// Returns the marking before the reset.
-    pub fn reset(&mut self) -> Marking<u32> {
-        let previous = std::mem::replace(
-            &mut self.marking,
-            self.reset.clone()
-        );
-        self.mapping.marking(previous)
     }
 
     /// Returns the token count at a place identified by its [`Place`].
@@ -160,93 +154,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
             .map_or(0, |p_idx| self.marking[p_idx])
     }
 
-    /// Returns a [`ReachabilityExplorer`] for this system
-    /// initialized with the given [`ExplorationOrder`].
-    pub fn explore_reachability(&self, order: ExplorationOrder) -> ReachabilityExplorer<'_> {
-        ReachabilityExplorer::new(self, order)
-    }
-
-    /// Returns a
-    pub fn explore_coverability(&self, order: ExplorationOrder) -> CoverabilityExplorer<'_> {
-        CoverabilityExplorer::new(self, order)
-    }
-
-    /// Returns the complete coverability graph for this system.
-    ///
-    /// Warning! This may be a HUGE structure!
-    pub fn build_coverability_graph(&self) -> CoverabilityGraph<'_> {
-        self.explore_coverability(ExplorationOrder::BreadthFirst).build_graph()
-    }
-
-    /// Returns the complete reachability graph for this system.
-    ///
-    /// WARNING! For unbounded nets, this will not terminate!
-    pub fn build_reachability_graph(&self) -> ReachabilityGraph<'_> {
-        self.explore_reachability(ExplorationOrder::BreadthFirst).build_graph()
-    }
-
-    /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
-    /// returning either itself if the system is bounded or a partially-explored
-    /// [`CoverabilityExplorer`] if it is unbounded.
-    ///
-    /// Not knowing whether we will encounter unboundedness, this method first
-    /// constructs a Karp-Miller coverability tree which introduces ω as soon
-    /// as unbounded growth is detected. This comes at the cost of an additional
-    /// check per explored marking (omega acceleration). If we finish exploring
-    /// the coverability tree without ever introducing ω, we have in fact explored
-    /// the full reachability graph and can return it directly. Otherwise, we return
-    /// the [`CoverabilityExplorer`] in its current state, which contains the explored
-    /// portion of the coverability graph up to the first ω, and can be further explored.
-    ///
-    /// This is the right entry point when you want the speed of exploring
-    /// the reachability graph directly but cannot rule out unboundedness
-    /// upfront. For unbounded nets you avoid the cost of completing the
-    /// full coverability graph; for bounded nets the cost is identical to
-    /// `build_reachability_graph` (no ω is ever introduced, no extra work).
-    ///
-    /// # Errors
-    /// Returns `Err(partial_explorer)` as soon as any explored marking
-    /// contains ω. The frontier is preserved, so callers may resume.
-    #[allow(clippy::result_large_err)]
-    pub fn try_build_reachability_graph(&self) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
-        CoverabilityExplorer::new(self, ExplorationOrder::BreadthFirst).try_build_reachability_graph()
-    }
-
-    /// Returns true if some reachable marking puts more than one token in any place.
-    pub fn has_reachable_unsafe_marking(&self) -> bool {
-        self.explore_reachability(ExplorationOrder::BreadthFirst)
-            .core
-            .find(|m| m.iter().any(|&t| t > 1))
-            .is_some()
-    }
-
-    /// Returns true if state space enumeration encounters any deadlock marking.
-    pub fn has_reachable_deadlock_marking(&self) -> bool {
-        self.explore_reachability(ExplorationOrder::BreadthFirst)
-            .core
-            .find(|m| self.dense_net.is_deadlock(m))
-            .is_some()
-    }
-
-    /// True iff structural analysis alone proves the net 1-safe under the
-    /// initial marking. Uses [`find_positive_place_subvariant`] to derive
-    /// per-place upper bounds in polynomial time; if every place is bounded
-    /// by 1, the answer is TRUE without any state-space exploration.
-    /// Returns `false` when the bound is loose or the LP is infeasible —
-    /// it is a one-sided check, not a decision procedure.
-    ///
-    /// [`find_positive_place_subvariant`]: semi_decision::find_positive_place_subvariant
-    pub fn is_structurally_one_safe(&self) -> bool {
-        use crate::core::analysis::semi_decision::find_positive_place_subvariant;
-        let Some(weights) = find_positive_place_subvariant(&self.dense_net) else {
-            return false;
-        };
-        let weighted_sum: f64 = weights.iter()
-            .zip(self.reset.iter())
-            .map(|(&w, &m)| w * f64::from(m))
-            .sum();
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-        weights.iter().all(|&w| (weighted_sum / w).floor() as u32 <= 1)
+    /// Resets the current marking to the initial marking.
+    /// Returns the marking before the reset.
+    pub fn reset(&mut self) -> Marking<u32> {
+        let previous = std::mem::replace(
+            &mut self.marking,
+            self.reset.clone()
+        );
+        self.mapping.marking(previous)
     }
 
     /// Whether a transition is enabled under the current marking.
@@ -327,346 +242,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
         }
     }
-
-    /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
-    #[must_use]
-    pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
-        let PetriNet { net, reset: initial_marking, marking: current_marking } = self;
-        let initial_marking = net.as_ref().mapping.marking(initial_marking);
-        let current_marking = net.as_ref().mapping.marking(current_marking);
-        (net, initial_marking, current_marking)
-    }
-}
-
-impl<N: AsRef<Net>> PetriNet<N> {
-    /// Checks the Commoner/Hack criterion, which is fulfilled when all siphons in the system
-    /// contain a trap marked at the initial marking.
-    /// This is a necessary and sufficient condition for liveness in free-choice nets,
-    /// and a sufficient condition for deadlock-freedom in general nets.
-    pub fn commoner_hack_criterion(&self) -> CommonerHackCriterionResult {
-        fn to_api(mapping: &DenseMapping, pair: siphon_trap::SiphonTrapPair) -> SiphonTrapPair {
-            SiphonTrapPair {
-                siphon: pair.siphon.into_iter().map(|p_idx| mapping.place(p_idx)).collect(),
-                trap: pair.trap.into_iter().map(|p_idx| mapping.place(p_idx)).collect(),
-            }
-        }
-
-        siphon_trap::commoner_hack_criterion(&self.dense_net, &self.marking)
-            .map(|siphon_trap_pairs| {
-                siphon_trap_pairs.into_iter().map(|pair| to_api(&self.mapping, pair)).collect()
-            })
-            .map_err(|counterexample| {
-                to_api(&self.mapping, counterexample)
-            })
-    }
-
-    /// Analyzes boundedness and returns per-place bounds with evidence.
-    ///
-    /// Strategy (ascending cost):
-    /// 1. Structural boundedness LP: if feasible, derives upper bounds from
-    ///    the weight vector and the initial marking. Fast but bounds may be loose.
-    /// 2. Coverability graph: always terminates. Gives exact per-place bounds.
-    #[must_use]
-    pub fn analyze_boundedness(&self) -> BoundednessAnalysis {
-        // todo: also consider checking for semi-positive subvariants for subsections of the net.
-        //  but how to decide which places to check?
-        if let Some(place_weights) = semi_decision::find_positive_place_subvariant(&self.dense_net) {
-            // Esparza lecture notes proposition 4.3.8
-            let weighted_sum: f64 = place_weights.iter()
-                .zip(self.reset.iter())
-                .map(|(&weight, &tokens)| weight * f64::from(tokens))
-                .sum();
-            let bounds = self.places()
-                .zip(place_weights.iter())
-                .map(|(place, &weight)| {
-                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                    let bound = (weighted_sum / weight).floor() as u32;
-                    (place, Omega::Finite(bound))
-                })
-                .collect();
-
-            return BoundednessAnalysis {
-                bounds,
-                method: BoundednessAnalysisMethod::PositivePlaceSubvariant(place_weights),
-            };
-        }
-
-        BoundednessAnalysis {
-            bounds: self.build_coverability_graph().place_bounds(),
-            method: BoundednessAnalysisMethod::CoverabilityGraph,
-        }
-    }
-
-    /// Analyzes liveness and returns per-transition levels with evidence.
-    ///
-    /// Strategy (ascending cost):
-    /// 1. **S-nets**: SCC decomposition of the place graph. Polynomial.
-    ///    Sink SCCs → L4, non-sink SCCs → L3, inter-SCC → L1.
-    /// 2. **T-nets**: SCC decomposition of the transition graph. Polynomial.
-    ///    Every transition is L0 or L4 (circuit token invariance).
-    /// 3. **Free-choice nets**: Commoner's theorem (structural).
-    ///    If the criterion holds, all transitions are L4.
-    /// 4. **General**: CG → RG → SCC analysis (exponential worst-case).
-    #[must_use]
-    pub fn analyze_liveness(&self) -> LivenessAnalysis {
-        // TODO: Optimize for state machines and marked graphs
-        //  by analyzing SCCs of the appropriate graph
-
-        if self.class().is_free_choice()
-            && let chc = self.commoner_hack_criterion()
-            && chc.is_ok() {
-            return LivenessAnalysis {
-                levels: self.transitions().zip(std::iter::repeat(LivenessLevel::L4)).collect(),
-                method: LivenessMethod::FreeChoice(chc),
-            };
-        }
-
-        match self.try_build_reachability_graph() {
-            Ok(rg) => rg.transition_liveness(),
-            Err(_cg) => {
-                // TODO: liveness for unbounded nets
-                LivenessAnalysis {
-                    levels: self.transitions().zip(std::iter::repeat(LivenessLevel::L0)).collect(),
-                    method: LivenessMethod::Inconclusive,
-                }
-            }
-        }
-    }
-
-    /// Analyzes deadlock-freedom and returns deadlock witnesses with evidence.
-    ///
-    /// Strategy:
-    /// 1. Siphon/trap check (Commoner criterion): if every siphon contains
-    ///    a marked trap, the system is deadlock-free (no exploration needed).
-    /// 2. If the structural check is inconclusive, escalates to state space
-    ///    exploration (CG → RG) and reports all reachable deadlocks with
-    ///    firing sequences.
-    #[must_use]
-    pub fn analyze_deadlock_freedom(&self) -> DeadlockAnalysis {
-        if let chc = self.commoner_hack_criterion()
-            && chc.is_ok() {
-            return DeadlockAnalysis {
-                deadlocks: Box::new([]),
-                evidence: DeadlockAnalysisMethod::CommonerTheorem(chc),
-            };
-        }
-
-        match self.try_build_reachability_graph() {
-            Ok(rg) => {
-                let deadlocks = rg.deadlocks().collect();
-                DeadlockAnalysis {
-                    deadlocks,
-                    evidence: DeadlockAnalysisMethod::Exploration,
-                }
-            }
-            Err(_cg) => {
-                // TODO: deadlock-freedom for unbounded nets is currently inconclusive rather than attempting infinite exploration.
-                DeadlockAnalysis {
-                    deadlocks: Box::new([]),
-                    evidence: DeadlockAnalysisMethod::Inconclusive,
-                }
-            }
-        }
-    }
-
-    /// Analyzes reachability of a target marking with structured evidence.
-    ///
-    /// Returns [`ReachabilityResult::Reachable`] with a firing sequence,
-    /// [`ReachabilityResult::Unreachable`] with a proof, or
-    /// [`ReachabilityResult::Inconclusive`] if current algorithms cannot decide.
-    ///
-    /// Strategy (ascending cost):
-    /// 1. **S-nets**: token conservation (exact, polynomial).
-    /// 2. **T-nets**: ILP marking equation (exact).
-    /// 3. **General**: LP filter → ILP filter → state space exploration.
-    ///
-    /// For unbounded general nets where LP/ILP filters pass, returns
-    /// `Inconclusive` rather than attempting infinite exploration.
-    #[must_use]
-    pub fn analyze_reachability(&self, target: Marking<u32>) -> ReachabilityResult {
-        let idx_target = self.mapping.idx_marking(target.clone());
-
-        if self.marking == idx_target {
-            return ReachabilityProof::FiringSequence(Box::new([])).into();
-        }
-
-        if self.class().is_state_machine() {
-            if self.is_strongly_connected() {
-                let initial_marking_sum = self.marking.iter().sum::<u32>();
-                let target_marking_sum = idx_target.iter().sum::<u32>();
-                return if initial_marking_sum == target_marking_sum {
-                    ReachabilityProof::StronglyConnectedStateMachine {
-                        marking_sum: initial_marking_sum,
-                    }.into()
-                } else {
-                    UnreachabilityProof::StateMachineTokenConservation.into()
-                };
-            }
-            return semi_decision::find_marking_equation_rational_solution(
-                &self.dense_net,
-                &self.marking,
-                &idx_target
-            ).map_or_else(
-                || UnreachabilityProof::MarkingEquationNoRationalSolution.into(),
-                |solution| {
-                    let solution = self.transitions().zip(solution).collect();
-                    ReachabilityProof::StateMachineMarkingEquationRationalSolution(solution).into()
-                }
-            )
-        }
-
-        if self.class().is_marked_graph() {
-            return semi_decision::find_marking_equation_integer_solution(
-                &self.dense_net,
-                &self.marking,
-                &idx_target
-            ).map_or_else(
-                || UnreachabilityProof::MarkingEquationNoIntegerSolution.into(),
-                |solution| {
-                    let solution = self.transitions().zip(solution).collect();
-                    ReachabilityProof::MarkedGraphMarkingEquationIntegerSolution(solution).into()
-                }
-            )
-        }
-
-        if semi_decision::find_marking_equation_rational_solution(
-            &self.dense_net,
-            &self.marking,
-            &idx_target,
-        ).is_none() {
-            return UnreachabilityProof::MarkingEquationNoRationalSolution.into();
-        }
-
-        // todo: only test ILP if the rational solution is already an integer solution
-        if semi_decision::find_marking_equation_integer_solution(
-            &self.dense_net,
-            &self.marking,
-            &idx_target,
-        ).is_none() {
-            return UnreachabilityProof::MarkingEquationNoIntegerSolution.into();
-        }
-
-        match self.try_build_reachability_graph() {
-            Ok(rg) => {
-                // todo: pass IdxMarking
-                rg.find_path_from_initial(target).map_or_else(
-                    || UnreachabilityProof::ExhaustiveSearch.into(),
-                    |path| ReachabilityProof::FiringSequence(path).into()
-                )
-            }
-            Err(_cg) => {
-                ReachabilityResult::Inconclusive
-            }
-        }
-    }
-
-    /// Analyzes coverability of a target marking with structured evidence.
-    ///
-    /// A marking `target` is **coverable** if there exists a reachable marking `M`
-    /// such that `M(p) >= target(p)` for every place `p`.
-    ///
-    /// Strategy (ascending cost):
-    /// 1. Trivial: if `M₀ >= target`, return immediately.
-    /// 2. LP covering equation (necessary): if infeasible, `target` is uncoverable.
-    /// 3. ILP covering equation (stronger necessary): if infeasible, uncoverable.
-    /// 4. Coverability graph (Karp–Miller): always terminates; exact.
-    ///
-    /// References:
-    /// - [Murata 1989, §V-A](crate::literature#v-a--the-coverability-tree) (coverability tree properties)
-    /// - [Primer, Proposition 3.23](crate::literature#proposition-323--finiteness-of-the-coverability-trees-and-graphs) (termination)
-    /// - [Primer, Proposition 3.27](crate::literature#proposition-327--all-that-can-be-checked-on-a-coverability-graph) (coverability via Cov(N))
-    /// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation) (necessary condition underpinning LP/ILP filters)
-    /// - [Esparza Lecture Notes, Theorem 3.2.5](crate::literature#theorem-325--coverability-graph-terminates) (termination, supplementary)
-    /// - [Esparza Lecture Notes, Theorem 3.2.8](crate::literature#theorem-328--coverability-characterization) (correctness, supplementary)
-    #[must_use]
-    pub fn analyze_coverability(&self, target: Marking<u32>) -> CoverabilityResult {
-        let target_idx_marking = self.mapping.idx_marking(target.clone());
-
-        if self.marking >= target_idx_marking {
-            return CoverabilityProof {
-                firing_sequence: Box::new([]),
-                covering_marking: self.mapping.marking(IdxOmegaMarking::from(self.marking.clone())),
-            }.into();
-        }
-
-        if semi_decision::find_covering_equation_rational_solution(
-            &self.dense_net,
-            &self.marking,
-            &target_idx_marking
-        ).is_none() {
-            return NonCoverabilityProof::MarkingEquationNoRationalSolution.into();
-        }
-
-        // todo: only test ILP if the rational solution is not already an integer solution
-        if semi_decision::find_covering_equation_integer_solution(
-            &self.dense_net,
-            &self.marking,
-            &target_idx_marking
-        ).is_none() {
-            return NonCoverabilityProof::MarkingEquationNoIntegerSolution.into();
-        }
-
-        // todo: backwards coverability
-        let mut explorer = self.explore_coverability(ExplorationOrder::BreadthFirst);
-        explorer
-            .find_cover(OmegaMarking::from(target))
-            .map_or_else(
-                || NonCoverabilityProof::ExhaustiveSearch.into(),
-                |cover| {
-                    let firing_sequence = explorer.find_path_from_initial(cover.clone()).unwrap();
-                    CoverabilityProof {
-                        firing_sequence,
-                        covering_marking: cover,
-                    }.into()
-                }
-            )
-    }
-
-    /// Whether the system is bounded (all places have finite token counts
-    /// across all reachable markings).
-    ///
-    /// Delegates to [`analyze_boundedness`](Self::analyze_boundedness).
-    #[must_use]
-    pub fn is_bounded(&self) -> bool {
-        self.analyze_boundedness().system_bound().is_finite()
-    }
-
-    /// Whether the system is live (L4): every transition can fire from
-    /// every reachable marking (possibly after further firings).
-    ///
-    /// Delegates to [`analyze_liveness`](Self::analyze_liveness).
-    #[must_use]
-    pub fn is_live(&self) -> bool {
-        self.analyze_liveness().global_level().is_live()
-    }
-
-    /// Whether the system is deadlock-free: no reachable marking has zero
-    /// enabled transitions.
-    ///
-    /// This is a convenience method which delegates to
-    /// [`analyze_deadlock_freedom`](Self::analyze_deadlock_freedom)
-    /// and throws away the witnesses and evidence.
-    /// For detailed analysis, call the latter method directly
-    #[must_use]
-    pub fn is_deadlock_free(&self) -> bool {
-        self.analyze_deadlock_freedom().is_deadlock_free()
-    }
-
-    /// Whether `target` is reachable from the initial marking.
-    ///
-    /// Delegates to [`analyze_reachability`](Self::analyze_reachability).
-    /// Returns `false` for inconclusive results.
-    #[must_use]
-    pub fn is_reachable(&self, target: Marking<u32>) -> bool {
-        self.analyze_reachability(target).is_reachable()
-    }
-
-    /// Whether `target` is coverable from the initial marking.
-    ///
-    /// Delegates to [`analyze_coverability`](Self::analyze_coverability).
-    pub fn is_coverable(&self, target: Marking<u32>) -> bool {
-        self.analyze_coverability(target).is_coverable()
-    }
 }
 
 /// Error returned when attempting to fire a transition that is not enabled.
@@ -682,6 +257,62 @@ impl fmt::Display for NotEnabled {
 }
 
 impl std::error::Error for NotEnabled {}
+
+// state space convenience methods
+impl<N: AsRef<Net>> PetriNet<N> {
+    /// Returns a [`CoverabilityExplorer`] for this system
+    /// initialized with the given [`ExplorationOrder`].
+    pub fn explore_coverability(&self, order: ExplorationOrder) -> CoverabilityExplorer<'_> {
+        CoverabilityExplorer::new(self, order)
+    }
+
+    /// Returns the complete coverability graph for this system.
+    ///
+    /// Warning! This may be a HUGE structure!
+    pub fn build_coverability_graph(&self) -> CoverabilityGraph<'_> {
+        self.explore_coverability(ExplorationOrder::BreadthFirst).build_graph()
+    }
+
+    /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
+    /// returning either itself if the system is bounded or a partially-explored
+    /// [`CoverabilityExplorer`] if it is unbounded.
+    ///
+    /// Not knowing whether we will encounter unboundedness, this method first
+    /// constructs a Karp-Miller coverability tree which introduces ω as soon
+    /// as unbounded growth is detected. This comes at the cost of an additional
+    /// check per explored marking (omega acceleration). If we finish exploring
+    /// the coverability tree without ever introducing ω, we have in fact explored
+    /// the full reachability graph and can return it directly. Otherwise, we return
+    /// the [`CoverabilityExplorer`] in its current state, which contains the explored
+    /// portion of the coverability graph up to the first ω, and can be further explored.
+    ///
+    /// This is the right entry point when you want the speed of exploring
+    /// the reachability graph directly but cannot rule out unboundedness
+    /// upfront. For unbounded nets you avoid the cost of completing the
+    /// full coverability graph; for bounded nets the cost is identical to
+    /// `build_reachability_graph` (no ω is ever introduced, no extra work).
+    ///
+    /// # Errors
+    /// Returns `Err(partial_explorer)` as soon as any explored marking
+    /// contains ω. The frontier is preserved, so callers may resume.
+    #[allow(clippy::result_large_err)]
+    pub fn try_build_reachability_graph(&self) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
+        self.explore_coverability(ExplorationOrder::BreadthFirst).try_build_reachability_graph()
+    }
+
+    /// Returns a [`ReachabilityExplorer`] for this system
+    /// initialized with the given [`ExplorationOrder`].
+    pub fn explore_reachability(&self, order: ExplorationOrder) -> ReachabilityExplorer<'_> {
+        ReachabilityExplorer::new(self, order)
+    }
+
+    /// Returns the complete reachability graph for this system.
+    ///
+    /// WARNING! For unbounded nets, this will not terminate!
+    pub fn build_reachability_graph(&self) -> ReachabilityGraph<'_> {
+        self.explore_reachability(ExplorationOrder::BreadthFirst).build_graph()
+    }
+}
 
 #[cfg(feature = "pnml")]
 mod pnml {
@@ -763,10 +394,10 @@ mod tests {
     fn basic_firing() {
         let (net, p0, t0, p1, _t1) = two_place_cycle();
         let mut sys = net.with_initial_marking([(p0, 1)]);
-        assert_eq!(sys.current_marking(), [(p0, 1)].into());
+        assert_eq!(sys.marking(), [(p0, 1)].into());
         assert!(sys.is_enabled(t0));
         sys.try_fire(t0).unwrap();
-        assert_eq!(sys.current_marking(), [(p1, 1)].into());
+        assert_eq!(sys.marking(), [(p1, 1)].into());
     }
 
     #[test]
