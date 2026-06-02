@@ -213,7 +213,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     #[must_use]
     pub fn place_bounds(&self) -> Marking<T> {
         let place_bounds = self.state_space.markings().fold(
-            IdxMarking::zeros(self.state_space.net.place_count()),
+            IdxMarking::zeros(self.mapping.place_count()),
             IdxMarking::componentwise_max,
         );
         self.mapping.marking(place_bounds)
@@ -303,7 +303,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
         let mut markings = self.state_space.markings();
         let first = markings.next().expect("initial marking is always present");
         // Per-place flag: is the count still equal to its first-observed value?
-        let mut still_stable: Box<[bool]> = vec![true; self.state_space.net.place_count() as usize].into_boxed_slice();
+        let mut still_stable: Box<[bool]> = vec![true; self.mapping.place_count() as usize].into_boxed_slice();
         for marking in markings {
             for (p_idx, token_count) in marking.iter().copied().enumerate() {
                 if still_stable[p_idx] && token_count != first[p_idx] {

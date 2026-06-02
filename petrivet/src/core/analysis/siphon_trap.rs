@@ -184,10 +184,6 @@ pub fn minimal_traps(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
 pub fn minimal_siphons_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
-    if net.place_count() == 0 {
-        return Box::new([]);
-    }
-
     let mut results: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
 
     let mut vars = ProblemVariables::new();
@@ -248,10 +244,6 @@ pub fn minimal_siphons_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
 #[expect(unused)]
 pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
-
-    if net.place_count() == 0 {
-        return Box::new([]);
-    }
 
     let mut results: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
     let mut no_good_sets: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();

@@ -41,14 +41,14 @@ pub struct DenseNet {
 impl DenseNet {
     /// Number of places in the net.
     #[must_use]
-    pub fn place_count(&self) -> u32 {
-        u32::try_from(self.preset_p.len()).expect("cannot be built with more than u32::MAX places")
+    pub fn place_count(&self) -> usize {
+        self.preset_p.len()
     }
 
     /// Number of transitions in the net.
     #[must_use]
-    pub fn transition_count(&self) -> u32 {
-        u32::try_from(self.preset_t.len()).expect("cannot be built with more than u32::MAX transitions")
+    pub fn transition_count(&self) -> usize {
+        self.preset_t.len()
     }
 
     /// Number of nodes in the net (places + transitions).

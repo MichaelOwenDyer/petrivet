@@ -39,7 +39,7 @@ impl DenseStateGraph<'_, u32> {
     pub fn liveness_levels(&self) -> impl Iterator<Item = LivenessLevel> {
         use petgraph::visit::EdgeRef;
 
-        let transition_count = self.net.transition_count() as usize;
+        let transition_count = self.net.transition_count();
         let graph = &self.graph;
         let sccs = petgraph::algo::tarjan_scc(graph);
 

@@ -113,10 +113,6 @@ fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
     variable_def: &VariableDefinition,
     extract: F,
 ) -> Option<Box<[T]>> {
-    if net.transition_count() == 0 {
-        return Some(Box::new([]));
-    }
-
     let mut variables = ProblemVariables::new();
     let firing_counts: Box<[Variable]> = net
         .transition_indices()
@@ -211,10 +207,6 @@ fn find_covering_equation_solution<T, F: Fn(f64) -> T>(
     variable_def: &VariableDefinition,
     extract: F,
 ) -> Option<Box<[T]>> {
-    if net.transition_count() == 0 {
-        return Some(Box::new([]));
-    }
-
     let mut variables = ProblemVariables::new();
     let parikh_vector: Box<[Variable]> = net
         .transition_indices()
@@ -298,10 +290,6 @@ pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
     net: &DenseNet,
     mut covering: F,
 ) -> Option<Box<[f64]>> {
-    if net.place_count() == 0 {
-        return Some(Box::from([]));
-    }
-
     let mut variables = ProblemVariables::new();
     let place_weights: Box<[Variable]> = net.place_indices()
         .map(|p| {

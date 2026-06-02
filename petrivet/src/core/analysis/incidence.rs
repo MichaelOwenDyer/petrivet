@@ -23,8 +23,8 @@ impl IncidenceMatrix {
     /// Constructs the |P| × |T| incidence matrix for a given net.
     #[must_use]
     pub fn new(net: &DenseNet) -> Self {
-        let rows = net.place_count() as usize;
-        let cols = net.transition_count() as usize;
+        let rows = net.place_count();
+        let cols = net.transition_count();
         let mut data = vec![0; rows * cols].into_boxed_slice();
         for t in net.transition_indices() {
             for &p in &net.preset_t[t] {

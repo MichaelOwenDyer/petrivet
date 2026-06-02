@@ -94,11 +94,10 @@ impl<'a> CoverabilityExplorer<'a> {
                 return Err(self);
             }
         }
-        let cg = CoverabilityGraph {
+        ReachabilityGraph::try_from(CoverabilityGraph {
             state_space: self.core.state_space,
             mapping: self.mapping,
-        };
-        cg.into_reachability_graph().map_err(|_| {
+        }).map_err(|_| {
             unreachable!("ω-free CG must promote successfully; ω would have been detected above")
         })
     }
@@ -147,7 +146,7 @@ impl<'a> CoverabilityGraph<'a> {
     /// Returns `Err(self)` if any marking contains ω, so you don't lose
     /// the coverability graph.
     #[allow(clippy::result_large_err)]
-    pub fn into_reachability_graph(self) -> Result<ReachabilityGraph<'a>, Self> {
+    pub fn try_into_reachability_graph(self) -> Result<ReachabilityGraph<'a>, Self> {
         ReachabilityGraph::try_from(self)
     }
 }
@@ -314,7 +313,7 @@ mod tests {
     fn promotion_bounded() {
         let (sys, _p0, _p1) = two_place_cycle();
         let cg = sys.build_coverability_graph();
-        let rg = cg.into_reachability_graph().expect("should be bounded");
+        let rg = cg.try_into_reachability_graph().expect("should be bounded");
 
         assert_eq!(rg.marking_count(), 2);
     }
@@ -323,7 +322,7 @@ mod tests {
     fn promotion_unbounded_returns_err() {
         let (sys, _, _) = unbounded_producer();
         let cg = sys.build_coverability_graph();
-        let result = cg.into_reachability_graph();
+        let result = cg.try_into_reachability_graph();
         assert!(result.is_err());
     }
 
@@ -402,7 +401,7 @@ mod tests {
         let cg_states = cg.marking_count();
         let cg_edges = cg.transition_count();
 
-        let rg = cg.into_reachability_graph().expect("bounded");
+        let rg = cg.try_into_reachability_graph().expect("bounded");
         assert_eq!(rg.marking_count(), cg_states);
         assert_eq!(rg.transition_count(), cg_edges);
         for marking in rg.markings() {
@@ -499,7 +498,7 @@ mod tests {
 
         assert!(cg.cover([(crit1, 1.into()), (crit2, 1.into())].into()).is_none());
 
-        let rg = cg.into_reachability_graph().expect("bounded");
+        let rg = cg.try_into_reachability_graph().expect("bounded");
         assert_eq!(rg.marking_count(), 8);
     }
 }

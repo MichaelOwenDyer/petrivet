@@ -346,11 +346,11 @@ pub type FiringSequence = Box<[Transition]>;
 
 #[derive(Debug, Clone)]
 pub enum ReachabilityProof {
-    StronglyConnectedSNetTokenConservation {
+    StronglyConnectedStateMachine {
         marking_sum: u32,
     },
-    SNetMarkingEquationRationalSolution(Box<[(Transition, f64)]>),
-    TNetMarkingEquationIntegerSolution(Box<[(Transition, u32)]>),
+    StateMachineMarkingEquationRationalSolution(Box<[(Transition, f64)]>),
+    MarkedGraphMarkingEquationIntegerSolution(Box<[(Transition, u32)]>),
     FiringSequence(Box<[Transition]>),
 }
 
@@ -372,7 +372,7 @@ impl ReachabilityProof {
 pub enum UnreachabilityProof {
     /// The net is an S-net and the target marking has a different
     /// token sum than the initial marking.
-    SNetTokenConservationViolation,
+    StateMachineTokenConservation,
     /// The LP marking equation (rational relaxation) is infeasible.
     /// Some S-invariant is violated.
     MarkingEquationNoRationalSolution,

@@ -126,7 +126,7 @@ impl Net {
     /// Number of transitions in the net.
     #[must_use]
     pub fn transition_count(&self) -> u32 {
-        self.dense_net.transition_count()
+        self.mapping.transition_count()
     }
 
     /// Number of nodes in the net (places + transitions).

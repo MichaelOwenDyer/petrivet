@@ -451,7 +451,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             };
         }
 
-        match self.build_coverability_graph().into_reachability_graph() {
+        match self.try_build_reachability_graph() {
             Ok(rg) => {
                 let deadlocks = rg.deadlocks().collect();
                 DeadlockAnalysis {
@@ -495,11 +495,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 let initial_marking_sum = self.marking.iter().sum::<u32>();
                 let target_marking_sum = idx_target.iter().sum::<u32>();
                 return if initial_marking_sum == target_marking_sum {
-                    ReachabilityProof::StronglyConnectedSNetTokenConservation {
+                    ReachabilityProof::StronglyConnectedStateMachine {
                         marking_sum: initial_marking_sum,
                     }.into()
                 } else {
-                    UnreachabilityProof::SNetTokenConservationViolation.into()
+                    UnreachabilityProof::StateMachineTokenConservation.into()
                 };
             }
             return semi_decision::find_marking_equation_rational_solution(
@@ -510,7 +510,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 || UnreachabilityProof::MarkingEquationNoRationalSolution.into(),
                 |solution| {
                     let solution = self.transitions().zip(solution).collect();
-                    ReachabilityProof::SNetMarkingEquationRationalSolution(solution).into()
+                    ReachabilityProof::StateMachineMarkingEquationRationalSolution(solution).into()
                 }
             )
         }
@@ -524,7 +524,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 || UnreachabilityProof::MarkingEquationNoIntegerSolution.into(),
                 |solution| {
                     let solution = self.transitions().zip(solution).collect();
-                    ReachabilityProof::TNetMarkingEquationIntegerSolution(solution).into()
+                    ReachabilityProof::MarkedGraphMarkingEquationIntegerSolution(solution).into()
                 }
             )
         }
@@ -546,7 +546,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             return UnreachabilityProof::MarkingEquationNoIntegerSolution.into();
         }
 
-        match self.build_coverability_graph().into_reachability_graph() {
+        match self.try_build_reachability_graph() {
             Ok(rg) => {
                 // todo: pass IdxMarking
                 rg.find_path_from_initial(target).map_or_else(
