@@ -56,13 +56,12 @@ pub enum LivenessLevel {
     ///
     /// A transition which is L3-live but not L4-live is called *strictly* L3-live.
     L3,
-    /// A transition `t` is **L4-live** if it is [`L1`](LivenessLevel::L1)-live
+    /// A transition `t` is **L4-live** (or just *live*) if it is [`L1`](LivenessLevel::L1)-live
     /// from *every* marking reachable from `M₀`.
     ///
-    /// In other words, there is no marking reachable from `M₀` where we could not
-    /// eventually fire `t` again. `t` can never become [`dead`](LivenessLevel::L0).
-    ///
-    /// This is the highest liveness level.
+    /// In other words, no matter which transitions we fire from `M₀`, and no matter which
+    /// reachable marking `M` we end up in, there exists a firing sequence from `M` which enables `t`.
+    /// It is impossible for `t` to become [`dead`](LivenessLevel::L0).
     L4,
 }
 

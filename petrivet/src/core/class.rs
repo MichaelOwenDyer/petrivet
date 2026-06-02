@@ -15,29 +15,38 @@ use std::{fmt, iter};
 /// ```
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum NetClass {
-    /// A net `N = (S, T, F)` is a **Circuit** if
-    /// |•t| = |t•| = 1 for every t ∈ T and
-    /// |•s| = |s•| = 1 for every s ∈ S.
-    /// A system `(N, M<sub>0</sub>)` is a **Circuit system** if N is a circuit.
-    /// Circuits represent the intersection of S-nets and T-nets,
-    /// and are the most structurally restricted class of nets.
+    /// A net `N = (S, T, F)` is called a **Circuit** iff it is simultaneously a
+    /// [`State Machine`](NetClass::StateMachine) and a [`Marked Graph`](NetClass::MarkedGraph);
+    /// that is:
     ///
-    /// Intuitively, a circuit is a single closed loop of places and transitions.
-    /// This is the simplest class of Petri net, both structurally and behaviorally.
-    /// In particular, the token count in the circuit is conserved,
-    /// and the circuit is live iff the initial marking has a positive token count.
+    /// `|•t| = |t•| = 1` for every `t ∈ T`, and
     ///
-    /// Liveness theorem:
-    /// A circuit (N, M<sub>0</sub>) is live iff M<sub>0</sub>(S) > 0.
+    /// `|•s| = |s•| = 1` for every `s ∈ S`.
     ///
-    /// Boundedness theorem:
-    /// A circuit (N, M<sub>0</sub>) is b-bounded iff M<sub>0</sub>(S) ≤ b.
+    /// Every [`Place`] and [`Transition`] has exactly one incoming and one outgoing arc,
+    /// forming a single closed loop. This is the simplest class of
+    /// [`Petri net`](crate::system::PetriNet), both structurally and behaviorally.
     ///
-    /// Reachability theorem:
-    /// A marking M is reachable from M<sub>0</sub> in a circuit (N, M<sub>0</sub>)
-    /// iff M(S) = M<sub>0</sub>(S).
+    /// ### Liveness
+    /// A circuit is [`live`](crate::liveness::LivenessLevel::L4) if and only if
+    /// `M₀` has at least one token.
     ///
+    /// ### Boundedness
+    /// Circuits, like all state machines, are *conservative*:
+    /// the total token sum may never change from that of the initial marking `M₀`.
+    ///
+    /// Circuits are therefore inherently `k`-bounded for any `k`
+    /// greater than or equal to the total token sum of `M₀`.
+    ///
+    /// ### Reachability:
+    /// A marking `M` is reachable from `M₀` in a circuit if and only if
+    /// `M` has the same total token sum as `M₀`.
+    ///
+    /// This is a property it shares with all strongly connected state machines.
+    ///
+    /// # Invariants
     /// S-invariants and T-invariants of circuits:
+    ///
     /// Let N = (S, T, F) be a circuit. A vector I: S → Q is an S-invariant of N
     /// iff I = (x, ..., x) for some x ∈ Q. Similarly, a vector J: T → Q is a T-invariant of N
     /// iff J = (y, ..., y) for some y ∈ Q.
@@ -48,6 +57,7 @@ pub enum NetClass {
     /// let mut b = Net::builder();
     /// let [p1, p2, p3] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
+    /// // single loop through all places and transitions
     /// b.add_arcs((p1, t1, p2, t2, p3, t3, p1));
     /// let class = b.build().unwrap().class();
     /// assert!(class == NetClass::Circuit);
@@ -59,33 +69,32 @@ pub enum NetClass {
     /// ```
     Circuit,
 
-    /// A net `N = (S, T, F)` is a **State Machine** (or **S-net**) if
+    /// A net `N = (S, T, F)` is called a **State Machine** (or **S-net**) if:
+    ///
     /// `|•t| = |t•| = 1` for every transition `t ∈ T`.
-    /// A Petri net `(N, M<sub>0</sub>)` is called an **S-system**
-    /// if `N` is an S-net.
     ///
-    /// In other words, a net is a state machine if each transition has
-    /// exactly one input and one output place. It is therefore impossible
-    /// to represent concurrency in a state machine; state machines can only
-    /// model decisions (nondeterminism) [Murata III A]. todo cite
+    /// In other words, every transition takes a token from one place and puts a token onto one place.
     ///
-    /// A [`Circuit`] is a special case of an S-net where every place
-    /// also has exactly one input and one output transition.
+    /// It is impossible to represent concurrency in a state machine;
+    /// state machines can only model decisions (nondeterminism) [Murata III A]. todo cite
+    ///
+    /// A [`Circuit`](NetClass::Circuit) is a special case of a state machine
+    /// where every place also has exactly one input and one output transition.
     ///
     /// This structural restriction implies several important properties:
     /// - Fundamental property:
-    ///   Let (N, M0) be an S-system with N = (S,T,F).
-    ///   Then M<sub>0</sub>(S) = M(S) for every reachable marking M.
+    ///   Let (N, M₀) be an S-system with N = (S,T,F).
+    ///   Then `M₀(S) = M(S)` for every reachable marking M.
     /// - Liveness theorem:
-    ///   An S-system (N, M<sub>0</sub>) where N = (S, T, F) is live
-    ///   iff N is strongly connected and M<sub>0</sub>(S) > 0.
+    ///   An S-system (N, M₀) where N = (S, T, F) is live
+    ///   iff N is strongly connected and M₀(S) > 0.
     /// - Boundedness theorem:
-    ///   A live S-system (N, M<sub>0</sub>) where N = (S, T, F) is b-bounded
-    ///   iff M<sub>0</sub>(S) ≤ b.
+    ///   A live S-system (N, M₀) where N = (S, T, F) is `k`-bounded
+    ///   iff `M₀(S) ≤ k`.
     /// - Reachability theorem:
-    ///   Let (N, M<sub>0</sub>) be a live S-system with N = (S, T, F)
-    ///   and let M be a marking of N. M is reachable from M<sub>0</sub>
-    ///   iff M(S) = M<sub>0</sub>(S).
+    ///   Let (N, M₀) be a live S-system with N = (S, T, F)
+    ///   and let M be a marking of N. M is reachable from M₀
+    ///   iff M(S) = M₀(S).
     ///
     ///   For S-nets, the marking equation is both necessary and sufficient:
     ///   `M'` is reachable from `M₀` if and only if every S-invariant is
@@ -143,7 +152,7 @@ pub enum NetClass {
 
     /// A net `N = (S, T, F)` is a **Marked Graph** (or **T-net**) if
     /// `|•s| = |s•| = 1` for every place `s ∈ S`.
-    /// A Petri net `(N, M<sub>0</sub>)` is called a **T-system**
+    /// A Petri net `(N, M₀)` is called a **T-system**
     /// if `N` is a T-net.
     ///
     /// In other words, a net is a marked graph if each place has exactly
@@ -161,27 +170,27 @@ pub enum NetClass {
     ///   Notation: Let γ be a circuit of a net N and let M be a marking of N. We denote
     ///   by M(γ) the number if tokens of γ under M, that is, M(γ) = Σ<sub>s∈γ</sub> M(s).
     ///
-    ///   Let γ be a circuit of a T-system (N, M<sub>0</sub>) and let M be a reachable marking.
-    ///   Then M(γ) = M<sub>0</sub>(γ).
+    ///   Let γ be a circuit of a T-system (N, M₀) and let M be a reachable marking.
+    ///   Then M(γ) = M₀(γ).
     ///   Intuitively, the number of tokens in each circuit is constant.
     ///
     /// - Liveness theorem:
-    ///   A T-system (N, M<sub>0</sub>) is live iff M<sub>0</sub>(γ) > 0 for every circuit γ of N.
+    ///   A T-system (N, M₀) is live iff M₀(γ) > 0 for every circuit γ of N.
     ///   Intuitively, a T-system is live iff every circuit contains at least one token.
     ///
     /// - Boundedness theorem:
-    ///   A live T-system (N, M<sub>0</sub>) is bounded iff N is strongly connected.
-    ///   A place s of a live T-system (N,M<sub>0</sub>) is bounded iff it belongs to some circuit γ,
-    ///   and b-bounded iff M<sub>0</sub>(γ) ≤ b.
-    ///   More specifically, max{M(s) | M is reachable} = min{M<sub>0</sub>(γ) | γ contains s}.
+    ///   A live T-system (N, M₀) is bounded iff N is strongly connected.
+    ///   A place s of a live T-system (N,M₀) is bounded iff it belongs to some circuit γ,
+    ///   and b-bounded iff M₀(γ) ≤ b.
+    ///   More specifically, max{M(s) | M is reachable} = min{M₀(γ) | γ contains s}.
     ///   Intuitively, a place can only have as many tokens as the minimum number of tokens in any
     ///   circuit it belongs to. If all places belong to some circuit, then the entire net is strongly
     ///   connected and thus bounded.
     ///
     /// - Reachability theorem:
-    ///   Let (N,M<sub>0</sub>) be a live T-system.
-    ///   A marking M is reachable from M0 iff M<sub>0</sub> ∼ M.
-    ///   For ordinary nets, reachability implies M<sub>0</sub> ∼ M,
+    ///   Let (N,M₀) be a live T-system.
+    ///   A marking M is reachable from M₀ iff M₀ ∼ M.
+    ///   For ordinary nets, reachability implies M₀ ∼ M,
     ///   but the converse is not true in general.
     ///
     ///   In a T-net, every non-negative integer solution to the marking equation
@@ -196,23 +205,23 @@ pub enum NetClass {
     ///   iff J = (x, ..., x) for some x ∈ Q.
     ///   Intuitively, firing all transitions the same number of times has no net effect on the marking.
     ///
-    /// - Let N be a strongly connected T-net. For every marking M<sub>0</sub> the following statements
+    /// - Let N be a strongly connected T-net. For every marking M₀ the following statements
     ///   are equivalent:
-    ///   1. (N, M<sub>0</sub>) is live.
-    ///   2. (N, M<sub>0</sub>) is deadlock-free.
-    ///   3. (N, M<sub>0</sub>) has an infinite firing sequence.
+    ///   1. (N, M₀) is live.
+    ///   2. (N, M₀) is deadlock-free.
+    ///   3. (N, M₀) has an infinite firing sequence.
     ///
     /// - Genrich's theorem:
     ///   Let N be a strongly connected T-net with at least one place and one transition.
-    ///   There exists a marking M<sub>0</sub> such that (N, M<sub>0</sub>) is live and 1-bounded.
+    ///   There exists a marking M₀ such that (N, M₀) is live and 1-bounded.
     ///
-    /// - Let (N, M<sub>0</sub>) be a 1-bounded T-system (live or not).
-    ///   For any two markings M<sub>1</sub> and M<sub>2</sub>, if M<sub>2</sub> is reachable from M<sub>1</sub>,
+    /// - Let (N, M₀) be a 1-bounded T-system (live or not).
+    ///   For any two markings `M'` and `M''`, if `M''` is reachable from `M'`,
     ///   then it can be reached in at most n(n-1)/2 steps, where n = |T| is the number of transitions.
     ///
-    /// - Let (N, M<sub>0</sub>) be a b-bounded T-system (live or not).
-    ///   For any marking M reachable from M<sub>0</sub>, there exists a firing sequence
-    ///   M<sub>0</sub> <sup>σ</sup>→ M such that |σ| ≤ b * n(n-1)/2, where n = |T| is the number of transitions.
+    /// - Let (N, M₀) be a b-bounded T-system (live or not).
+    ///   For any marking M reachable from M₀, there exists a firing sequence
+    ///   M₀ <sup>σ</sup>→ M such that |σ| ≤ b * n(n-1)/2, where n = |T| is the number of transitions.
     ///
     /// ```
     /// use petrivet::class::NetClass;
@@ -260,52 +269,52 @@ pub enum NetClass {
     /// and [`Marked Graphs`](NetClass::MarkedGraph) also fulfill the free-choice property.
     ///
     /// This enables various structural analysis techniques, most notably the
-    /// Commoner's Liveness Theorem (citation needed) which is the last polynomial-time
-    /// characterization of liveness for a non-trivial class of Petri nets.
+    /// **Commoner's Liveness Theorem**, which is the last polynomial-time
+    /// characterization of liveness for a non-trivial class of Petri nets (citation needed).
     ///
     /// Commoner's Liveness Theorem:
-    /// A free-choice net (N, M<sub>0</sub>) is live iff every siphon of N
-    /// contains a trap marked at M<sub>0</sub>.
+    /// A free-choice net (N, M₀) is live iff every siphon of N
+    /// contains a trap marked at M₀.
     ///
     /// Boundedness Theorem:
     /// (Heck's Boundedness Theorem)
-    /// Let (N, M<sub>0</sub>) be a live free-choice system.
-    /// Then (N, M<sub>0</sub>) is bounded iff every place of N belongs to an S-component.
+    /// Let (N, M₀) be a live free-choice system.
+    /// Then (N, M₀) is bounded iff every place of N belongs to an S-component.
     /// An S-component is a subnet N' = (S', T', F') of a net N such that:
     /// - N' is a strongly connected S-net.
     /// - T' = •S' ∪ S'• (all transitions connected to places in S' are included in T').
     ///
-    /// Let (N, M<sub>0</sub>) be a live and bounded free-choice system and let s be a place of N.
-    /// We have max{M(s) | M is reachable} = min{M<sub>0</sub>(S') | S' is an S-component containing s}.
+    /// Let (N, M₀) be a live and bounded free-choice system and let s be a place of N.
+    /// We have max{M(s) | M is reachable} = min{M₀(S') | S' is an S-component containing s}.
     /// Intuitively, a place can only have as many tokens as the minimum number of tokens
     /// in any S-component it belongs to.
     /// If all places belong to some S-component, then the entire net is bounded.
     ///
     /// Simultaneous Liveness and Boundedness Theorem:
-    /// A free-choice system (N, M<sub>0</sub>) is live and bounded iff
+    /// A free-choice system (N, M₀) is live and bounded iff
     /// 1. N has a positive S-invariant
     /// 2. N has a positive T-invariant
     /// 3. The rank of the incidence matrix of N is equal to c - 1, where c is the number of clusters of N.
-    /// 4. Every proper siphon of N is marked at M<sub>0</sub>.
+    /// 4. Every proper siphon of N is marked at M₀.
     ///
     /// Reachability theorem:
-    /// Let (N, M<sub>0</sub>) be a live and bounded free-choice system.
-    /// A marking M is reachable from M<sub>0</sub> iff there exists X ∈ N^|T| such that:
-    /// - M = M<sub>0</sub> + N * X, where N is the incidence matrix of N
+    /// Let (N, M₀) be a live and bounded free-choice system.
+    /// A marking M is reachable from M₀ iff there exists X ∈ N<sup>|T|</sup> such that:
+    /// - M = M₀ + N * X, where N is the incidence matrix of N
     /// - (N<sub>U</sub>, M<sub>U</sub>) has no unmarked traps,
     ///   where U = {t ∈ T | X(t) = 0}, N<sub>U</sub> is the subnet induced by U,
     ///   and M<sub>U</sub> is the projection of M onto the places of N<sub>U</sub>.
     ///
     /// This problem is decidable in polynomial time (!).
-    /// Given: a live, bounded, and cyclic free-choice system (N, M0) and a marking M
+    /// Given: a live, bounded, and cyclic free-choice system (N, M₀) and a marking M
     /// Decide: is M reachable?
     ///
-    /// A live and bounded free-choice system (N, M<sub>0</sub>) is cyclic iff
-    /// M<sub>0</sub> marks every proper trap of N.
+    /// A live and bounded free-choice system (N, M₀) is cyclic iff
+    /// M₀ marks every proper trap of N.
     ///
     /// Shortest sequence theorem:
-    /// Let (N, M<sub>0</sub>) be a b-bounded free-choice system and let M be a reachable marking.
-    /// Then there is a firing sequence M<sub>0</sub> <sup>σ</sup>→ M
+    /// Let (N, M₀) be a b-bounded free-choice system and let M be a reachable marking.
+    /// Then there is a firing sequence M₀ <sup>σ</sup>→ M
     /// such that `|σ| ≤ bn(n+1)(n+2)/6`, where n = |T| is the number of transitions of N.
     ///
     /// TODO: Add example of a free-choice system
@@ -323,9 +332,9 @@ pub enum NetClass {
     /// also fulfill the asymmetric-choice property.
     ///
     /// Liveness theorem:
-    /// An asymmetric-choice net `(N, M<sub>0</sub>)` is live if (but not only if) every siphon
-    /// in `N` contains a marked trap at `M<sub>0</sub>`.
-    /// Furthermore, an asymmetric-choice net `(N, M<sub>0</sub>)` is live iff it is *place-live*;
+    /// An asymmetric-choice net `(N, M₀)` is live if (but not only if) every siphon
+    /// in `N` contains a marked trap at `M₀`.
+    /// Furthermore, an asymmetric-choice net `(N, M₀)` is live iff it is *place-live*;
     /// that is, for each reachable marking `M` and each place `s ∈ S`, there exists a marking
     /// `M'` reachable from `M` such that `M'(s) > 0`.
     ///
