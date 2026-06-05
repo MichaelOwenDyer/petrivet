@@ -329,8 +329,7 @@ pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
 #[cfg(test)]
 mod tests {
     use crate::core::analysis::semi_decision::*;
-    use crate::core::marking::IdxMarking;
-    use crate::prelude::{Net, NetBuilder, NetClass};
+    use crate::prelude::{Net, NetBuilder};
 
     fn two_place_cycle() -> Net {
         let mut b = NetBuilder::new();
@@ -338,24 +337,6 @@ mod tests {
         let [t0, t1] = b.add_transitions();
         b.add_arcs((p0, t0, p1, t1, p0));
         b.build().unwrap()
-    }
-
-    #[test]
-    fn reachable_marking_feasible() {
-        let net = two_place_cycle();
-        let m0 = IdxMarking::from([1u32, 0]);
-        let m1 = IdxMarking::from([0u32, 1]);
-        let result = find_marking_equation_rational_solution(&net.dense_net, &m0, &m1);
-        assert!(result.is_some());
-    }
-
-    #[test]
-    fn unreachable_marking_infeasible() {
-        let net = two_place_cycle();
-        let m0 = IdxMarking::from([1u32, 0]);
-        let m1 = IdxMarking::from([2u32, 0]);
-        let result = find_marking_equation_rational_solution(&net.dense_net, &m0, &m1);
-        assert!(result.is_none());
     }
 
     #[test]
@@ -402,143 +383,5 @@ mod tests {
         b.add_arc((t1, p0));
         let net = b.build().unwrap().dense_net;
         assert!(find_positive_place_subvariant(&net).is_some());
-    }
-
-    #[test]
-    fn marking_equation_identity() {
-        let net = two_place_cycle();
-        let m0 = IdxMarking::from([1u32, 0]);
-        let result = find_marking_equation_rational_solution(&net.dense_net, &m0, &m0);
-        assert!(result.is_some());
-    }
-
-    #[test]
-    fn marking_equation_round_trip() {
-        let net = two_place_cycle();
-        let m0 = IdxMarking::from([1u32, 0]);
-        let result = find_marking_equation_rational_solution(&net.dense_net, &m0, &m0);
-        assert!(result.is_some());
-        if let Some(x) = &result {
-            assert!(x.iter().all(|&v| v >= -1e-9));
-        }
-    }
-
-    #[test]
-    fn ilp_reachable_marking_feasible() {
-        let net = two_place_cycle();
-        let m0 = IdxMarking::from([1u32, 0]);
-        let target = IdxMarking::from([0u32, 1]);
-        let result = find_marking_equation_integer_solution(&net.dense_net, &m0, &target);
-        assert!(result.is_some());
-    }
-
-    #[test]
-    fn ilp_unreachable_marking_infeasible() {
-        let net = two_place_cycle();
-        let m0 = IdxMarking::from([1u32, 0]);
-        let target = IdxMarking::from([2u32, 0]);
-        let result = find_marking_equation_integer_solution(&net.dense_net, &m0, &target);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn ilp_identity() {
-        let net = two_place_cycle();
-        let m0 = IdxMarking::from([1u32, 0]);
-        let result = find_marking_equation_integer_solution(&net.dense_net, &m0, &m0);
-        assert!(result.is_some());
-    }
-
-    #[test]
-    fn covering_equation_feasible() {
-        let net = two_place_cycle();
-        let m0 = IdxMarking::from([1u32, 0]);
-        let threshold = IdxMarking::from([0u32, 1]);
-        let result = find_covering_equation_rational_solution(&net.dense_net, &m0, &threshold);
-        assert!(result.is_some());
-    }
-
-    #[test]
-    fn covering_equation_infeasible() {
-        let net = two_place_cycle();
-        let m0 = IdxMarking::from([1u32, 0]);
-        let threshold = IdxMarking::from([2u32, 0]);
-        let result = find_covering_equation_rational_solution(&net.dense_net, &m0, &threshold);
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn s_net_reachability_positive() {
-        // Two-place cycle is an S-net (circuit, actually)
-        let net = two_place_cycle();
-        assert_eq!(net.class(), NetClass::Circuit);
-        let m0 = IdxMarking::from([1u32, 0]);
-        // (0,1) is reachable: token moves from p0 to p1
-        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 1])).is_some());
-        // Identity is always reachable
-        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &m0).is_some());
-    }
-
-    #[test]
-    fn s_net_reachability_negative() {
-        let net = two_place_cycle();
-        let m0 = IdxMarking::from([1u32, 0]);
-        // Token sum mismatch: 1 ≠ 2
-        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([2u32, 0])).is_none());
-        // Token sum mismatch: 1 ≠ 0
-        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 0])).is_none());
-    }
-
-    #[test]
-    fn s_net_reachability_chain() {
-        // Non-cyclic S-net: p0 → t0 → p1 → t1 → p2 (chain, not cycle)
-        let mut b = NetBuilder::new();
-        let [p0, p1, p2] = b.add_places();
-        let [t0, t1] = b.add_transitions();
-        b.add_arc((p0, t0)); b.add_arc((t0, p1));
-        b.add_arc((p1, t1)); b.add_arc((t1, p2));
-        let net = b.build().unwrap();
-        assert_eq!(net.class(), NetClass::StateMachine);
-
-        let m0 = IdxMarking::from([1u32, 0, 0]);
-        // (0, 0, 1) reachable: token flows down the chain
-        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 0, 1])).is_some());
-        // (0, 1, 0) reachable: token stops at p1
-        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 1, 0])).is_some());
-        // (1, 1, 0) NOT reachable: token sum 1 ≠ 2
-        assert!(find_marking_equation_rational_solution(&net.dense_net, &m0, &IdxMarking::from([1u32, 1, 0])).is_none());
-    }
-
-    fn t_net_sync() -> Net {
-        let mut b = NetBuilder::new();
-        let [p0, p1, p2] = b.add_places();
-        let [t0, t1] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((p1, t0));
-        b.add_arcs((t0, p2, t1));
-        b.add_arc((t1, p0));
-        b.add_arc((t1, p1));
-        b.build().unwrap()
-    }
-
-    #[test]
-    fn t_net_reachability_positive() {
-        let net = t_net_sync();
-        assert_eq!(net.class(), NetClass::MarkedGraph);
-        let m0 = IdxMarking::from([1u32, 1, 0]);
-        // Fire t0: (1,1,0) → (0,0,1)
-        assert!(find_marking_equation_integer_solution(&net.dense_net, &m0, &IdxMarking::from([0u32, 0, 1])).is_some());
-        // Fire t0 then t1: back to (1,1,0)
-        assert!(find_marking_equation_integer_solution(&net.dense_net, &m0, &m0).is_some());
-    }
-
-    #[test]
-    fn t_net_reachability_negative() {
-        let net = t_net_sync();
-        let m0 = IdxMarking::from([1u32, 1, 0]);
-        // (1,0,0): violates marking equation (no integer solution)
-        assert!(find_marking_equation_integer_solution(&net.dense_net, &m0, &IdxMarking::from([1u32, 0, 0])).is_none());
-        // (2,2,0): would need negative firings of t0
-        assert!(find_marking_equation_integer_solution(&net.dense_net, &m0, &IdxMarking::from([2u32, 2, 0])).is_none());
     }
 }

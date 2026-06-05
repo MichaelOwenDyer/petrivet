@@ -50,11 +50,10 @@ impl DenseStateGraph<'_, u32> {
             }
         }
 
-        let scc_count = sccs.len();
-        let mut has_external_edge = vec![false; scc_count].into_boxed_slice();
-        let mut scc_is_nontrivial = vec![false; scc_count].into_boxed_slice();
-        let mut scc_has_t = vec![vec![false; transition_count].into_boxed_slice(); scc_count].into_boxed_slice();
-        let mut t_fires_anywhere = vec![false; transition_count].into_boxed_slice();
+        let mut has_external_edge = vec![false; sccs.len()];
+        let mut scc_is_nontrivial = vec![false; sccs.len()];
+        let mut scc_has_t = vec![vec![false; transition_count]; sccs.len()];
+        let mut t_fires_anywhere = vec![false; transition_count];
 
         for edge in graph.edge_references() {
             let t = *edge.weight();
@@ -73,12 +72,37 @@ impl DenseStateGraph<'_, u32> {
 
         (0..transition_count).map(move |t_idx| {
             if !t_fires_anywhere[t_idx] {
+                // Never seen in the reachability graph, dead
                 LivenessLevel::L0
-            } else if (0..scc_count).all(|scc_idx| has_external_edge[scc_idx] || scc_has_t[scc_idx][t_idx]) {
+            } else if (0..sccs.len()).all(|scc_idx| {
+                // t appears in all terminal SCCs
+                // (equivalently: every SCC either contains t or is non-terminal).
+                // This implies that t is eventually fireable from any reachable
+                // marking (L4-liveness).
+                scc_has_t[scc_idx][t_idx] || has_external_edge[scc_idx]
+            }) {
                 LivenessLevel::L4
-            } else if (0..scc_count).any(|scc_idx| scc_is_nontrivial[scc_idx] && scc_has_t[scc_idx][t_idx]) {
+            } else if (0..sccs.len()).any(|scc_idx| {
+                // t appears in some non-trivial SCC, meaning there exists
+                // an infinite firing sequence which contains t infinitely
+                // many times (L3-liveness).
+                scc_has_t[scc_idx][t_idx] && scc_is_nontrivial[scc_idx]
+            }) {
                 LivenessLevel::L3
             } else {
+                // t is fireable somewhere, but not in any non-trivial SCCs (loops),
+                // so there is no infinite firing sequence containing t infinitely
+                // many times. in fact, no firing sequence can fire t from the same
+                // marking more than once, since that would create a loop with t in it.
+                // we would therefore need an infinite supply of new markings to continue
+                // firing t an arbitrary number of times.
+                //
+                // Therefore, L2-liveness cannot exist without unboundedness.
+                // since we have a finite state space, we cannot have unboundedness,
+                // so we cannot have L2-liveness.
+                //
+                // therefore, we can conclude that the transition is L1-live.
+                // todo: how to detect L2 without trying to construct an infinite state space?
                 LivenessLevel::L1
             }
         })

@@ -8,7 +8,7 @@ use crate::core::mapping::DenseMapping;
 use crate::core::marking::IdxMarking;
 pub use crate::core::state_space::ExplorationOrder;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
-use crate::prelude::{Boundedness, Marking, Net, PetriNet, Place, Transition};
+use crate::prelude::{Marking, Net, PetriNet, Place, Transition};
 use std::iter::Sum;
 
 /// An in-progress exploration of the state graph of a Petri net.
@@ -17,7 +17,7 @@ use std::iter::Sum;
 #[derive(Clone)]
 pub struct StateGraphExplorer<'a, T: TokenOps> {
     pub(super) core: DenseStateGraphExplorer<'a, T>,
-    mapping: &'a DenseMapping,
+    pub(super) mapping: &'a DenseMapping,
 }
 
 /// A single step in state space exploration.
@@ -168,7 +168,7 @@ where
 /// Edges are [`Transitions`](Transition), and nodes are [`Markings`](Marking) of token type `T`.
 #[derive(Debug, Clone)]
 pub struct StateGraph<'a, T: TokenOps> {
-    state_space: DenseStateGraph<'a, T>,
+    pub(crate) state_space: DenseStateGraph<'a, T>,
     mapping: &'a DenseMapping,
 }
 
@@ -207,16 +207,6 @@ impl<T: TokenOps> StateGraph<'_, T> {
     pub fn initial_marking(&self) -> Marking<T> {
         let marking = self.state_space.marking_at(self.state_space.initial_idx).clone();
         self.mapping.marking(marking)
-    }
-
-    /// Upper bound on the token count for each place across all discovered markings.
-    #[must_use]
-    pub fn place_bounds(&self) -> Box<[(Place, Boundedness)]> where Boundedness: From<T> {
-        let place_bounds = self.state_space.markings().fold(
-            IdxMarking::zeros(self.mapping.place_count()),
-            IdxMarking::componentwise_max,
-        ).into_iter().map(Boundedness::from);
-        self.mapping.places().zip(place_bounds).collect()
     }
 
     /// Upper bound on the token count for a given place across all
@@ -319,10 +309,9 @@ impl<T: TokenOps> StateGraph<'_, T> {
     /// If the graph was explored with a breadth-first order,
     /// this is guaranteed to be a shortest path.
     #[must_use]
-    pub fn find_path_from_initial(&self, target: Marking<T>) -> Option<Box<[Transition]>> {
+    pub fn firing_sequence_from_initial_to(&self, target: Marking<T>) -> Option<Box<[Transition]>> {
         let target = self.mapping.idx_marking(target);
-        let &target_idx = self.state_space.seen.get(&target)?;
-        self.state_space.path_from_initial_to(target_idx).map(|path| {
+        self.state_space.path_from_initial_to(&target).map(|path| {
             path.into_iter()
                 .map(|t_idx| self.mapping.transition(t_idx))
                 .collect()

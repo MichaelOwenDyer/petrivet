@@ -1,8 +1,9 @@
 use crate::boundedness::{Boundedness, K};
-use crate::core::analysis::semi_decision;
-use crate::net::{Net, Place};
+use crate::class::NetClass;
+use crate::net::{Net, Node, Place};
 use crate::prelude::PetriNet;
 use crate::state_space::ExplorationOrder;
+use ahash::HashMap;
 
 /// Result of boundedness analysis.
 ///
@@ -12,7 +13,7 @@ use crate::state_space::ExplorationOrder;
 #[derive(Debug, Clone)]
 pub struct BoundednessAnalysis {
     /// All places in the net paired with their bounds. The order is not guaranteed.
-    pub bounds: Box<[(Place, Boundedness)]>,
+    pub bounds: HashMap<Place, Boundedness>,
     /// How the result was obtained.
     pub method: BoundednessAnalysisMethod,
 }
@@ -20,9 +21,9 @@ pub struct BoundednessAnalysis {
 impl BoundednessAnalysis {
     /// Returns the bound of the system as a whole: the maximum over all places.
     #[must_use]
-    pub fn system_bound(&self) -> Boundedness {
-        self.bounds.iter()
-            .map(|(_, b)| *b)
+    pub fn global_bound(&self) -> Boundedness {
+        self.bounds.values()
+            .copied()
             .max()
             .expect("at least one place")
     }
@@ -32,9 +33,10 @@ impl BoundednessAnalysis {
     /// Returns `None` if the place does not belong to the analysed net.
     #[must_use]
     pub fn place_bound(&self, place: Place) -> Boundedness {
-        self.bounds.iter()
-            .find(|(p, _)| *p == place)
-            .map_or(Boundedness::Bounded(Some(0)), |(_, b)| *b)
+        self.bounds.get(&place).map_or(
+            Boundedness::Bounded(0),
+            |&bound| bound,
+        )
     }
 }
 
@@ -51,46 +53,121 @@ pub enum BoundednessAnalysisMethod {
 }
 
 impl<N: AsRef<Net>> PetriNet<N> {
+    /// If an efficient (polynomial-time) procedure for boundedness
+    /// is known for this Petri net, returns Some(_) with the answer.
+    /// Returns None if the answer would not be efficient to compute.
+    #[must_use]
+    pub fn is_efficiently_bounded(&self) -> Option<bool> {
+        match self.class() {
+            // conservative - token count never changes
+            NetClass::Circuit | NetClass::StateMachine => Some(true),
+            // A marked graph is bounded iff it is strongly connected
+            NetClass::MarkedGraph => Some(self.is_strongly_connected()),
+            // A live free-choice system is bounded iff every place belongs to an s-component
+            NetClass::FreeChoice if self.is_live() => Some(self.is_covered_by_s_components()),
+            // CHC is sufficient but not necessary for boundedness in AC systems,
+            // so we can't conclude unboundedness if it fails
+            NetClass::AsymmetricChoice => self.commoner_hack_criterion().ok().map(|_| true),
+            _ => None,
+        }
+    }
+
+    pub fn is_place_efficiently_bounded(&self, place: Place) -> Option<bool> {
+        match self.class() {
+            // conservative - token count never changes
+            NetClass::Circuit | NetClass::StateMachine => Some(true),
+            // A place in a marked graph is bounded iff it belongs to some circuit
+            NetClass::MarkedGraph => {
+                // todo: optimize by only constructing circuits which contain the place
+                Some(self.circuits()
+                    .filter(|circuit| circuit.contains(&Node::Place(place)))
+                    .next()
+                    .is_some())
+            },
+            _ => None,
+        }
+    }
+
+    /// Returns the boundedness of the entire system, if it can be efficiently computed.
+    #[must_use]
+    pub fn efficient_boundedness(&self) -> Option<Boundedness> {
+        match self.class() {
+            NetClass::Circuit => {
+                Some(Boundedness::Bounded(self.marking.sum() as K))
+            },
+            NetClass::StateMachine => {
+                if self.is_strongly_connected() {
+                    Some(Boundedness::Bounded(self.marking.sum() as K))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    pub fn efficient_place_boundedness(&self, place: Place) -> Option<Boundedness> {
+        match self.class() {
+            NetClass::Circuit => {
+                Some(Boundedness::Bounded(self.marking.sum() as K))
+            },
+            NetClass::StateMachine => {
+                if self.is_strongly_connected() {
+                    Some(Boundedness::Bounded(self.marking.sum() as K))
+                } else {
+                    None
+                }
+            }
+            NetClass::MarkedGraph => {
+                Some(
+                    self.circuits()
+                        .filter(|circuit| circuit.contains(&Node::Place(place)))
+                        .map(|circuit| {
+                            circuit.places()
+                                .map(|place| self.tokens_in(place))
+                                .sum::<u32>() as K
+                        })
+                        .min()
+                        .map_or(Boundedness::Unbounded, Boundedness::Bounded)
+                )
+            },
+            _ => None,
+        }
+    }
+
     /// Returns true if the entire system is bounded.
     #[must_use]
     pub fn is_bounded(&self) -> bool {
-        self.net.as_ref().is_structurally_bounded()
-            || self.analyze_boundedness().system_bound().is_bounded()
+        self.is_efficiently_bounded().unwrap_or_else(|| {
+            self.net.as_ref().is_structurally_bounded()
+                || self.analyze_boundedness().global_bound().is_bounded()
+        })
     }
 
-    /// Returns true if the entire system is `k`-bounded for the given `k`.
-    #[must_use]
-    pub fn is_k_bounded(&self, k: K) -> bool {
-        self.is_structurally_k_bounded(k)
-            || self.analyze_boundedness().system_bound().is_k_bounded(k)
+    /// Returns true iff the given place is bounded.
+    pub fn is_place_bounded(&self, place: Place) -> bool {
+        self.is_place_efficiently_bounded(place).unwrap_or_else(|| {
+            self.net.as_ref().is_place_structurally_bounded(place)
+                || self.analyze_boundedness().place_bound(place).is_bounded()
+        })
+    }
+
+    /// Returns the boundedness of the entire system.
+    pub fn boundedness(&self) -> Boundedness {
+        self.efficient_boundedness().unwrap_or_else(|| {
+            self.analyze_boundedness().global_bound()
+        })
+    }
+
+    pub fn place_boundedness(&self, place: Place) -> Boundedness {
+        self.efficient_place_boundedness(place).unwrap_or_else(|| {
+            self.analyze_boundedness().place_bound(place)
+        })
     }
 
     /// Returns true if the entire system is safe (1-bounded).
     pub fn is_safe(&self) -> bool {
-        self.is_k_bounded(1)
-    }
-
-    /// Returns true if the net is *structurally* k-bounded for the given `k`.
-    /// This is simultaneously a structural check and one which depends on the
-    /// initial marking; we investigate whether the structure of the net prevents
-    /// unbounded places, and if so, whether the initial marking allows for a bound
-    /// of `k` to be derived on all places.
-    pub fn is_structurally_k_bounded(&self, k: K) -> bool {
-        use crate::core::analysis::semi_decision::find_positive_place_subvariant;
-        let Some(weights) = find_positive_place_subvariant(&self.dense_net) else {
-            return false;
-        };
-        let weighted_sum: f64 = weights.iter()
-            .zip(self.reset.iter())
-            .map(|(&w, &m)| w * f64::from(m))
-            .sum();
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-        weights.iter().all(|&w| (weighted_sum / w).floor() as usize <= k)
-    }
-
-    #[must_use]
-    pub fn is_place_structurally_k_bounded(&self, place: &Place, k: K) -> bool {
-        todo!()
+        self.boundedness().is_k_bounded(1)
     }
 
     /// Returns true if some reachable marking puts more than one token in any place.
@@ -102,36 +179,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     }
 
     /// Analyzes boundedness and returns per-place bounds with evidence.
-    ///
-    /// Strategy (ascending cost):
-    /// 1. Structural boundedness LP: if feasible, derives upper bounds from
-    ///    the weight vector and the initial marking. Fast but bounds may be loose.
-    /// 2. Coverability graph: always terminates. Gives exact per-place bounds.
     #[must_use]
     pub fn analyze_boundedness(&self) -> BoundednessAnalysis {
-        // todo: also consider checking for semi-positive subvariants for subsections of the net.
-        //  but how to decide which places to check?
-        if let Some(place_weights) = semi_decision::find_positive_place_subvariant(&self.dense_net) {
-            // Esparza lecture notes proposition 4.3.8
-            let weighted_sum: f64 = place_weights.iter()
-                .zip(self.reset.iter())
-                .map(|(&weight, &tokens)| weight * f64::from(tokens))
-                .sum();
-            let bounds = self.places()
-                .zip(place_weights.iter())
-                .map(|(place, &weight)| {
-                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                    let bound = (weighted_sum / weight).floor() as usize;
-                    (place, Boundedness::Bounded(Some(bound)))
-                })
-                .collect();
-
-            return BoundednessAnalysis {
-                bounds,
-                method: BoundednessAnalysisMethod::PositivePlaceSubvariant(place_weights),
-            };
-        }
-
         BoundednessAnalysis {
             bounds: self.build_coverability_graph().place_bounds(),
             method: BoundednessAnalysisMethod::CoverabilityGraph,

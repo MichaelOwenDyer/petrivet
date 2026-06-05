@@ -3,12 +3,13 @@ pub mod coverability;
 
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
+use crate::core::unique_sorted_slice::UniqueSortedSlice;
 use ahash::{HashMap, HashMapExt};
 use petgraph::graph::NodeIndex;
 use std::collections::VecDeque;
 use std::hash::Hash;
 use std::iter::Sum;
-use crate::core::unique_sorted_slice::UniqueSortedSlice;
+use std::ops::ControlFlow;
 
 /// Controls frontier traversal order.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -133,8 +134,7 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     /// Returns a firing sequence from the initial marking to `target`,
     /// among states discovered so far in the exploration, if one exists.
     pub fn path_from_initial_to(&self, target: &IdxMarking<T>) -> Option<Box<[TransitionIdx]>> {
-        let target_idx = self.state_space.seen.get(target)?;
-        Some(self.state_space.path_from_initial_to(*target_idx).expect("target must be reachable from initial"))
+        self.state_space.path_from_initial_to(target)
     }
 
     /// Pop the next `(NodeIndex, Transition)` from the frontier.
@@ -259,6 +259,17 @@ where
         }
         None
     }
+
+    pub fn visit<F, B>(&mut self, mut visitor: F) -> Option<B>
+    where
+        F: FnMut((TransitionIdx, NodeIndex, bool)) -> ControlFlow<B>,
+    {
+        loop {
+            if let ControlFlow::Break(b) = visitor(self.explore_next()?) {
+                return Some(b);
+            }
+        }
+    }
 }
 
 /// A fully explored state space graph of a Petri net.
@@ -319,8 +330,11 @@ impl<T: TokenOps> DenseStateGraph<'_, T> {
             .map(|idx| self.marking_at(idx))
     }
 
-    /// Find a path from initial to target using A*.
-    pub fn path_from_initial_to(&self, target: NodeIndex) -> Option<Box<[TransitionIdx]>> {
+    /// Returns a firing sequence from the initial marking to `target`,
+    /// if one exists.
+    pub fn path_from_initial_to(&self, target: &IdxMarking<T>) -> Option<Box<[TransitionIdx]>> {
+        let target = *self.seen.get(target)?;
+
         if target == self.initial_idx {
             return Some(Box::new([]));
         }

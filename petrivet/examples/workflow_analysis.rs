@@ -90,9 +90,9 @@ fn main() {
     // 3 raw boards, 1 station slot, everything else empty
     let sys = PetriNet::new(&net, [(raw, 3), (station, 1)]);
     let boundedness = sys.analyze_boundedness();
-    let liveness = sys.analyze_liveness();
+    let liveness = sys.liveness();
 
-    println!("Bounded: {:?}", boundedness.system_bound());
+    println!("Bounded: {:?}", boundedness.global_bound());
     println!("Live (every transition always eventually firable): {}", liveness.global_level().is_live());
 
     for t in &transitions {
@@ -102,7 +102,7 @@ fn main() {
     println!("\n--- Reachability Analysis ---\n");
 
     // Can all 3 boards reach "done"?
-    let result = sys.analyze_reachability([(station, 1), (done, 3)].into());
+    let result = sys.analyze_reachability(&[(station, 1), (done, 3)].into());
     println!(
         "All 3 boards done? {}",
         if result.is_reachable() { "reachable" }
@@ -112,7 +112,7 @@ fn main() {
 
     // Can we magically get 4 boards done from 3?
     let impossible = [(station, 1), (done, 4)].into();
-    let result2 = sys.analyze_reachability(impossible);
+    let result2 = sys.analyze_reachability(&impossible);
     println!(
         "4 boards done from 3? {}",
         if result2.is_reachable() { "reachable" }

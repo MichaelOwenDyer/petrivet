@@ -1,7 +1,8 @@
+use crate::class::NetClass;
 use crate::liveness::LivenessLevel;
-use crate::net::{Net, Place, Transition};
+use crate::net::{Net, Transition};
 use crate::prelude::PetriNet;
-use crate::system::chc::CommonerHackCriterion;
+use crate::system::chc::CommonerHackCriterionResult;
 
 /// Result of liveness analysis.
 /// When proved via Commoner's theorem (free-choice nets), all transitions are L4.
@@ -53,113 +54,36 @@ impl LivenessAnalysis {
     }
 }
 
-/// Evidence for liveness analysis of an S-net.
-///
-/// In an S-net, each transition has exactly one input and one output place.
-/// The "place graph" (places as nodes, transitions as directed edges) determines
-/// liveness levels via its SCC decomposition:
-///
-/// - **Sink SCC, marked**: transitions on internal cycles are **L4** (tokens
-///   can never leave; can always be routed to fire any internal transition).
-/// - **Non-sink SCC, marked**: internal transitions are **L3** (tokens *can*
-///   stay cycling forever, but *can also* escape via outgoing transitions,
-///   so not L4). See Primer §5.6 Case 2: CHC fails for non-final SCCs.
-/// - **Inter-SCC transitions**: at most **L1** (each token passes through at
-///   most once; total tokens conserved in S-nets).
-/// - **Unreachable**: **L0**.
-///
-/// References:
-/// - [Murata 1989, Theorem 4](crate::literature#theorem-4--liveness-of-s-nets-state-machines) (SC liveness)
-/// - [Murata 1989, Theorem 5](crate::literature#theorem-5--safety-of-s-nets-state-machines) (safety via token count)
-/// - [Primer, Corollary 5.30](crate::literature#corollary-530--liveness-of-s-systems)
-/// - [Primer, Proposition 5.39](crate::literature#proposition-539--boundedness-criterion-for-live-s-systems) (per-place bounds)
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SNetLivenessEvidence {
-    /// The SCCs of the place graph, in topological order (sources first).
-    pub components: Box<[SNetComponent]>,
-}
-
-/// A strongly connected component in the place graph of an S-net.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SNetComponent {
-    /// Places in this SCC.
-    pub places: Box<[Place]>,
-    /// Transitions internal to this SCC (both endpoints in the same SCC).
-    pub transitions: Box<[Transition]>,
-    /// Total token count on places in this SCC under M₀.
-    pub token_sum: u32,
-    /// Whether this SCC has no outgoing transitions to other SCCs.
-    pub is_sink: bool,
-}
-
-/// Evidence for liveness analysis of a T-net (marked graph).
-///
-/// In a T-net, each place has exactly one input and one output transition.
-/// A fundamental invariant: **the token count on every directed circuit is
-/// constant under all firings** (each transition on the circuit removes one
-/// token from its input place and adds one to its output place; external
-/// transitions cannot touch circuit places).
-///
-/// Consequence: every transition in a T-net is either **L0** or **L4** — no
-/// intermediate liveness levels are possible.
-///
-/// A transition t is L4 iff every directed circuit containing t is marked
-/// AND all predecessor transitions (in the SCC DAG of the transition graph)
-/// are L4.
-///
-/// References:
-/// - [Murata 1989, Theorem 7](crate::literature#theorem-7--liveness-of-t-nets-marked-graphs) (SC liveness)
-/// - [Murata 1989, Theorem 8](crate::literature#theorem-8--place-bounds-in-t-nets-marked-graphs) (exact place bounds via circuit token counts)
-/// - [Murata 1989, Theorem 9](crate::literature#theorem-9--safety-of-t-nets-marked-graphs) (safety iff every circuit carries 1 token)
-/// - [Murata 1989, Theorem 26](crate::literature#theorem-26--circuit-token-invariance-in-t-nets) (circuit token invariance)
-/// - [Primer, Theorem 5.31](crate::literature#theorem-531--liveness-and-realisability-in-t-systems)
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TNetLivenessEvidence {
-    /// The SCCs of the transition graph, in topological order (sources first).
-    /// Each SCC is live (all transitions L4) iff all internal circuits are
-    /// marked AND all predecessor SCCs are live.
-    pub components: Box<[TNetComponent]>,
-}
-
-/// A strongly connected component in the transition graph of a T-net.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TNetComponent {
-    /// Transitions in this SCC.
-    pub transitions: Box<[Transition]>,
-    /// Places internal to this SCC (both endpoint transitions in the same SCC).
-    pub places: Box<[Place]>,
-    /// Whether all directed circuits within this SCC carry at least one token
-    /// under M₀. (Vacuously true for acyclic/singleton SCCs.)
-    pub all_circuits_marked: bool,
-    /// Whether all predecessor SCCs in the DAG are live.
-    /// Combined with `all_circuits_marked`, determines if transitions here are L4.
-    pub predecessors_live: bool,
-}
-
 /// Evidence for a liveness result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LivenessMethod {
-    /// S-net SCC analysis.
+    /// Live iff >0 tokens.
+    /// See [`Circuit`](NetClass::Circuit)
+    Circuit {
+        /// The sum of tokens in `M₀`.
+        tokens: u32,
+    },
+    /// Live iff strongly connected and >0 tokens.
+    /// See [`StateMachine`](NetClass::StateMachine)
+    StateMachine {
+        /// Whether the net is strongly connected.
+        strongly_connected: bool,
+        /// The sum of tokens in `M₀`.
+        tokens: u32,
+    },
+    /// Live iff every circuit has >0 tokens.
+    /// See [`MarkedGraph`](NetClass::MarkedGraph)
+    MarkedGraph {
+        // todo: return circuits and their token counts
+    },
+    /// Live iff CHC is fulfilled.
     ///
-    /// Per-transition levels derived from the SCC decomposition of the place
-    /// graph and the token distribution across components.
-    ///
-    /// References: [Murata 1989 Theorem 4](crate::literature#theorem-4--liveness-of-s-nets-state-machines), [Primer Corollary 5.30](crate::literature#corollary-530--liveness-of-s-systems).
-    SNet(SNetLivenessEvidence),
-    /// T-net circuit analysis.
-    ///
-    /// Per-transition levels derived from the SCC decomposition of the
-    /// transition graph. Every transition is either L0 or L4 due to the
-    /// circuit token invariance property.
-    ///
-    /// References: [Murata 1989 Theorems 7 & 26](crate::literature#theorem-7--liveness-of-t-nets-marked-graphs), [Primer Theorem 5.31](crate::literature#theorem-531--liveness-and-realisability-in-t-systems).
-    TNet(TNetLivenessEvidence),
-    /// (Full) Liveness was determined via the Commoner/Hack criterion, which is necessary and sufficient for
-    /// liveness in free-choice nets: every siphon contains a trap marked at the initial marking.
-    ///
+    /// See [`FreeChoice`](NetClass::FreeChoice)
     /// Reference: [Primer Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc), [Murata 1989 Theorem 12](crate::literature#theorem-12--commonerhack-criterion).
-    FreeChoice(CommonerHackCriterion),
+    FreeChoice {
+        commoner_hack_result: CommonerHackCriterionResult,
+    },
     /// Strongly-connected component analysis on the full reachability graph (bounded net).
     ReachabilityGraph,
     /// Current algorithms could not decide (unbounded general net).
@@ -167,38 +91,39 @@ pub enum LivenessMethod {
 }
 
 impl<N: AsRef<Net>> PetriNet<N> {
-    /// Whether the system is live (L4): every transition can fire from
-    /// every reachable marking (possibly after further firings).
-    ///
-    /// Delegates to [`analyze_liveness`](Self::analyze_liveness).
+    /// If an efficient (polynomial-time) procedure for liveness
+    /// is known for this Petri net, returns Some(_) with the answer.
+    /// Returns None if the answer would not be efficient to compute.
     #[must_use]
-    pub fn is_live(&self) -> bool {
-        self.analyze_liveness().global_level().is_live()
+    pub fn is_efficiently_live(&self) -> Option<bool> {
+        match self.class() {
+            NetClass::Circuit => {
+                Some(self.marking().total_tokens() > 0)
+            },
+            NetClass::StateMachine => {
+                Some(self.is_strongly_connected() && self.marking().total_tokens() > 0)
+            },
+            NetClass::MarkedGraph => {
+                Some(false) // todo
+            },
+            NetClass::FreeChoice => {
+                Some(self.commoner_hack_criterion().is_ok())
+            },
+            _ => None
+        }
     }
 
-    /// Analyzes liveness and returns per-transition levels with evidence.
-    ///
-    /// Strategy (ascending cost):
-    /// 1. **S-nets**: SCC decomposition of the place graph. Polynomial.
-    ///    Sink SCCs → L4, non-sink SCCs → L3, inter-SCC → L1.
-    /// 2. **T-nets**: SCC decomposition of the transition graph. Polynomial.
-    ///    Every transition is L0 or L4 (circuit token invariance).
-    /// 3. **Free-choice nets**: Commoner's theorem (structural).
-    ///    If the criterion holds, all transitions are L4.
-    /// 4. **General**: CG → RG → SCC analysis (exponential worst-case).
+    /// Returns true if the Petri net is [`live`](LivenessLevel::L4).
+    #[must_use]
+    pub fn is_live(&self) -> bool {
+        self.is_efficiently_live().unwrap_or_else(|| self.analyze_liveness().is_live())
+    }
+
+    /// Tries to construct the reachability graph and then derives
+    /// liveness classes for each transition from it.
+    /// For unbounded systems, returns L0 - Inconclusive.
     #[must_use]
     pub fn analyze_liveness(&self) -> LivenessAnalysis {
-        // TODO: Optimize for state machines and marked graphs
-        //  by analyzing SCCs of the appropriate graph
-
-        if self.class().is_free_choice()
-            && let Ok(chc) = self.commoner_hack_criterion() {
-            return LivenessAnalysis {
-                levels: self.transitions().zip(std::iter::repeat(LivenessLevel::L4)).collect(),
-                method: LivenessMethod::FreeChoice(chc),
-            };
-        }
-
         match self.try_build_reachability_graph() {
             Ok(rg) => rg.transition_liveness(),
             Err(_cg) => {
@@ -290,7 +215,7 @@ mod tests {
         let analysis = sys.analyze_liveness();
         assert_eq!(analysis.level(t0), LivenessLevel::L4);
         assert_eq!(analysis.level(t1), LivenessLevel::L4);
-        assert!(matches!(analysis.method, LivenessMethod::SNet(_)));
+        assert!(matches!(analysis.method, LivenessMethod::StateMachine { .. }));
     }
 
     /// SC S-net (circuit): unmarked → all L0.
@@ -364,17 +289,16 @@ mod tests {
         let mut b = NetBuilder::new();
         let [p0, p1, p2] = b.add_places();
         let [t0, t1] = b.add_transitions();
-        b.add_arc((t0, p0)); b.add_arc((p0, t1));
-        b.add_arc((t1, p1)); b.add_arc((p1, t0));
-        b.add_arc((t0, p2)); b.add_arc((p2, t1)); // second path
+        b.add_arcs((t0, p0, t1, p1, t0));
+        b.add_arcs((t0, p2, t1)); // second path
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::MarkedGraph);
 
-        let sys = PetriNet::new(net, [(p0, 1), (p1, 1), (p2, 1)]);
+        let sys = PetriNet::new(net, [(p0, 1), (p2, 1)]);
         let analysis = sys.analyze_liveness();
         assert_eq!(analysis.level(t0), LivenessLevel::L4);
         assert_eq!(analysis.level(t1), LivenessLevel::L4);
-        assert!(matches!(analysis.method, LivenessMethod::TNet(_)));
+        assert!(matches!(analysis.method, LivenessMethod::MarkedGraph { .. }));
     }
 
     /// SC T-net: unmarked circuit → transitions on it are L0.
@@ -489,6 +413,6 @@ mod tests {
         ]);
         let analysis = sys.analyze_liveness();
         assert_eq!(analysis.global_level(), LivenessLevel::L4);
-        assert!(matches!(analysis.method, LivenessMethod::FreeChoice(_)));
+        assert!(matches!(analysis.method, LivenessMethod::FreeChoice { .. }));
     }
 }

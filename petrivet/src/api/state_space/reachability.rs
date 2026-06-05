@@ -4,6 +4,9 @@
 //! from a given initial marking in a Petri net, and analyzing the resulting
 //! reachability graph for properties like liveness and deadlock-freedom.
 
+use ahash::HashMap;
+use crate::boundedness::{Boundedness, K};
+use crate::net::Place;
 use crate::state_space::{StateGraph, StateGraphExplorer};
 use crate::system::liveness::{LivenessAnalysis, LivenessMethod};
 
@@ -78,5 +81,25 @@ impl ReachabilityGraph<'_> {
             levels,
             method: LivenessMethod::ReachabilityGraph,
         }
+    }
+
+    /// Returns the maximum value of each place across all markings in the coverability graph.
+    /// Places that were marked as Omega are unbounded.
+    #[must_use]
+    pub fn place_bounds(&self) -> HashMap<Place, Boundedness> {
+        let mut markings = self.state_space.markings();
+        let initial_marking = markings.next().expect("always at least one marking in the graph");
+        let bounds = markings.fold(
+            initial_marking.iter().copied().collect::<Vec<_>>(),
+            |mut bounds_so_far, next_marking| {
+                bounds_so_far.iter_mut()
+                    .zip(next_marking.iter())
+                    .for_each(|(bound, &next)| {
+                        *bound = core::cmp::max(*bound, next);
+                    });
+                bounds_so_far
+            },
+        ).into_iter().map(|max| Boundedness::Bounded(max as K));
+        self.mapping.places().zip(bounds).collect()
     }
 }

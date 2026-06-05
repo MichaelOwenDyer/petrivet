@@ -91,7 +91,7 @@ fn main() {
 
         // Safety check: both processes must never be in critical section at once
         assert!(
-            sys.current_tokens(crit1) == 0 || sys.current_tokens(crit2) == 0,
+            sys.tokens_in(crit1) == 0 || sys.tokens_in(crit2) == 0,
             "mutual exclusion violated!"
         );
     }
@@ -160,7 +160,7 @@ fn print_state(sys: &PetriNet<impl AsRef<Net>>, net: &Net) {
     print!("State: ");
     let labels = net.labels.as_ref().unwrap();
     for p in net.places() {
-        let tokens = sys.current_tokens(p);
+        let tokens = sys.tokens_in(p);
         if tokens > 0 {
             let name = labels.place_name(p).unwrap_or("unnamed place");
             print!("{name}={tokens} ");

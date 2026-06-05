@@ -181,7 +181,7 @@ pub enum NetClass {
     /// - Boundedness theorem:
     ///   A live T-system (N, M₀) is bounded iff N is strongly connected.
     ///   A place s of a live T-system (N,M₀) is bounded iff it belongs to some circuit γ,
-    ///   and b-bounded iff M₀(γ) ≤ b.
+    ///   and k-bounded iff M₀(γ) ≤ b.
     ///   More specifically, max{M(s) | M is reachable} = min{M₀(γ) | γ contains s}.
     ///   Intuitively, a place can only have as many tokens as the minimum number of tokens in any
     ///   circuit it belongs to. If all places belong to some circuit, then the entire net is strongly
@@ -219,7 +219,7 @@ pub enum NetClass {
     ///   For any two markings `M'` and `M''`, if `M''` is reachable from `M'`,
     ///   then it can be reached in at most n(n-1)/2 steps, where n = |T| is the number of transitions.
     ///
-    /// - Let (N, M₀) be a b-bounded T-system (live or not).
+    /// - Let (N, M₀) be a k-bounded T-system (live or not).
     ///   For any marking M reachable from M₀, there exists a firing sequence
     ///   M₀ <sup>σ</sup>→ M such that |σ| ≤ b * n(n-1)/2, where n = |T| is the number of transitions.
     ///
@@ -313,7 +313,7 @@ pub enum NetClass {
     /// M₀ marks every proper trap of N.
     ///
     /// Shortest sequence theorem:
-    /// Let (N, M₀) be a b-bounded free-choice system and let M be a reachable marking.
+    /// Let (N, M₀) be a k-bounded free-choice system and let M be a reachable marking.
     /// Then there is a firing sequence M₀ <sup>σ</sup>→ M
     /// such that `|σ| ≤ bn(n+1)(n+2)/6`, where n = |T| is the number of transitions of N.
     ///

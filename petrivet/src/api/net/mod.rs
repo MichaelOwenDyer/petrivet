@@ -2,11 +2,13 @@
 
 pub mod siphon_trap;
 pub mod boundedness;
+pub mod path;
 
 use crate::core::mapping::DenseMapping;
 use crate::core::net::{DenseNet, IdxArc};
 use crate::prelude::{Marking, NetBuilder, NetClass, PetriNet};
 use std::num::NonZeroU32;
+use petgraph::Graph;
 
 /// A *place* is one of the two types of nodes in a Petri net,
 /// often represented visually by a circle.
@@ -73,6 +75,9 @@ pub struct Net {
     #[allow(clippy::struct_field_names)]
     pub(crate) dense_net: DenseNet,
 
+    /// The bipartite graph structure of the Petri net.
+    pub(crate) graph: Graph<Node, ()>,
+
     /// Monotonic counter used when converting this [`Net`] back to a [`builder::NetBuilder`]
     /// so new nodes continue to receive unused ids. Ids are never reused for removed nodes.
     pub(crate) next_place_id: NonZeroU32,
@@ -120,6 +125,18 @@ impl Net {
     #[must_use]
     pub const fn class(&self) -> NetClass {
         self.dense_net.class
+    }
+
+    /// Returns true if the net is strongly connected.
+    #[must_use]
+    pub const fn is_strongly_connected(&self) -> bool {
+        self.dense_net.is_strongly_connected
+    }
+
+    /// Returns the graph structure of the net.
+    #[must_use]
+    pub const fn graph(&self) -> &Graph<Node, ()> {
+        &self.graph
     }
 
     /// Iterator over all places.
@@ -248,10 +265,18 @@ impl Net {
         })
     }
 
-    /// Checks if the net is strongly connected.
+    /// Returns whether every place in this net belongs to an S-component.
     #[must_use]
-    pub fn is_strongly_connected(&self) -> bool {
-        self.dense_net.is_strongly_connected()
+    pub fn is_covered_by_s_components(&self) -> bool {
+        // todo
+        false
+    }
+
+    /// Returns true if the given marking enables no transitions in this net
+    #[must_use]
+    pub fn is_deadlock(&self, marking: Marking<u32>) -> bool {
+        let idx_marking = self.mapping.idx_marking(marking);
+        self.dense_net.is_deadlock(&idx_marking)
     }
 }
 

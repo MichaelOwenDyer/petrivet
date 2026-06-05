@@ -26,8 +26,12 @@ pub enum IdxArc {
 /// The structure of a Net compressed into a packed format optimized for analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DenseNet {
-    /// Structural class of the net, cached at build time for efficient queries.
+    /// Structural class of the net, used for optimizations.
     pub class: NetClass,
+    /// True if the net is strongly connected, i.e. every node is reachable from
+    /// every other node. This is an important property for some algorithms,
+    /// so we compute it at build time.
+    pub is_strongly_connected: bool,
     /// Transition presets: for each transition t, the set of places in `•t`.
     pub preset_t: Box<[UniqueSortedSlice<PlaceIdx>]>,
     /// Transition postsets: for each transition t, the set of places in `t•`.
@@ -104,35 +108,6 @@ impl DenseNet {
         IncidenceMatrix::new(self)
     }
 
-    /// Checks if the net is strongly connected using Kosaraju's algorithm.
-    #[must_use]
-    pub fn is_strongly_connected(&self) -> bool {
-        use petgraph::graph::NodeIndex;
-        let mut graph = petgraph::Graph::<(), ()>::with_capacity(self.node_count(), self.arc_count());
-        let p_indices: Box<[NodeIndex]> = self.place_indices()
-            .map(|_| graph.add_node(()))
-            .collect();
-        let t_indices: Box<[NodeIndex]> = self.transition_indices()
-            .map(|_| graph.add_node(()))
-            .collect();
-        self.transition_indices()
-            .zip(self.preset_t.iter().zip(self.postset_t.iter()))
-            .flat_map(|(t_idx, (preset, postset))| {
-                let transition_node = t_indices[t_idx];
-                let preset = preset.iter()
-                    .map(|&p_idx| p_indices[p_idx])
-                    .map(move |place_node| (place_node, transition_node));
-                let postset = postset.iter()
-                    .map(|&p_idx| p_indices[p_idx])
-                    .map(move |place_node| (transition_node, place_node));
-                std::iter::chain(preset, postset)
-            })
-            .for_each(|(from, to)| {
-                graph.add_edge(from, to, ());
-            });
-        petgraph::algo::tarjan_scc(&graph).len() == 1
-    }
-
     /// Checks if the net is structurally bounded.
     /// This means that there exists no initial marking
     /// which would cause any place in the net to become unbounded.
@@ -145,10 +120,10 @@ impl DenseNet {
     /// This means that there exists no initial marking
     /// which would cause this place to become unbounded.
     #[must_use]
-    pub fn is_place_structurally_bounded(&self, place: &PlaceIdx) -> bool {
+    pub fn is_place_structurally_bounded(&self, place: PlaceIdx) -> bool {
         semi_decision::find_semipositive_place_subvariant(
             self,
-            |p| p == place
+            |&p| p == place
         ).is_some()
     }
 }

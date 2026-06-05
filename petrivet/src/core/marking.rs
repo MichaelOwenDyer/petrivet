@@ -7,7 +7,7 @@ use std::{iter, vec};
 /// A marking: one value of type `T` per place, indexed by [`PlaceIdx`].
 ///
 /// The default token type is `u32`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Eq, Hash)]
 pub struct IdxMarking<T>(pub(crate) Box<[T]>);
 
 /// A marking can be viewed as a simple slice of T values, indexed by place index.
@@ -36,11 +36,17 @@ impl<T> IdxMarking<T> {
 }
 
 impl<T: TokenOps> IdxMarking<T> {
+    /// Returns the dense indices of the places which have a nonzero token count in the marking.
     pub fn support(&self) -> impl Iterator<Item = PlaceIdx> {
         self.iter()
             .enumerate()
             .filter(|&(_, tokens)| tokens != &T::ZERO)
             .map(|(idx, _)| idx)
+    }
+
+    /// Returns the sum of all tokens in the marking.
+    pub fn sum(&self) -> T {
+        self.iter().copied().sum()
     }
 
     /// Creates a marking with `n_places` places, all initialized to zero tokens.
@@ -53,7 +59,7 @@ impl<T: TokenOps> IdxMarking<T> {
     pub fn componentwise_max(mut acc: Self, other: &Self) -> Self {
         for (bound, tokens) in acc.0.iter_mut().zip(other.0.iter()) {
             if *bound < *tokens {
-                *bound = tokens.clone();
+                *bound = *tokens;
             }
         }
         acc
@@ -68,14 +74,20 @@ impl<T> IntoIterator for IdxMarking<T> {
     }
 }
 
-impl<T: PartialEq> PartialEq<IdxMarking<T>> for &IdxMarking<T> {
-    fn eq(&self, other: &IdxMarking<T>) -> bool {
+impl<R, T: PartialEq<R>> PartialEq<IdxMarking<R>> for IdxMarking<T> {
+    fn eq(&self, other: &IdxMarking<R>) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+
+impl<R, T: PartialEq<R>> PartialEq<IdxMarking<R>> for &IdxMarking<T> {
+    fn eq(&self, other: &IdxMarking<R>) -> bool {
         *self == other
     }
 }
 
-impl<T: PartialEq> PartialEq<&IdxMarking<T>> for IdxMarking<T> {
-    fn eq(&self, other: &&IdxMarking<T>) -> bool {
+impl<R, T: PartialEq<R>> PartialEq<&IdxMarking<R>> for IdxMarking<T> {
+    fn eq(&self, other: &&IdxMarking<R>) -> bool {
         self == *other
     }
 }

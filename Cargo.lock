@@ -440,6 +440,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "graph-cycles"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27b92c49194cd4f20bad0d9875503c951993f4249c0cfd210a49ed39ef072a0c"
+dependencies = [
+ "ahash",
+ "petgraph",
+]
+
+[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -665,9 +675,11 @@ dependencies = [
  "ahash",
  "criterion",
  "good_lp",
+ "graph-cycles",
  "petgraph",
  "quick-xml",
  "serde",
+ "tap",
 ]
 
 [[package]]
@@ -966,6 +978,12 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
+
+[[package]]
+name = "tap"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "termtree"

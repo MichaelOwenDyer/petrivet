@@ -1,5 +1,3 @@
-use crate::state_space::Omega;
-
 /// Boundedness describes the maximum number of tokens that can
 /// appear on a place in any reachable marking of a Petri net.
 ///
@@ -16,23 +14,26 @@ pub enum Boundedness {
     ///
     /// A [`PetriNet`] is (k-)bounded if all of its places are (k-)bounded.
     ///
-    /// Note that `k` might be a loose upper bound or not present at all;
-    /// certain methods for computing boundedness may only be able to
-    /// guarantee general boundedness without providing a specific `k`,
-    /// or they may provide a `k` which is greater than the actual
-    /// upper bound.
-    Bounded(Option<K>),
+    /// Note that `k` might be a loose upper bound: `k` might not
+    /// be the smallest integer for which the place is k-bounded,
+    /// depending on the method used to determine it.
+    Bounded(K),
 
-    /// *Unboundedness* occurs when some [`Transition`] firing
-    /// sequence can turn some reachable marking `M` into a
-    /// marking `M'` where `M'` has at least as many tokens in
-    /// all places as `M` and strictly more in at least one.
+    /// *Unboundedness* describes the situation where there is
+    /// no upper limit on the number of tokens that can appear
+    /// on a [Place](crate::net::Place) in a reachable marking
+    /// of a [Petri net](crate::system::PetriNet).
+    ///
+    /// It occurs if and only if a transition firing sequence
+    /// turns some marking `M` into a different marking
+    /// `M'` where `M'` has at least as many tokens in all
+    /// places as `M` and strictly more in at least one.
     ///
     /// Those places with strictly more tokens are unbounded:
     /// we can fire the same sequence of transitions from `M'`
     /// to reach a marking `M''`, which will have even more
     /// tokens on those places, and the firing sequence will
-    /// be enabled in `M''` as well. The firing sequence will
+    /// again be enabled in `M''`. The firing sequence will
     /// always be enabled due to the property of Petri nets
     /// known as *monotonicity*. We can therefore repeat the
     /// process indefinitely, generating markings with
@@ -60,7 +61,7 @@ impl Boundedness {
     /// this returns `false`.
     #[must_use]
     pub const fn is_k_bounded(self, k: K) -> bool {
-        matches!(self, Boundedness::Bounded(Some(actual_k)) if actual_k <= k)
+        matches!(self, Boundedness::Bounded(bound) if bound <= k)
     }
 
     /// Returns `true` if the place or Petri net is unbounded.
@@ -70,29 +71,13 @@ impl Boundedness {
     }
 }
 
-impl From<u32> for Boundedness {
-    fn from(value: u32) -> Self {
-        Self::Bounded(Some(value as K))
-    }
-}
-
-impl From<Omega> for Boundedness {
-    fn from(value: Omega) -> Self {
-        match value {
-            Omega::Finite(n) => Self::Bounded(Some(n as K)),
-            Omega::Unbounded => Self::Unbounded,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::Boundedness;
 
     #[test]
     fn test_ord() {
-        assert!(Boundedness::Bounded(None) < Boundedness::Bounded(Some(0)));
-        assert!(Boundedness::Bounded(Some(0)) < Boundedness::Bounded(Some(1)));
-        assert!(Boundedness::Bounded(Some(1)) < Boundedness::Unbounded);
+        assert!(Boundedness::Bounded(0) < Boundedness::Bounded(1));
+        assert!(Boundedness::Bounded(usize::MAX) < Boundedness::Unbounded);
     }
 }

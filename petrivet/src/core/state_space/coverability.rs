@@ -163,19 +163,6 @@ impl TryFrom<IdxMarking<Omega>> for IdxMarking<u32> {
     }
 }
 
-impl PartialEq<IdxMarking<Omega>> for IdxMarking<u32> {
-    fn eq(&self, other: &IdxMarking<Omega>) -> bool {
-        self.place_count() == other.place_count() && iter::zip(self.0.iter(), other.0.iter())
-            .all(|(&t, &o)| o == Omega::Finite(t))
-    }
-}
-
-impl PartialEq<IdxMarking<u32>> for IdxMarking<Omega> {
-    fn eq(&self, other: &IdxMarking<u32>) -> bool {
-        other.eq(self)
-    }
-}
-
 impl PartialOrd<IdxMarking<Omega>> for IdxMarking<u32> {
     fn partial_cmp(&self, other: &IdxMarking<Omega>) -> Option<Ordering> {
         debug_assert_eq!(self.place_count(), other.place_count());

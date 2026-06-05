@@ -16,7 +16,7 @@ However, I welcome contributions and feedback from the community to help shape t
 - **Modeling**: Create and manipulate Petri net models using `NetBuilder`, which provides a fluent API for constructing nets.
 - **Loading and saving**: Load and save Petri net models in the [PNML format](https://en.wikipedia.org/wiki/Pnml).
 - **Simulation**: Add an initial marking to a `Net` to get a `PetriNet`, which can be simulated by firing transitions and observing the resulting markings.
-- **State-space exploration**: Construct either a reachability graph or a coverability graph from a `PetriNet`, and analyze properties such as reachability, coverability, b-boundedness, deadlock-freedom, and liveness.
+- **State-space exploration**: Construct either a reachability graph or a coverability graph from a `PetriNet`, and analyze properties such as reachability, coverability, k-boundedness, deadlock-freedom, and liveness.
 - **Structural analysis**: System too complex for state-space exploration? `petrivet` also provides structural analysis techniques to prove various properties without having to explore the state space.
 - **Structural subclasses**: Check whether a `Net` belongs to a specific structural subclass of Petri nets, such as free-choice nets, marked graphs, or state machines. `petrivet` intelligently chooses the most efficient algorithms available for your net's structure.
 - **Performance**: `petrivet` is designed to be fast and efficient. It uses cache-friendly data structures to handle large and complex Petri nets.

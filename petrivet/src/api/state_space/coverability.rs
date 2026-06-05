@@ -30,11 +30,14 @@
 //! assert!(!cg.is_bounded());
 //! ```
 
+use ahash::HashMap;
+use crate::boundedness::{Boundedness, K};
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::coverability::IdxOmegaMarking;
 pub use crate::core::state_space::coverability::Omega;
 use crate::core::state_space::{DenseStateGraph, ExploreNext};
 use crate::marking::Marking;
+use crate::net::Place;
 use crate::state_space::reachability::ReachabilityGraph;
 use crate::state_space::{StateGraph, StateGraphExplorer};
 
@@ -148,6 +151,29 @@ impl<'a> CoverabilityGraph<'a> {
     #[allow(clippy::result_large_err)]
     pub fn try_into_reachability_graph(self) -> Result<ReachabilityGraph<'a>, Self> {
         ReachabilityGraph::try_from(self)
+    }
+
+    /// Returns the maximum value of each place across all markings in the coverability graph.
+    /// Places that were marked as Omega are unbounded.
+    #[must_use]
+    pub fn place_bounds(&self) -> HashMap<Place, Boundedness> {
+        let mut markings = self.state_space.markings();
+        let initial_marking = markings.next().expect("always at least one marking in the graph");
+        let bounds = markings.fold(
+            initial_marking.iter().copied().collect::<Vec<_>>(),
+            |mut bounds_so_far, next_marking| {
+                bounds_so_far.iter_mut()
+                    .zip(next_marking.iter())
+                    .for_each(|(bound, &next)| {
+                        *bound = core::cmp::max(*bound, next);
+                    });
+                bounds_so_far
+            },
+        ).into_iter().map(|o| match o {
+            Omega::Finite(tokens) => Boundedness::Bounded(tokens as K),
+            Omega::Unbounded => Boundedness::Unbounded,
+        });
+        self.mapping.places().zip(bounds).collect()
     }
 }
 

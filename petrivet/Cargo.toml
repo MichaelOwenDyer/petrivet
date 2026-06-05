@@ -10,8 +10,10 @@ keywords = ["petrinets", "modeling", "analysis"]
 ahash = "0.8.12"
 good_lp = { version = "1.15.1", default-features = false, features = ["microlp"] }
 petgraph = "0.8.3"
+graph-cycles = "0.3.0"
 quick-xml = { version = "0.40.1", features = ["serialize"], optional = true }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
+tap = "1.0.1"
 
 [features]
 default = ["pnml"]

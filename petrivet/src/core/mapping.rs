@@ -100,6 +100,9 @@ impl DenseMapping {
     /// Convert a public marking to an internal index marking.
     ///
     /// If the provided marking contains places that do not exist in this net, those places will be ignored.
+    /// 
+    /// todo: accept any IntoIterator<Item=(Place, T)> instead of a Marking<T> to avoid unnecessary
+    ///  intermediate allocations when the caller already has an iterator over the marking's support.
     pub fn idx_marking<T: TokenOps>(&self, marking: Marking<T>) -> IdxMarking<T> {
         let mut idx_marking = IdxMarking::zeros(self.place_count());
         marking.into_iter().for_each(|(place, count)| {

@@ -4,8 +4,19 @@ use crate::net::siphon_trap::{Siphon, Trap};
 use crate::net::Net;
 use crate::prelude::PetriNet;
 
-/// Represents fulfillment of the Commoner/Hack criterion,
-/// which states that every siphon in the net contains a trap marked at the initial marking.
+/// A minimal siphon and the maximal trap found within it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SiphonTrapPair {
+    /// A minimal siphon (set of places) in the net.
+    pub siphon: Siphon,
+    /// The maximal trap (subset of places) contained in the siphon.
+    /// Empty if no trap was found.
+    pub trap: Trap,
+}
+
+/// Represents fulfillment of the Commoner/Hack criterion.
+///
+/// This states that every siphon in the net contains a trap marked at the initial marking.
 /// Every minimal siphon and its maximal contained trap are provided as evidence for this result.
 pub type CommonerHackCriterion = Box<[SiphonTrapPair]>;
 
@@ -27,16 +38,6 @@ pub type UnmarkedSiphonTrapPair = SiphonTrapPair;
 /// - [Murata 1989, Theorem 12](crate::literature#theorem-12--commonerhack-criterion)
 /// - [Primer, Theorem 5.17](crate::literature#theorem-517--commonerhack-criterion-chc)
 pub type CommonerHackCriterionResult = Result<CommonerHackCriterion, UnmarkedSiphonTrapPair>;
-
-/// A minimal siphon and the maximal trap found within it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SiphonTrapPair {
-    /// A minimal siphon in the net.
-    pub siphon: Siphon,
-    /// The maximal trap contained in this siphon (a set of places Q with Q• ⊆ •Q).
-    /// Empty if no trap was found.
-    pub trap: Trap,
-}
 
 impl<N: AsRef<Net>> PetriNet<N> {
     /// Checks the Commoner/Hack criterion, which is fulfilled when all siphons in the system

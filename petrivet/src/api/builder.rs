@@ -35,6 +35,7 @@ use std::error::Error;
 use std::hash::Hash;
 use std::num::NonZeroU32;
 use std::{fmt, iter};
+use petgraph::graph::NodeIndex;
 
 /// Builder for an ordinary Petri net.
 #[derive(Debug, Clone)]
@@ -475,9 +476,40 @@ impl NetBuilder {
         let preset_p = map_neighbors(&ordered_places, &self.preset_p, &transition_to_index);
         let postset_p = map_neighbors(&ordered_places, &self.postset_p, &transition_to_index);
 
+        // todo: construct graph earlier during construction
+        let graph = {
+            let node_count = ordered_places.len() + ordered_transitions.len();
+            let mut graph = petgraph::Graph::<Node, ()>::with_capacity(node_count, self.arc_count());
+            let p_indices: Box<[NodeIndex]> = ordered_places.iter()
+                .map(|p| graph.add_node(Node::Place(*p)))
+                .collect();
+            let t_indices: Box<[NodeIndex]> = ordered_transitions.iter()
+                .map(|t| graph.add_node(Node::Transition(*t)))
+                .collect();
+            (0..)
+                .zip(preset_t.iter().zip(postset_t.iter()))
+                .flat_map(|(t_idx, (preset, postset))| {
+                    let transition_node = t_indices[t_idx];
+                    let preset = preset.iter()
+                        .map(|&p_idx| p_indices[p_idx])
+                        .map(move |place_node| (place_node, transition_node));
+                    let postset = postset.iter()
+                        .map(|&p_idx| p_indices[p_idx])
+                        .map(move |place_node| (transition_node, place_node));
+                    iter::chain(preset, postset)
+                })
+                .for_each(|(from, to)| {
+                    graph.add_edge(from, to, ());
+                });
+            graph
+        };
+
+        let is_strongly_connected = petgraph::algo::tarjan_scc(&graph).len() == 1;
+
         // Construct the dense analysis core of the net
         let core_net = DenseNet {
             class,
+            is_strongly_connected,
             preset_t,
             postset_t,
             preset_p,
@@ -493,6 +525,7 @@ impl NetBuilder {
 
         Ok(Net {
             dense_net: core_net,
+            graph,
             next_place_id,
             next_transition_id,
             mapping,

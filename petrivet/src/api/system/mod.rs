@@ -149,7 +149,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns the token count at a place identified by its [`Place`].
     /// Returns 0 for places which do not exist in the net.
     #[must_use]
-    pub fn current_tokens(&self, p: Place) -> u32 {
+    pub fn tokens_in(&self, p: Place) -> u32 {
         self.mapping
             .place_idx(p)
             .map_or(0, |p_idx| self.marking[p_idx])

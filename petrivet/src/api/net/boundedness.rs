@@ -13,9 +13,9 @@ impl Net {
     /// This means that there exists no initial marking
     /// which would cause this place to become unbounded.
     #[must_use]
-    pub fn is_place_structurally_bounded(&self, place: &Place) -> bool {
+    pub fn is_place_structurally_bounded(&self, place: Place) -> bool {
         self.mapping
-            .place_idx(*place)
-            .is_some_and(|p_idx| self.dense_net.is_place_structurally_bounded(&p_idx))
+            .place_idx(place)
+            .is_some_and(|p_idx| self.dense_net.is_place_structurally_bounded(p_idx))
     }
 }

@@ -123,7 +123,7 @@ fn run_reachability_deadlock(input_dir: &Path) -> Result<(), ParticipationError>
     let system = load_system(input_dir)?;
     print_boolean_result(
         Examination::ReachabilityDeadlock.as_str(),
-        system.has_reachable_deadlock_marking(),
+        system.deadlocks().next().is_some(),
         DEFAULT_TECHNIQUES,
     );
     Ok(())
@@ -132,13 +132,8 @@ fn run_reachability_deadlock(input_dir: &Path) -> Result<(), ParticipationError>
 fn run_one_safe(input_dir: &Path) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
     let name = Examination::OneSafe.as_str();
-
-    if system.is_structurally_k_bounded(1) {
-        print_boolean_result(name, true, STRUCTURAL_TECHNIQUES);
-        return Ok(());
-    }
-
-    print_boolean_result(name, !system.has_reachable_unsafe_marking(), DEFAULT_TECHNIQUES);
+    let result = system.is_safe();
+    print_boolean_result(name, result, DEFAULT_TECHNIQUES);
     Ok(())
 }
 

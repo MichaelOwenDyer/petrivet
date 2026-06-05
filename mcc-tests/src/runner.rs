@@ -1,5 +1,4 @@
 use crate::oracle::{Examination, Verdict};
-use petrivet::system::liveness::LivenessMethod;
 use petrivet::system::PetriNet;
 
 /// Outcome of running petrivet on one (model, examination) pair.
@@ -70,17 +69,13 @@ pub fn run_analysis(sys: &PetriNet, examination: Examination) -> RunResult {
             RunResult::Verdicts(Box::new([
                 Verdict::Formula {
                     name: examination.to_string(),
-                    value: Some(sys.has_reachable_deadlock_marking()),
+                    value: Some(sys.deadlocks().next().is_some()),
                 }
             ]))
         },
 
         Examination::OneSafe => {
-            let result = if sys.is_structurally_k_bounded(1) {
-                true
-            } else {
-                !sys.has_reachable_unsafe_marking()
-            };
+            let result = sys.is_safe();
             RunResult::Verdicts(Box::new([
                 Verdict::Formula {
                     name: examination.to_string(),
@@ -112,14 +107,11 @@ pub fn run_analysis(sys: &PetriNet, examination: Examination) -> RunResult {
         },
 
         Examination::Liveness => {
-            let liveness = sys.analyze_liveness();
-            if liveness.method == LivenessMethod::Inconclusive {
-                return RunResult::DoNotCompete;
-            }
+            let liveness = sys.is_live();
             RunResult::Verdicts(Box::new([
                 Verdict::Formula {
                     name: examination.to_string(),
-                    value: Some(liveness.global_level().is_live()),
+                    value: Some(liveness),
                 }
             ]))
         }
