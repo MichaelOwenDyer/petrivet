@@ -1,0 +1,109 @@
+<svg viewBox="0 0 920 600" xmlns="http://www.w3.org/2000/svg" role="img" font-family="ui-sans-serif, system-ui, sans-serif">
+  <title>The Charted Cathedral: six structures of petrivet across an arc from two semantics to synthesis</title>
+  <desc>Six concerns grouped into four movements — Two Semantics (order, linear algebra), The Island (structural), Epistemics (evidence, decision), and Synthesis (composition) — each labelled with its reaching-toward abstraction and shaded by build status, converging on a capstone irreducibility measure Phi-PN. A foundation band names literature.rs as the blueprint.</desc>
+
+  <style>
+    .title  { font-family: Georgia, serif; fill: #1a1a1a; }
+    .move   { fill: #555; letter-spacing: .12em; text-transform: uppercase; }
+    .num    { font-family: Georgia, serif; fill: #1a1a1a; }
+    .name   { fill: #1a1a1a; }
+    .sub    { fill: #555; }
+    .found  { fill: #555; }
+    .legk   { fill: #555; }
+    .cap    { fill: #ffffff; }
+    .capsub { fill: #eaf3f1; }
+    .flow   { stroke: #cfcfcf; stroke-width: 1.5; fill: none; }
+  </style>
+
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b8b8b8"/>
+    </marker>
+  </defs>
+
+  <text x="34" y="40" class="title" font-size="26">The Charted Cathedral</text>
+  <text x="35" y="63" class="sub" font-size="13.5">Six structures of petrivet, from two semantics to the residual that will not factor</text>
+
+  <text x="150" y="104" class="move" font-size="11" text-anchor="middle">I · Two Semantics</text>
+  <text x="385" y="104" class="move" font-size="11" text-anchor="middle">II · The Island</text>
+  <text x="600" y="104" class="move" font-size="11" text-anchor="middle">III · Epistemics</text>
+  <text x="815" y="104" class="move" font-size="11" text-anchor="middle">IV · Synthesis</text>
+
+  <line x1="48" y1="118" x2="884" y2="118" stroke="#d8d8d8" stroke-width="1" stroke-dasharray="2 4"/>
+
+  <rect x="48" y="140" width="204" height="86" rx="10" fill="#137a6e"/>
+  <text x="66" y="170" class="num cap" font-size="19">①</text>
+  <text x="92" y="167" class="name cap" font-size="14.5" font-weight="600">Order structure</text>
+  <text x="92" y="186" class="capsub" font-size="11.5">one engine · ω as a type</text>
+  <text x="66" y="211" class="capsub" font-size="11.5" font-style="italic">→ WellQuasiOrder / Ideal · WSTS</text>
+
+  <rect x="48" y="236" width="204" height="86" rx="10" fill="#5aa79d"/>
+  <text x="66" y="266" class="num cap" font-size="19">②</text>
+  <text x="92" y="263" class="name cap" font-size="14.5" font-weight="600">Linear algebra</text>
+  <text x="92" y="282" class="capsub" font-size="11.5">incidence · LP filters</text>
+  <text x="66" y="307" class="capsub" font-size="11.5" font-style="italic">→ Invariants · the Farkas dual</text>
+
+  <rect x="284" y="140" width="202" height="182" rx="10" fill="#5aa79d"/>
+  <text x="302" y="170" class="num cap" font-size="19">③</text>
+  <text x="328" y="167" class="name cap" font-size="14.5" font-weight="600">Structural island</text>
+  <text x="328" y="186" class="capsub" font-size="11.5">free-choice tractability</text>
+  <line x1="302" y1="200" x2="468" y2="200" stroke="#bfe0da" stroke-width="1"/>
+  <text x="302" y="222" class="cap" font-size="11.5" font-weight="600">built:</text>
+  <text x="346" y="222" class="capsub" font-size="11.5">siphon / trap dual closures</text>
+  <text x="302" y="241" class="capsub" font-size="11.5">Commoner–Hack certificate</text>
+  <text x="302" y="270" class="cap" font-size="11.5" font-weight="600">keystone:</text>
+  <text x="370" y="270" class="capsub" font-size="11.5" font-style="italic">cluster quotient</text>
+  <text x="302" y="289" class="capsub" font-size="11.5" font-style="italic">→ Rank Theorem · S-components</text>
+  <text x="302" y="312" class="capsub" font-size="10.5">rank = clusters − 1</text>
+
+  <rect x="500" y="140" width="200" height="86" rx="10" fill="#5aa79d"/>
+  <text x="518" y="170" class="num cap" font-size="19">④</text>
+  <text x="544" y="167" class="name cap" font-size="14.5" font-weight="600">Evidence</text>
+  <text x="544" y="186" class="capsub" font-size="11.5">verdicts carry witnesses</text>
+  <text x="518" y="211" class="capsub" font-size="11.5" font-style="italic">→ Certificate.check() · Verdict⟨P,N⟩</text>
+
+  <rect x="500" y="236" width="200" height="86" rx="10" fill="#5aa79d"/>
+  <text x="518" y="266" class="num cap" font-size="19">⑤</text>
+  <text x="544" y="263" class="name cap" font-size="14.5" font-weight="600">Decision</text>
+  <text x="544" y="282" class="capsub" font-size="11.5">cost-ordered cascade</text>
+  <text x="518" y="307" class="capsub" font-size="11.5" font-style="italic">→ Decider lattice · learned schedule</text>
+
+  <text x="600" y="345" class="sub" font-size="10.5" text-anchor="middle" font-style="italic">certificate = firewall: learning schedules, the witness keeps it sound</text>
+
+  <rect x="714" y="140" width="170" height="182" rx="10" fill="none" stroke="#5aa79d" stroke-width="1.8" stroke-dasharray="5 4"/>
+  <text x="732" y="170" class="num" font-size="19">⑥</text>
+  <text x="758" y="167" class="name" font-size="14.5" font-weight="600">Composition</text>
+  <text x="732" y="190" class="sub" font-size="11.5">NUPN units · S-comps</text>
+  <line x1="732" y1="204" x2="866" y2="204" stroke="#cfe3df" stroke-width="1"/>
+  <text x="732" y="226" class="sub" font-size="11.5">decomposition lattice</text>
+  <text x="732" y="245" class="sub" font-size="11.5">assume–guarantee</text>
+  <text x="732" y="270" class="sub" font-size="11.5" font-style="italic">→ UnitTree oracle</text>
+  <text x="732" y="300" class="sub" font-size="11.5">the residual that</text>
+  <text x="732" y="315" class="sub" font-size="11.5">does not factor</text>
+
+  <line x1="252" y1="183" x2="282" y2="200" class="flow" marker-end="url(#ar)"/>
+  <line x1="486" y1="200" x2="498" y2="195" class="flow" marker-end="url(#ar)"/>
+  <line x1="700" y1="222" x2="712" y2="225" class="flow" marker-end="url(#ar)"/>
+
+  <path d="M255 230 C 540 410, 560 470, 690 486" class="flow"/>
+  <path d="M385 326 C 470 430, 540 470, 690 494" class="flow"/>
+  <path d="M600 326 C 640 400, 660 460, 690 500" class="flow"/>
+  <path d="M799 322 C 800 380, 780 440, 758 470" class="flow" marker-end="url(#ar)"/>
+
+  <rect x="332" y="470" width="356" height="74" rx="12" fill="#0f5f56"/>
+  <text x="510" y="500" class="cap" font-size="17" text-anchor="middle" font-family="Georgia, serif">Φ&#8202;<tspan font-size="12" dy="3">PN</tspan><tspan dy="-3"> — compositional irreducibility</tspan></text>
+  <text x="510" y="522" class="capsub" font-size="11.5" text-anchor="middle">min over partitions of  δ( whole ,  ⊗ parts )</text>
+  <text x="510" y="537" class="capsub" font-size="10.5" text-anchor="middle" font-style="italic">needs all six · an honest Petri-net Φ, not a claim about minds</text>
+
+  <circle cx="724" cy="507" r="6" fill="#0f5f56"/>
+
+  <rect x="48" y="558" width="836" height="30" rx="8" fill="#f3f4f3" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="62" y="577" class="found" font-size="12" font-style="italic">literature.rs — the blueprint ahead of the stone: theorems bound to code, and the names not yet built</text>
+
+  <rect x="638" y="40" width="13" height="13" rx="3" fill="#137a6e"/>
+  <text x="657" y="51" class="legk" font-size="11">built</text>
+  <rect x="700" y="40" width="13" height="13" rx="3" fill="#5aa79d"/>
+  <text x="719" y="51" class="legk" font-size="11">charted</text>
+  <rect x="772" y="40" width="13" height="13" rx="3" fill="none" stroke="#5aa79d" stroke-width="1.6" stroke-dasharray="4 3"/>
+  <text x="791" y="51" class="legk" font-size="11">dreamed</text>
+</svg>
