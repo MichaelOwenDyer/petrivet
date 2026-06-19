@@ -77,7 +77,7 @@ impl WasmSystem {
         let initial_marking = system.marking().clone();
         let place_keys: Vec<Place> = system.places().collect();
         let transition_keys: Vec<Transition> = system.transitions().collect();
-        let (net, _initial_marking, current_marking) = system.into_parts();
+        let (net, current_marking, _initial_marking) = system.into_parts();
         let system = PetriNet::new(Rc::new(net), current_marking);
 
         Ok(WasmSystem {

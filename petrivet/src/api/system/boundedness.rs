@@ -1,6 +1,7 @@
 use crate::boundedness::{Boundedness, K};
 use crate::class::NetClass;
-use crate::net::{Net, Node, Place};
+use crate::core::net::IdxNode;
+use crate::net::{Net, Place};
 use crate::prelude::PetriNet;
 use crate::state_space::ExplorationOrder;
 use ahash::HashMap;
@@ -79,10 +80,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
             // A place in a marked graph is bounded iff it belongs to some circuit
             NetClass::MarkedGraph => {
                 // todo: optimize by only constructing circuits which contain the place
-                Some(self.circuits()
-                    .filter(|circuit| circuit.contains(&Node::Place(place)))
-                    .next()
-                    .is_some())
+                self.mapping.place_idx(place).map_or(
+                    Some(true),
+                    |p_idx| {
+                        Some(self.circuits().any(|circuit| circuit.contains(&IdxNode::Place(p_idx))))
+                    }
+                )
             },
             _ => None,
         }
@@ -99,7 +102,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 if self.is_strongly_connected() {
                     Some(Boundedness::Bounded(self.marking.sum() as K))
                 } else {
-                    None
+                    None // todo
+                }
+            }
+            NetClass::MarkedGraph => {
+                if self.is_strongly_connected() {
+                    None // todo
+                } else {
+                    Some(Boundedness::Unbounded)
                 }
             }
             _ => None,
@@ -119,16 +129,19 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 }
             }
             NetClass::MarkedGraph => {
-                Some(
-                    self.circuits()
-                        .filter(|circuit| circuit.contains(&Node::Place(place)))
-                        .map(|circuit| {
-                            circuit.places()
-                                .map(|place| self.tokens_in(place))
-                                .sum::<u32>() as K
-                        })
-                        .min()
-                        .map_or(Boundedness::Unbounded, Boundedness::Bounded)
+                self.mapping.place_idx(place).map_or(
+                    Some(Boundedness::Bounded(0)),
+                    |p_idx| Some(
+                        self.circuits()
+                            .filter(|circuit| circuit.contains(&IdxNode::Place(p_idx)))
+                            .map(|circuit| {
+                                circuit.place_indices()
+                                    .map(|p_idx| self.marking[p_idx])
+                                    .sum::<u32>() as K
+                            })
+                            .min()
+                            .map_or(Boundedness::Unbounded, Boundedness::Bounded)
+                    )
                 )
             },
             _ => None,

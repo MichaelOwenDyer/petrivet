@@ -97,18 +97,18 @@ pub struct PetriNet<N = Net> {
     /// The [`Net`] structure, which is immutable and can be shared across multiple
     /// Petri nets depending on the choice of `N` (e.g. `&Net`, `Arc<Net>`, ...).
     pub net: N,
-    /// The marking which the Petri net was initialized with. This will never change.
-    ///
-    /// This is purposefully not called the *initial* marking because the other marking
-    /// field serves as the de-facto initial marking for analysis questions, even if it
-    /// was previously mutated through simulation.
-    reset: IdxMarking<u32>,
     /// The mutable current marking of the system, which changes as transitions are fired.
     ///
     /// The current state of this marking is used as the starting point, or "initial marking",
     /// for all analysis procedures.
     // todo: make private
     pub(crate) marking: IdxMarking<u32>,
+    /// The marking which the Petri net was initialized with. This will never change.
+    ///
+    /// This is purposefully not called the *initial* marking because the other marking
+    /// field serves as the de-facto initial marking for analysis questions, even if it
+    /// was previously mutated through simulation.
+    reset_marking: IdxMarking<u32>,
 }
 
 impl<N: AsRef<Net>> Deref for PetriNet<N> {
@@ -119,24 +119,22 @@ impl<N: AsRef<Net>> Deref for PetriNet<N> {
     }
 }
 
-// construction and simulation
 impl<N: AsRef<Net>> PetriNet<N> {
     /// Creates a new Petri net from a net and initial marking.
     #[must_use]
     pub fn new(net: N, initial_marking: impl Into<Marking<u32>>) -> Self {
-        let initial_marking = initial_marking.into();
-        let marking = net.as_ref().mapping.idx_marking(initial_marking);
-        let reset = marking.clone();
-        Self { net, reset, marking }
+        let initial_marking = net.as_ref().mapping.idx_marking(initial_marking.into());
+        let reset_marking = initial_marking.clone();
+        Self { net, marking: initial_marking, reset_marking }
     }
 
     /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
     #[must_use]
     pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
-        let PetriNet { net, reset: initial_marking, marking: current_marking } = self;
-        let initial_marking = net.as_ref().mapping.marking(initial_marking);
-        let current_marking = net.as_ref().mapping.marking(current_marking);
-        (net, initial_marking, current_marking)
+        let PetriNet { net, marking, reset_marking: reset } = self;
+        let marking = net.as_ref().mapping.marking(marking);
+        let reset = net.as_ref().mapping.marking(reset);
+        (net, marking, reset)
     }
 
     /// Returns the current marking of the system.
@@ -160,7 +158,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn reset(&mut self) -> Marking<u32> {
         let previous = std::mem::replace(
             &mut self.marking,
-            self.reset.clone()
+            self.reset_marking.clone()
         );
         self.mapping.marking(previous)
     }
@@ -428,7 +426,7 @@ mod tests {
         let mut sys = net.with_initial_marking([(p0, 1)]);
         sys.try_fire(t0).unwrap();
         let parts = sys.into_parts();
-        assert_eq!(parts.1, Marking::from([(p0, 1)]));
-        assert_eq!(parts.2, Marking::from([(p1, 1)]));
+        assert_eq!(parts.1, Marking::from([(p1, 1)]));
+        assert_eq!(parts.2, Marking::from([(p0, 1)]));
     }
 }

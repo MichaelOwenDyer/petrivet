@@ -4,6 +4,8 @@ use crate::core::class::NetClass;
 use crate::core::marking::IdxMarking;
 use crate::core::unique_sorted_slice::UniqueSortedSlice;
 
+pub mod path;
+
 /// A place in a built [`Net`], identified by a dense index in `0 .. place_count`.
 ///
 /// This is a crate-internal index used by analysis algorithms. External users
@@ -21,6 +23,14 @@ pub type TransitionIdx = usize;
 pub enum IdxArc {
     PlaceToTransition(PlaceIdx, TransitionIdx),
     TransitionToPlace(TransitionIdx, PlaceIdx),
+}
+
+
+/// Node using internal dense indices for places and transitions.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum IdxNode {
+    Place(PlaceIdx),
+    Transition(TransitionIdx),
 }
 
 /// The structure of a Net compressed into a packed format optimized for analysis.

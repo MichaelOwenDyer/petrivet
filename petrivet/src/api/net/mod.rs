@@ -2,10 +2,9 @@
 
 pub mod siphon_trap;
 pub mod boundedness;
-pub mod path;
 
 use crate::core::mapping::DenseMapping;
-use crate::core::net::{DenseNet, IdxArc};
+use crate::core::net::{DenseNet, IdxArc, IdxNode};
 use crate::prelude::{Marking, NetBuilder, NetClass, PetriNet};
 use std::num::NonZeroU32;
 use petgraph::Graph;
@@ -76,7 +75,7 @@ pub struct Net {
     pub(crate) dense_net: DenseNet,
 
     /// The bipartite graph structure of the Petri net.
-    pub(crate) graph: Graph<Node, ()>,
+    pub(crate) graph: Graph<IdxNode, ()>,
 
     /// Monotonic counter used when converting this [`Net`] back to a [`builder::NetBuilder`]
     /// so new nodes continue to receive unused ids. Ids are never reused for removed nodes.
@@ -131,12 +130,6 @@ impl Net {
     #[must_use]
     pub const fn is_strongly_connected(&self) -> bool {
         self.dense_net.is_strongly_connected
-    }
-
-    /// Returns the graph structure of the net.
-    #[must_use]
-    pub const fn graph(&self) -> &Graph<Node, ()> {
-        &self.graph
     }
 
     /// Iterator over all places.

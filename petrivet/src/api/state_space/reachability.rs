@@ -4,11 +4,11 @@
 //! from a given initial marking in a Petri net, and analyzing the resulting
 //! reachability graph for properties like liveness and deadlock-freedom.
 
-use ahash::HashMap;
 use crate::boundedness::{Boundedness, K};
 use crate::net::Place;
 use crate::state_space::{StateGraph, StateGraphExplorer};
-use crate::system::liveness::{LivenessAnalysis, LivenessMethod};
+use crate::system::liveness::LivenessAnalysis;
+use ahash::HashMap;
 
 /// An incremental exploration handle which lazily enumerates every single marking
 /// in the state space of the [`PetriNet`].
@@ -77,10 +77,7 @@ impl ReachabilityGraph<'_> {
             .transitions()
             .zip(self.state_space.liveness_levels())
             .collect();
-        LivenessAnalysis {
-            levels,
-            method: LivenessMethod::ReachabilityGraph,
-        }
+        LivenessAnalysis { levels }
     }
 
     /// Returns the maximum value of each place across all markings in the coverability graph.

@@ -20,7 +20,7 @@ pub enum LivenessLevel {
     /// In other words, `t` can never fire.
     ///
     /// L0-live transitions are always *strictly* L0-live, in the sense that
-    /// no transition can belong to another liveness class and also L0 at the same time.
+    /// no transition can simultaneously be L0-live and L1-live or higher.
     ///
     /// [Transition]: crate::net::Transition
     L0,

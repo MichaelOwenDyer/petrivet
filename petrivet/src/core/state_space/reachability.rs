@@ -16,12 +16,12 @@ impl TokenOps for u32 {
 impl ExploreNext<u32> for DenseStateGraphExplorer<'_, u32> {
     fn explore_next(&mut self) -> Option<(TransitionIdx, NodeIndex, bool)> {
         loop {
-            let (src_idx, t_idx) = self.pop_frontier()?;
-            if !self.is_enabled(src_idx, t_idx) {
+            let (src_marking_idx, t_idx) = self.pop_frontier()?;
+            if !self.is_enabled(src_marking_idx, t_idx) {
                 continue;
             }
-            let new_marking = self.fire(src_idx, t_idx);
-            let (is_new, node_idx) = self.register(src_idx, t_idx, new_marking);
+            let new_marking = self.fire(src_marking_idx, t_idx);
+            let (is_new, node_idx) = self.register(src_marking_idx, t_idx, new_marking);
             return Some((t_idx, node_idx, is_new));
         }
     }
@@ -44,9 +44,9 @@ impl DenseStateGraph<'_, u32> {
         let sccs = petgraph::algo::tarjan_scc(graph);
 
         let mut node_to_scc = vec![0usize; graph.node_count()];
-        for (scc_id, scc) in sccs.iter().enumerate() {
+        for (scc_idx, scc) in sccs.iter().enumerate() {
             for &node in scc {
-                node_to_scc[node.index()] = scc_id;
+                node_to_scc[node.index()] = scc_idx;
             }
         }
 

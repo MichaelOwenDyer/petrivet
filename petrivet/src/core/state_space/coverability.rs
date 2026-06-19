@@ -214,14 +214,14 @@ impl ExploreNext<Omega> for DenseStateGraphExplorer<'_, Omega> {
         }
 
         loop {
-            let (src_node_idx, transition_idx) = self.pop_frontier()?;
-            if !self.is_enabled(src_node_idx, transition_idx) {
+            let (src_marking_idx, t_idx) = self.pop_frontier()?;
+            if !self.is_enabled(src_marking_idx, t_idx) {
                 continue;
             }
-            let mut new_marking = self.fire(src_node_idx, transition_idx);
-            omega_accelerate(&self.state_space, &mut new_marking, src_node_idx);
-            let (is_new, node_idx) = self.register(src_node_idx, transition_idx, new_marking);
-            return Some((transition_idx, node_idx, is_new));
+            let mut new_marking = self.fire(src_marking_idx, t_idx);
+            omega_accelerate(&self.state_space, &mut new_marking, src_marking_idx);
+            let (is_new, node_idx) = self.register(src_marking_idx, t_idx, new_marking);
+            return Some((t_idx, node_idx, is_new));
         }
     }
 }

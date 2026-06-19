@@ -48,8 +48,8 @@ pub struct Marking<T> {
 }
 
 impl<T> Marking<T> {
-    pub fn support(&self) -> impl Iterator<Item = &(Place, T)> {
-        self.support.iter()
+    pub fn support(&self) -> impl Iterator<Item = Place> + '_ {
+        self.support.iter().map(|(place, _)| *place)
     }
 }
 

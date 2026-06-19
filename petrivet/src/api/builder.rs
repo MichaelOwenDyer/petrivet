@@ -26,7 +26,7 @@
 //! indices and the public API is an adapter over the internal dense representation.
 
 use crate::core::mapping::DenseMapping;
-use crate::core::net::{DenseNet, PlaceIdx, TransitionIdx};
+use crate::core::net::{DenseNet, IdxNode, PlaceIdx, TransitionIdx};
 use crate::core::unique_sorted_slice::UniqueSortedSlice;
 use crate::prelude::{Arc, Net, NetClass, Node, Place, Transition};
 use ahash::{HashMap, HashMapExt, HashSet, HashSetExt};
@@ -476,15 +476,14 @@ impl NetBuilder {
         let preset_p = map_neighbors(&ordered_places, &self.preset_p, &transition_to_index);
         let postset_p = map_neighbors(&ordered_places, &self.postset_p, &transition_to_index);
 
-        // todo: construct graph earlier during construction
         let graph = {
             let node_count = ordered_places.len() + ordered_transitions.len();
-            let mut graph = petgraph::Graph::<Node, ()>::with_capacity(node_count, self.arc_count());
-            let p_indices: Box<[NodeIndex]> = ordered_places.iter()
-                .map(|p| graph.add_node(Node::Place(*p)))
+            let mut graph = petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
+            let p_indices: Box<[NodeIndex]> = place_to_index.values()
+                .map(|&p| graph.add_node(IdxNode::Place(p)))
                 .collect();
-            let t_indices: Box<[NodeIndex]> = ordered_transitions.iter()
-                .map(|t| graph.add_node(Node::Transition(*t)))
+            let t_indices: Box<[NodeIndex]> = transition_to_index.values()
+                .map(|&t| graph.add_node(IdxNode::Transition(t)))
                 .collect();
             (0..)
                 .zip(preset_t.iter().zip(postset_t.iter()))

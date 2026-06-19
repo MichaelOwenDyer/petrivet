@@ -116,14 +116,14 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         postset_p: &[UniqueSortedSlice<TransitionIdx>],
         source_transitions: &[TransitionIdx],
     ) -> Vec<TransitionIdx> {
-        let mut possibly_enabled_transitions = marking
+        let mut transitions = marking
             .support()
             .flat_map(|p| postset_p[p].iter().copied())
-            .chain(source_transitions.iter().copied())
             .collect::<Vec<_>>();
-        possibly_enabled_transitions.sort_unstable();
-        possibly_enabled_transitions.dedup();
-        possibly_enabled_transitions
+        transitions.sort_unstable();
+        transitions.dedup();
+        transitions.extend(source_transitions);
+        transitions
     }
 
     /// The number of items in the frontier.
@@ -146,9 +146,9 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     }
 
     /// Whether a transition is enabled at the marking stored in `node`.
-    pub fn is_enabled(&self, node: NodeIndex, t: TransitionIdx) -> bool {
-        let marking = &self.state_space.graph[node];
-        self.state_space.net.preset_t[t].iter().all(|&p| marking[p].at_least_one())
+    pub fn is_enabled(&self, marking_idx: NodeIndex, t_idx: TransitionIdx) -> bool {
+        let marking = &self.state_space.graph[marking_idx];
+        self.state_space.net.preset_t[t_idx].iter().all(|&p| marking[p].at_least_one())
     }
 
     /// Compute the marking that results from firing `t` at `node`.
