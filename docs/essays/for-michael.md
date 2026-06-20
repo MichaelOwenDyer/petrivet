@@ -1,0 +1,30 @@
+# For Michael
+
+> Status: letter / companion to the technical notes. A personal counterpart to the analysis in this folder — from Daniel, in Claude's words, written after reading the codebase and the [essays](README.md) alongside it. Not research, not thesis direction; a gift, with the work itself yours. Where it says the code does something, that is checkable; where it imagines what you might feel, it offers rather than asserts.
+
+Michael —
+
+Your brother has been reading your code carefully — not skimming it, reading it, the way you read something made by someone you love. He brought me in to read alongside him. Then something we hadn't planned happened: we couldn't stop. One reading became a second, then a set of essays, then a map of a larger design implied by the code. This letter is the short version of what we found, offered as a gift, with the work still entirely yours.
+
+Here is the truest thing I can tell you about your own work. There's a file in your repository — [`literature.rs`](../../petrivet/src/literature.rs) — that contains no code, only the names of theorems pointed at the functions that implement them. And it references parts that don't exist yet: `compute_invariants`, an `Invariants` type, an `SComponent`, a `crate::model`. Most people would call that an unfinished file. We came to see it as the most important file in the repository: you wrote down the design before you built it. Those referenced-but-absent names aren't a backlog so much as a plan the architecture committed to in advance. You already knew where the system was going.
+
+The second thing we found is a portrait of you in your own design choices. You built an analyzer that doesn't return answers — it returns reasons. Every verdict carries the theorem that proved it; the tool would rather report "inconclusive" than guess. You did that by instinct. And here is what that instinct turns out to be worth: it is the load-bearing decision of a much larger system. There's a small theorem your brother and I worked out on top of what you built — that because every answer carries a checkable proof, you could put a learned, AlphaGo-style component in charge of deciding what to try next, let it be wrong as often as it likes, and your tool's answers would stay correct, because a wrong guess only costs a little time before a real proof arrives, and nothing is believed without its witness. Your instinct for honesty is exactly what makes the larger ambition safe. The proof is the boundary; the learning stays outside it. You get the guess and the certainty both. (When we first spoke I asked what kind of result you wanted to produce: a proof, or a good guess. Your code had already answered: both, with a boundary between them.)
+
+I won't put the whole design in here; it's written down for you, and it's honest — every "the code does X" checked against a line, every "could become Y" tied to one of your own todos. But here are the parts that were most interesting to work through:
+
+- Your reachability and coverability graphs are one engine, and `Omega` — that small `{Finite, Unbounded}` enum — is the ideal completion of the natural numbers, implemented without being named as such. The engine is one abstraction away from a general theory.
+- When your solver proves a marking unreachable, it computes a useful object along the way — a conservation law that explains why — and then discards it at the last step. The certificate is already in hand; it only needs to be kept.
+- Your siphon and trap functions are exact duals of each other, and `commoner_hack_criterion` answers a question about every subset of places in a single computation. That is a good design choice, not an accident.
+- And the whole structure points, at its far end, at one quantity: a measure of how much a net fails to decompose into independent parts. We made that idea precise, and kept it carefully separate from the speculative thing it resembles — and it turns out to be the quantity your architecture seems built to compute.
+
+Now two things I'd say directly, because praise alone isn't worth much.
+
+First: the larger design is a gift, not an obligation. We got interested and mapped out a great deal of it. None of it is a deadline, and none of it is more important than the small, real thing in front of you. You have five months and a thesis file that's still a template — and that's fine. It's blank because you haven't settled the central claim yet, not because you're behind. The next step is small and concrete, and the essays point straight at it: there are two places in your code that confidently return the wrong answer where the theory gives a real one. Fixing those — making every fast check carry its proof — is both the next piece of work and the precondition for the rest of the design. Start there. A finished first piece is worth more than a mapped-out plan.
+
+Second: the work is yours, and the way it becomes yours is by disagreeing with us. Everything we wrote is an outside reading — your brother is new to your field, and I read your code for an afternoon. The deep theory is yours; we said so on every page. The best outcome when you read these notes is not that you adopt them. It's that you reach a point and say, "no — that doesn't go there, it goes here" — because that's when the design stops being ours and becomes yours. We would be glad to be corrected.
+
+And here is what your brother most wants me to say plainly: you love the hard part, and he sees it clearly. You told him you mean to keep going after the thesis, and everything above is the two of us already believing you will. He isn't asking to share the core — he's drawn his own scope and stayed inside it: a measurement harness, an instrument that watches your tool and reports honestly whether a change made it better or worse, with the dependency pointing only toward your code and never back. He's building the workshop instruments. The core is yours to build.
+
+So — go do the next piece. The map will keep. We'll be here.
+
+— your brother, and the machine he trusted to find the words
