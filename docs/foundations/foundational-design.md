@@ -1,23 +1,23 @@
 # Foundational Design for the Future `petrivet`
 ### The trust architecture: certificates, checkers, and the exact-rational core
 
-> Status: design document (specification-grade). The bridge between the [essays](../essays/README.md) — which argue the vision — and the [implementation backlog](foundations-backlog.md), which sequences the build. It specifies the components that do not yet exist in the codebase but are prerequisites for the analyses the vision describes, and it fixes the shapes (`Verdict`, `Certificate`, `Decider`) the rest of the program is written against. Statements about current code are verifiable against the cited file/line references; proposed components are identified as proposed. The Petri-net theory itself is Michael's.
+> Status: design document (specification-grade). The bridge between the [essays](../essays/README.md) — which argue the vision — and the ratified [`BACKLOG.md`](../../BACKLOG.md), which sequences the build. It specifies the components that do not yet exist in the codebase but are prerequisites for the analyses the vision describes, and it fixes the shapes (`Verdict`, `Certificate`, `Decider`) the rest of the program is written against. Statements about current code are verifiable against the cited file/line references; proposed components are identified as proposed. The Petri-net theory itself is Michael's.
 >
-> This document is **coherent with the ratified engineering plan** in [`BACKLOG.md`](../../BACKLOG.md) (epics A–H, X). Where this document names a component F-number and the backlog names an epic letter, the [crosswalk in §11](#11-crosswalk-the-fm-numbering-against-the-ah-epics) reconciles them. The two documents share one direction, one set of invariants, and no contradictions.
+> The narrative and the argument for these shapes — why the trust boundary is load-bearing, the inversion that puts the certificate before the scalar — live in [latent-architecture.md](../essays/latent-architecture.md). This document specifies; the essay argues. Each component F-number is tagged with the [`BACKLOG.md`](../../BACKLOG.md) epic that schedules it; that backlog is the single authoritative plan.
 
 ---
 
 ## 0. The ratified inversion (what this document is built on)
 
-The vision essays lead with a *theorem* — that soundness is independent of the selection policy — and a *scalar*, Φ_PN, that measures how far a property fails to factor. The ratified plan **inverts the emphasis**, and this design document is written from the inverted position:
+The vision essays once led with a *theorem* — soundness is independent of the selection policy — and a *scalar*, Φ_PN. The ratified plan inverts the emphasis, and this design is written from the inverted position. The argument for the inversion is in [latent-architecture.md](../essays/latent-architecture.md) and [README.md](../essays/README.md); the premises this spec builds on are:
 
-- **The certificate-and-checker is the stone.** The signature technical contribution is an interoperable, machine-checkable certificate for every property verdict, re-validated by a small external checker that *is* the entire trusted base. (Epic C; here F3 + the original-net checking invariant of §5.)
-- **The falsifiable headline is empirical.** The claim that earns or loses the thesis is a measured coverage number: *on the real MCC P/T corpus, a polynomial structural certificate decides a large, characterizable fraction of queries without state-space exploration; where it abstains, it abstains honestly* (`f_struct`, Epic G). It is not a theorem.
-- **The soundness firewall is the enabling property, not the headline.** "Soundness is independent of the selection policy" is, as a theorem, a one-line corollary of certifying-algorithms (McConnell–Mehlhorn–Näher) composed with algorithm-selection (Rice; SATzilla). Its non-trivial content is a *precondition the code must first discharge*: every fast decider must be certifying. The two `Some(false)` stubs (§1) and the silent PNML corruptions (§1.1) violate that precondition today. The figure of merit is the **certifying fraction `f`** — the share of accepted verdicts carrying a checked certificate — measured and required non-increasing in its trusted-base complement.
-- **Learned selection is the SATzilla-style sequel** (Epic D ladder), gated behind the checker so a mis-selection costs time, never correctness. **MCC ranking is OUT** as a thesis goal: the contest is the crucible (honest abstention under an oracle cross-check) and the label source (the certificate is the training label), not a leaderboard.
-- **The scalar Φ_PN is dissolved.** The single net-level scalar, the boolean-verdict Φ (which is just assume-guarantee reasoning), and the "needs all four roots" necessity claim do not survive examination. What survives are **two computable, monotone, theorem-backed-zero, per-property factorization residuals — Φ_bound and Φ_inv** — whose deliverable is their *measurement over the corpus*, not their metaphysics (§8). IIT is absent from the repository and is not introduced.
+- **The certificate-and-checker is the stone** — an interoperable, machine-checkable certificate for every verdict, re-validated by a small external checker that *is* the entire trusted base (Epic C; here F3 + the original-net invariant of §5).
+- **The falsifiable headline is empirical** — a measured coverage number `f_struct`: on the real MCC P/T corpus a polynomial structural certificate decides a large, characterizable fraction of queries without state-space exploration, and abstains honestly elsewhere (Epic G). Not a theorem.
+- **The soundness firewall is the enabling property, not the headline.** As a theorem it is a one-line corollary of certifying algorithms composed with algorithm selection; its non-trivial content is a *precondition the code must first discharge* — every fast decider must be certifying. The two `Some(false)` stubs (§1) and the silent PNML corruptions (§1.1) violate it today. The figure of merit is the **certifying fraction `f`**, measured and required non-increasing in its trusted-base complement.
+- **Learned selection is the SATzilla-style sequel** (Epic D ladder), gated behind the checker so a mis-selection costs time, never correctness. **MCC ranking is OUT** as a thesis goal: the contest is the crucible and the label source, not a leaderboard.
+- **The scalar Φ_PN is dissolved.** What survives are **two computable, monotone, theorem-backed-zero, per-property factorization residuals — Φ_bound and Φ_inv** — whose deliverable is their *measurement over the corpus* (§8). IIT is absent from the repository and is not introduced.
 
-The remainder specifies the architecture that the inversion requires.
+The remainder specifies the architecture the inversion requires.
 
 ---
 
@@ -25,7 +25,7 @@ The remainder specifies the architecture that the inversion requires.
 
 The marking-equation deciders described elsewhere as "exact" are implemented over floating-point arithmetic. [`find_marking_equation_rational_solution`](../../petrivet/src/core/analysis/semi_decision.rs) returns `Box<[f64]>`; the integer variant rounds via `v.round() as u32`; the structural-boundedness witness is an `f64` weight vector. Each is assembled from `f64::from(incidence.get(p,t))` and solved by `microlp`'s floating-point simplex.
 
-This has a direct consequence for soundness. A floating-point feasibility result near a constraint boundary can be incorrect, and a rounded firing-count vector does not constitute a proof. Exact arithmetic is therefore not only the prerequisite for new algebraic results (invariants, rank, Farkas duals), as the essays frame it; it is the prerequisite for the *existing* algebraic deciders to produce checkable certificates at all. The design therefore has two primary dependencies, not one: **exact arithmetic** (so that witnesses can be checked) and the **certificate calculus** (so that checking is the only trusted operation). This finding is correct and central; it survives unchanged into the ratified plan as the soundness precondition of the whole construction.
+This has a direct consequence for soundness. A floating-point feasibility result near a constraint boundary can be incorrect, and a rounded firing-count vector does not constitute a proof. Exact arithmetic is therefore not only the prerequisite for new algebraic results (invariants, rank, Farkas duals); it is the prerequisite for the *existing* algebraic deciders to produce checkable certificates at all. The design therefore has two primary dependencies, not one: **exact arithmetic** (so that witnesses can be checked) and the **certificate calculus** (so that checking is the only trusted operation). This finding survives unchanged into the ratified plan as the soundness precondition of the whole construction.
 
 The defect has a worse, quieter relative. The negative verdicts `Unreachable`/`Uncoverable` rest on `microlp` *failing* to find a rational solution ([`reachability.rs`](../../petrivet/src/api/system/reachability.rs) line 177). A spurious floating "infeasible" on a genuinely feasible rational system yields a silent **false `Unreachable`** — and unlike the two stubs of §3, the firewall cannot catch it: there is no positive object to check on the negative path, so the wrong answer carries no certificate to reject it. This is the floating-`Unreachable`-verdict audit (backlog B1a / M3); it is A2-priority and data-dependent, hence invisible to any single example.
 
@@ -43,7 +43,7 @@ A "foundation" in this document is a set of required object types, each with the
 
 The recurring mathematical structures across the system are four — partial orders, ideal completions, closure operators, and quotients. The current code implements each by hand for specific cases. The foundation provides a named, exact, certificate-bearing implementation of each.
 
-The required components are enumerated **F1–F8**, grouped into three layers (production, validation, routing/observation), one transversal component (the order abstraction), and one dependent component (compositional analysis). The backlog sequences them as milestones M0–M11 and reconciles them to the ratified epics A–H; the crosswalk is §11.
+The required components are enumerated **F1–F8**, grouped into three layers (production, validation, routing/observation), one transversal component (the order abstraction), and one dependent component (compositional analysis). [`BACKLOG.md`](../../BACKLOG.md) sequences them into gated milestones under epics A–H; each F-number below is tagged with its epic.
 
 ---
 
@@ -84,7 +84,7 @@ This is the GRAT discipline (Lammich): an unverified, possibly buggy *generator*
 - `Rational`: a normalized exact rational with an exact zero-test. Its representation and overflow policy is the first engineering decision of the program: `i64/i64` normalized is fast but overflows on large MCC instances; the alternatives are `i128` with overflow detection and promotion, or a bignum dependency (`num-rational`, currently absent from the dependency tree). This decision gates F1 and affects the cost of every downstream proof.
 - `Matrix<S>` / `Vector<S>` over `S ∈ {Rational, i64}`, built on the existing dense [`IncidenceMatrix`](../../petrivet/src/core/analysis/incidence.rs) storage (currently `new`/`get` only).
 
-**Algebra and laws.** Field axioms for `Rational`; canonical normalization; exact equality. On matrices, via a **fraction-free Bareiss elimination**: `rank`, `kernel` (right null-space basis — the T-semiflows), `left_kernel` (kernel of the transpose — the P-semiflows), `solve` (a particular solution plus the null-space), and `farkas_certificate`: on an infeasible system `Cx = b, x ≥ 0`, return an *exact* dual `y` with `yᵀC ≥ 0` and `yᵀb < 0`. **Required law: every returned object is verifiable by one exact dot product.** Smith/Hermite normal form is deferred to a scoped sub-task (B0b) used only by integer-marking refinement and minimal-semiflow extraction; SNF is the wrong default cost.
+**Algebra and laws.** Field axioms for `Rational`; canonical normalization; exact equality. On matrices, via a **fraction-free Bareiss elimination**: `rank`, `kernel` (right null-space basis — the T-semiflows), `left_kernel` (kernel of the transpose — the P-semiflows), `solve` (a particular solution plus the null-space), and `farkas_certificate`: on an infeasible system `Cx = b, x ≥ 0`, return an *exact* dual `y` with `yᵀC ≥ 0` and `yᵀb < 0`. **Required law: every returned object is verifiable by one exact dot product.** Smith/Hermite normal form is deferred to a scoped sub-task (B0b) used only by integer-marking refinement and minimal-semiflow extraction; SNF is the wrong default cost (see §4.1).
 
 **Enables.**
 1. Replacement of the floating-point marking-equation and boundedness deciders with exact versions, so they can emit certificates (resolves §1).
@@ -95,13 +95,33 @@ This is the GRAT discipline (Lammich): an unverified, possibly buggy *generator*
 
 **Integration point.** Replace the `f64::from(...)` LP assembly in `semi_decision.rs` with exact solves; retain `good_lp`/`microlp` only as an *inexact filter that never constructs `Proven`/`Refuted`* — it may suggest, never decide.
 
+### 4.1 · Arithmetic regimes and algebraic rationale
+
+The "exact arithmetic" requirement is not monolithic. Three regimes coexist, distinguished by a single discriminating principle; choosing the wrong one is either a soundness hole (too weak) or a needless cost (too strong). Recorded here so the discernment is not lost to a transcript.
+
+**Three regimes.**
+
+- **(a) Floating LP (`microlp`) — heuristic accelerator only.** Sound as a "maybe" filter: it may route a query to a cheaper decider or abstain, but it must **never construct `Proven`/`Refuted`**. The present negative `Unreachable` verdict wrongly rests on its f64 infeasibility — this is the B1a hole of §1. The fix is not to make the LP exact but to demote it: keep it off the certificate path entirely.
+- **(b) Exact rational (ℚ, fraction-free Bareiss) — required for rank, null-space, and the Farkas dual.** Rank is *discontinuous* in the matrix entries, so f64-plus-rounding is unsound: an arbitrarily small perturbation flips `rank = c − 1`. The cost is benign: ≈O(|P|²·|T|) integer operations with Hadamard-bounded intermediate entries (the Bareiss guarantee). This is the regime the P/T-semiflow null-space and the Farkas certificate live in — the workhorse of F1/F2.
+- **(c) Exact integer (ℤ, Hermite/Smith normal form) — needed only where integrality or an exact-zero coefficient is the whole point.** The integer marking equation (does a *nonnegative integer* `σ` solve `m = m₀ + C·σ`?) is the canonical case. Deferred to a scoped B0b; it is not the default.
+
+**Discriminating principle.** Exact integer SNF/HNF is required **iff** a certificate's validity depends on integrality or an exact-zero coefficient; otherwise the rational shadow, rechecked exactly, suffices. **SNF is the wrong default cost** — reaching for it everywhere pays integer-lattice prices for rational-shadow problems.
+
+**Single separating invariant, not the generating set.** Minimal P/T-semiflow generators (Colom–Silva) are worst-case exponential. The *certificate* path must emit **one separating invariant** — a single polynomial null-space/LP solve — not the full minimal basis. The basis is needed only for *coverage* predicates (`is_covered_by_s_invariants` / `is_covered_by_t_invariants`), computed lazily and capped, off the fast path. This is backlog B1's certificate/coverage split, made concrete in F2 below.
+
+**Cheapest keystone.** The cluster quotient (F4) is a near-linear union-find over the stored preset/postset slices — the highest leverage per line in the algebraic core. It unlocks both the Rank-Theorem count `c` and the S/T-component decomposition at once.
+
+**The WSTS order-lift needs more than `TokenOps`.** Abstracting the engine over the order (F7) needs a `WellQuasiOrder` (the wqo obligation licenses termination) *plus* an `Ideal<D>` with a `join` (acceleration = the ideal join). The coordinatewise ω-promotion in the code is specialized to the product order and does not generalize without abstracting that join — `TokenOps` is genericity over the fiber, not over the order.
+
+**The verdict.** B0 (the exact-rational core) is the load-bearing *soundness* precondition, not merely a capability. It is the only proposed move that closes an *active* soundness hole — the float Farkas dual plus the silent false-`Unreachable` of §1 — rather than adding reach.
+
 ### F2 · Semiflows and invariants  — *Epic B1*
 
 **Function.** The conservation laws of a net are the kernels of `C` and `Cᵀ`; the canonical generators are the minimal non-negative ones.
 
 **Types.** `PInvariant` (a place weighting `y` with `yᵀC = 0`), `TInvariant` (`Cx = 0`), and the minimal semiflow generators (Colom–Silva / Martínez–Silva). These are the `Invariants` type and `compute_invariants` function that [`literature.rs`](../../petrivet/src/literature.rs) references but that do not exist.
 
-**Algebra and laws.** The work splits along a sharp tractability seam the backlog makes explicit:
+**Algebra and laws.** The work splits along a sharp tractability seam (see the certificate/coverage split, §4.1):
 - **The certificate (polynomial, fast path).** A *single separating* invariant attached to a negative verdict. The emitted invariant must be exact-rational and pass `y·C = 0 ∧ y·(m'−m₀) ≠ 0` in exact arithmetic *before the verdict returns*. One dot product checks it; it stays on the fast path.
 - **The coverage (worst-case exponential, off the fast path).** `is_covered_by_s_invariants` / `is_covered_by_t_invariants` via minimal-semiflow generators is worst-case exponential; it is computed lazily and capped. S-invariant coverage implies conservative and bounded; T-invariant coverage implies consistent; each is verifiable in O(arcs) by one exact multiplication.
 
@@ -155,7 +175,7 @@ Two emitted witnesses are currently incomplete and must be enriched before they 
 
 **Types.** `Partition` over places ∪ transitions (union-find over the existing sorted preset/postset `UniqueSortedSlice`s) with the cluster equivalence (transitive closure of the flow relation), yielding the cluster count `c`. `SubNet`, the net induced by a unit or component, itself a `DenseNet`, so existing analyses apply recursively. `Interface`, the shared boundary places. `compose`, with a property-specific operator `⊗` (verdict join for booleans, direct sum plus an F2 interface correction for invariant spaces, maximum for place bounds).
 
-**Algebra and laws.** Partitions form a refinement lattice; the cluster quotient is the finest one the Rank Theorem requires. The cheapest keystone in the algebraic core: one union-find yields the partition near-linearly and unlocks *both* the Rank-Theorem count `c` (checked against `rank(C) = c − 1` once F1 lands) and S-/T-component extraction. The parsed-but-unused NUPN unit forest ([`nupn.rs`](../../petrivet/src/api/pnml/nupn.rs)) becomes a `Partition` source — and carries its own free `unit_safe` (one-token-per-unit) safety certificate (backlog B8), if the forest is preserved through conversion rather than flattened. Law for `⊗`: associative, with `compose(parts) = whole` exactly when the property factors over the cut.
+**Algebra and laws.** Partitions form a refinement lattice; the cluster quotient is the finest one the Rank Theorem requires. The cheapest keystone in the algebraic core (§4.1): one union-find yields the partition near-linearly and unlocks *both* the Rank-Theorem count `c` (checked against `rank(C) = c − 1` once F1 lands) and S-/T-component extraction. The parsed-but-unused NUPN unit forest ([`nupn.rs`](../../petrivet/src/api/pnml/nupn.rs)) becomes a `Partition` source — and carries its own free `unit_safe` (one-token-per-unit) safety certificate (backlog B8), if the forest is preserved through conversion rather than flattened. Law for `⊗`: associative, with `compose(parts) = whole` exactly when the property factors over the cut.
 
 **Enables.** The cluster count for the Rank Theorem (and the certified replacement for the `is_covered_by_s_components` stub via S-component decomposition with exact free-choice bounds); the S/T-component decompositions; certified reductions (Epic F); and the partition lattice that Φ_bound and Φ_inv minimize over (§8).
 
@@ -187,7 +207,7 @@ Polarity is not new metadata invented here: it is latent in the split proof enum
 
 ### F7 · Order abstraction (second phase)  — *Epic B9; far horizon H1*
 
-**Function.** The engine is generic over the fiber (`TokenOps`) but not over the order; the order is the one un-abstracted element (the hand-rolled `impl<T:Ord> PartialOrd for IdxMarking<T>` and the `merge_ordering` fold in [`marking.rs`](../../petrivet/src/core/marking.rs)). `Omega` is the ideal completion of ℕ and the coordinatewise ω-promotion is the *ideal join*, neither captured by `TokenOps`. F7 abstracts it.
+**Function.** The engine is generic over the fiber (`TokenOps`) but not over the order; the order is the one un-abstracted element (the hand-rolled `impl<T:Ord> PartialOrd for IdxMarking<T>` and the `merge_ordering` fold in [`marking.rs`](../../petrivet/src/core/marking.rs)). `Omega` is the ideal completion of ℕ and the coordinatewise ω-promotion is the *ideal join*, neither captured by `TokenOps` (see §4.1). F7 abstracts it.
 
 **Types.** `trait WellQuasiOrder` (with the test-enforced wqo obligation that licenses termination); a generalization of `Omega` to `Ideal<D>` (the ideal completion of an arbitrary WQO, with a `join`-based acceleration; `Omega` is the ℕ instance). ω-acceleration is restated as "join with the limit of the dominating chain."
 
@@ -240,55 +260,26 @@ There are two roots: F1 (exact linear algebra) and F3 (the certificate calculus)
 
 ## 10. Sequencing and cross-cutting decisions
 
-**Implementation order** (detailed, with falsifiable gates, in the [backlog](foundations-backlog.md)):
+**Implementation order** (detailed, with falsifiable gates, in [`BACKLOG.md`](../../BACKLOG.md)):
 
 0. **Fix the soundness defects, and measure the floor.** The two `Some(false)` stubs demoted to abstention; the silent PNML corruptions made hard errors; the floating-`Unreachable` audit; *and, in parallel,* the structural-coverage floor `f_struct` measured **now**, before building anything — it is the cheapest decisive experiment and the baseline Epic B is judged against. (Backlog A2/A5/A7, B1a; G4a.)
 1. **F3 first.** The `Verdict`/`Certificate`/`accept` scaffolding with the `query` argument and the original-net invariant, plus `check()` for the already-structured witnesses (firing sequence, Parikh, siphon/trap, ω-marking). Removes the L0 defect and forces the two stubs honest. Requires no new numerical code. Then the certifying audit (`f`, the trusted-base ledger) and the wasm unblock.
 2. **The checkers and the format.** Per-certificate checkers (original-net), in-band checking (verify-on-return), the trusted-base ledger and `f`, the interchange format, the checkable-frontier map. *This is the signature contribution; it precedes the generators that feed it.*
-3. **F1 second among the algebra.** Resolves the floating-point defect (validating F3's algebraic certificates), then enables F2, rank, and Farkas duals. Self-contained classical mathematics; the only significant decision is the rational representation.
+3. **F1 second among the algebra.** Resolves the floating-point defect (validating F3's algebraic certificates), then enables F2, rank, and Farkas duals. Self-contained classical mathematics; the only significant decision is the rational representation (§4, §4.1).
 4. **F4 / F2 structural layer.** The cluster quotient (cheapest keystone), invariants, the Rank Theorem, S/T-components — the names dangling in `literature.rs`, and the two new deciders (B10, B11).
 5. **F5 routing**, with the budget/cancellation token; **F6 observation** and the **Epic G rig alongside**; then **certified reductions (Epic F)** and the **learned ladder (Epic D5–D8)** as the gated sequel; **F7 / WSTS reuse** and the **Φ residuals** as the horizon.
 
 **Decisions required before implementing F1/F3:**
-- *Exact-arithmetic representation*: `i128` with promotion vs. a bignum dependency. Gates F1; affects every downstream proof's cost.
+- *Exact-arithmetic representation*: `i128` with promotion vs. a bignum dependency. Gates F1; affects every downstream proof's cost. (Regime choice per §4.1: the ℚ shadow is the default; ℤ SNF/HNF is scoped to B0b.)
 - *Certificate location and anchoring*: witnesses are already name-based at the API boundary (`FiringSequence(Box<[Transition]>)`), so `check()` maps back through the existing `Mapping`; the `crate::model` module is their location, and PNML names (not indices) are the cross-tool anchor.
 - *TCB lint*: a CI assertion that the trusted set imports nothing from the producer/observer set, making the boundary enforced rather than documented; and the bare-boolean trusted-base set reported and **non-increasing**.
 
 ---
 
-## 11. Crosswalk: the F/M numbering against the A–H epics
+## 11. The authoritative plan
 
-This document's F1–F8 components and the backlog's M0–M11 milestones predate the ratified [`BACKLOG.md`](../../BACKLOG.md). They are reconciled — not replaced — by the following crosswalk. No third, conflicting plan is introduced; where the two diverged, the ratified epic governs and the foundations text above has been brought into line.
-
-| Foundations (F / M) | Ratified epic (BACKLOG.md) | Notes on reconciliation |
-|---|---|---|
-| F3 `Verdict`/`Certificate`/`accept` | **A1** (contract) + **C1** (checkers) | Split: A1 lands the *types*; C1 lands the *checkers*. The `query` argument and the original-net invariant are made explicit (were implicit in F3). |
-| the two `Some(false)` fixes; L0 repair | **A2** (north star), **A5** | Were folded into F3/M1; promoted here to the standalone near-term north star. |
-| PNML fidelity (not in original F-set) | **A7 / E4 / E7** | *Added*: the silent import corruptions are a soundness sibling of A2, absent from the original foundations text. |
-| F1 exact LA | **B0** (+ **B0b** SNF) | "Fraction-free (Bareiss)" made explicit; the float-`Unreachable` audit broken out as **B1a**. |
-| F1 Farkas-dual recheck | **B1a** | *Added* as a distinct, A2-priority audit of the negative path. |
-| F2 invariants | **B1** (certificate vs. coverage split) | The single-separating-invariant certificate (fast) is split from the exponential coverage (capped). |
-| structural-boundedness witness | **A4** | Reframed from "replace the f64 vector" to a polynomial general-net *prove-bounded* decider emitting `PositivePlaceSubvariant`. |
-| F4 quotient / cluster count | **B2** | The cheapest keystone; precedes decomposition. |
-| F4 S/T-components, sub-net | **B3** (+ **B4** T-nets, **B5** Rank Thm, **B6** FC reachability) | F4's decomposition fans out into B3–B6. |
-| F4 NUPN partition | **B8** | The `unit_safe` certificate is surfaced; the forest preserved through conversion. |
-| (siphon/trap engines) | **B7** (`Closure` family) | *Added*: consolidate the engines; cap the exponential enumeration. |
-| (new deciders) | **B10** continuous, **B11** deadlock-free | *Added* by the ratified plan; admitted by the F5 registry. |
-| F5 decider/driver/budget | **D1** (+ **D6** cancellation) | Sequenced *before* Epic B (was after, in M8). Cancellation broken out as D6. |
-| F6 observation | **D2 / D3 / D4** | The soundness sentinel is D3. |
-| (the rig) | **Epic G** (G1–G8, **G4a** floor) | *Added/sharpened*: the thesis rig and the headline `f_struct`; G4a is runnable now. |
-| F7 WQO / Ideal | **B9** (near-term) + **H1** (horizon) | Split: B9 is the backward-coverability payoff; H1 the WSTS zoo. |
-| F8 Φ_PN (scalar) | **dissolved** → **H2a** Φ_bound, **H2b** Φ_inv | The scalar is gone; two measured per-property residuals remain. |
-| (reductions) | **Epic F** (F0–F2) | *Added*: the Rung-3 apparatus, outside the TCB by the original-net check. |
-| (learned ladder) | **D5–D8** | The SATzilla-style sequel; gated behind the checker. MCC ranking is **OUT**. |
-| standing invariants A1–A4 (M-doc) | **standing invariants** (backlog) | Renamed to avoid collision with Epic A; carried verbatim as gates. |
-
-**Where the two plans diverged, and how they were reconciled.** Three substantive divergences:
-
-1. **Registry placement.** The original M-sequence put the `Decider` registry (F5/M8) *after* the algebraic deciders. The ratified plan moves it (D1) *before* Epic B, so the generators are born as `Decider`s rather than retrofitted. The text above (F5, §10) now reflects the earlier placement.
-2. **The scalar Φ.** The original F8/M11 built a single scalar `Φ_PN`. The ratified plan dissolves it to two measured residuals. F8 and §8 are rewritten accordingly; the metaphysical framing is removed.
-3. **Scope additions.** PNML fidelity (A7), the float-`Unreachable` audit (B1a), the two new deciders (B10/B11), the siphon/trap consolidation (B7), the certificate format and frontier map (C6/C7), the reductions (Epic F), and the thesis rig (Epic G with the `f_struct` floor) are all present in the ratified plan and were thin or absent in the original foundations text. They are folded in above; none contradicts the original design, and each strengthens the same trust boundary.
+The single authoritative, dependency-sequenced plan with falsifiable gates is [`BACKLOG.md`](../../BACKLOG.md) (epics A–H, X), which now carries the merged plan. This document's F1–F8 components are tagged with their governing epic inline (§§4–8); the backlog governs sequencing and acceptance. Where this spec and the backlog ever appear to diverge, the backlog is authoritative and this text is brought into line.
 
 ---
 
-*Methodology: derived from a line-by-line reading of the codebase — the state-space engine, the class-gated cascades, the floating-point LP layer, the siphon/trap closures, and the `literature.rs` citation index — and reconciled to the ratified [`BACKLOG.md`](../../BACKLOG.md). Every statement about current code is checked against a file/line reference; every proposed type is identified as proposed. The companion [implementation backlog](foundations-backlog.md) sequences this design into gated milestones.*
+*Methodology: derived from a line-by-line reading of the codebase — the state-space engine, the class-gated cascades, the floating-point LP layer, the siphon/trap closures, and the `literature.rs` citation index — and reconciled to the ratified [`BACKLOG.md`](../../BACKLOG.md). Every statement about current code is checked against a file/line reference; every proposed type is identified as proposed.*

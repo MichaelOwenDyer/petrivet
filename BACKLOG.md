@@ -1,5 +1,7 @@
 # Petrivet — Backlog
 
+> **Agents — read [`working-doctrine.md`](working-doctrine.md) first.** It is the contract for *how* we work on petrivet: falsifiability first, soundness before capability, the trust boundary is sacred, let Rust carry the invariants. Every item below assumes it.
+
 ## Provenance and scope
 
 This backlog was built in three passes: (1) a reading of the Rust sources only; (2)
@@ -958,32 +960,182 @@ nets, not minds; IIT absent from the repo — is kept verbatim.
 
 ---
 
-## Recommended sequencing
+## Build plan — gated milestones
 
-A dependency-derived recommendation. The near-term north star (A2) and the headline number
-(G4a) come first; the inversion puts the certificate-and-checker before the learned
-superstructure.
+The epics above are the *catalog* (what each item is). This section is the *build*: a
+dependency-ordered sequence of milestones, **each gated by a provable invariant, not a
+representative example** (doctrine #7). A milestone is complete when its gates are *proven* and
+the standing invariants stay green. The rationale behind the components is in
+[`docs/foundations/foundational-design.md`](docs/foundations/foundational-design.md).
 
-0. **A2** (the two `Some(false)` stubs) with **A5**, **A7/E4/E7**, **F0**, and **B1a** (the
-   floating-verdict audit) as its soundness siblings — the certifying precondition. In
-   parallel, **G4a** — measure the structural-coverage floor *now*, before building anything.
-1. **A1 → A3 → A6** — the `Verdict`/`Certificate` contract (with the `query` argument and the
-   original-net invariant), the certifying audit, the wasm unblock.
-2. **C1 → C2 → {C4, C5, C6, C7}** — checkers (original-net), in-band checking, the trusted-base
-   ledger and `f`, the interchange format, the checkable-frontier map. *This is the signature
-   contribution; it precedes the generators that feed it.*
-3. **D1** — the decider registry, *before* Epic B, so generators are born as `Decider`s.
-4. **B0 → B1 → B2 → {B3, B4} → B5 → B6**, with **B7, B8** in parallel, then **B9**, then the two
-   new deciders **B10 (continuous prove-NO)** and **B11 (deadlock-free siphon)** — the generators,
-   each gated on C and X1, each measured against the G4a floor.
-5. **G1 (claim) → G2 → G3 → G4 → {G5, G6, G7} → G8** — the thesis spine, run *alongside* B/C;
-   the coverage table (G4) is the deliverable, A4/B10 widen it.
-6. **F0 (now) → F1 → F2** (reductions), and **D2 → D3 → D4 → D5** (harness + Rung 1, gated on a
-   measured SBS→VBS gap); **D6/D7/D8**, **G9**, and **Epic H** (H2a first) are the research
-   far-end. **H1** and the Φ residuals are recorded, not scheduled.
+A gate is an invariant plus the form of its proof:
 
-The spine, restated: build the trust boundary (A2/A1/C1), make the certificate independently
-checkable and the trusted base measured (C/`f`), *measure the structural coverage*
-(G4a/G4/`f_struct`), and let those two numbers — not the soundness theorem — be the thesis.
-The generators widen the coverage; the reductions and the learned ladder are the sequel; the
-WSTS reuse and the Φ residuals are the horizon.
+| Tag | Proof form |
+|---|---|
+| `[PROP]` | property-based test — an invariant quantified over generated inputs (`proptest`) |
+| `[ORACLE]` | corpus cross-check — agreement with the MCC oracle and/or brute-force ground truth |
+| `[REGRESS]` | differential no-regression — equality vs. a committed baseline, or a recorded change |
+| `[LINT]` | static / CI assertion (dependency direction, `f64`-freedom on verdict paths, TCB size) |
+| `[UNIT]` | a worked example with a known answer |
+| `[MEASURE]` | a corpus measurement reported as a result (the falsifier is a table, not a pass/fail) |
+
+### Standing invariants (must hold at every milestone)
+
+Any milestone that violates one of these is blocked regardless of its own gates.
+
+- **S1 — Soundness monitor.** Every accepted `Proven`/`Refuted` verdict's
+  `certificate.check(net, m0, query)` returns `true` against the *original* net, and agrees with
+  the oracle / brute-force ground truth where it exists. `[ORACLE]`
+- **S2 — No decisiveness regression.** Public `analyze_*` verdicts match the committed baseline,
+  except where a milestone explicitly converts an `Inconclusive` to a `Decided` or corrects a
+  known-incorrect stub. Decreases in decisiveness are not permitted. `[REGRESS]`
+- **S3 — Dependency direction and a non-increasing trusted base.** The core never imports the
+  observer set; the bare-boolean trusted-base set (A6) is reported and never grows. `[LINT]`
+- **S4 — Clean build.** `cargo build`/`clippy` (pedantic + nursery) and the full suite pass.
+
+### Milestones
+
+**M0 — Soundness defects fixed; trust boundary defined; floor measured.** *(north star)*
+Depends: —. Items: **A2** (the two `Some(false)` stubs → abstention) · **A5** (type-distinct
+inconclusive-vs-dead) · **A7/E4/E7** (PNML fidelity → hard errors) · **B1a** (the
+float-`Unreachable` audit) · **F0** (the `STRUCTURAL_REDUCTION` mis-tag) · **G4a** (the
+`f_struct` floor). Gates: `[ORACLE]` no `is_efficiently_*` returns a verdict without a
+certificate; a live FC net is not reported unbounded, a live marked graph not non-live ·
+`[UNIT]/[REGRESS]` a `>u32::MAX` marking and a non-unit-weight P/T arc are rejected or flagged ·
+`[REGRESS]` a corpus baseline of all five property verdicts is committed and reproduces ·
+`[LINT]` the dependency-direction lint passes · `[MEASURE]` a floor `f_struct` is reported with
+**both denominators**, counted in queries-decided. *Gates the firewall, `f`, and all structural work.*
+
+**M1 — Verdict/certificate contract.** Depends: M0. Items: **A1** (`Verdict<P,N>`,
+`Certificate::check(net, m0, query)`, owned/serializable payloads, the `model` module resolving
+`literature.rs:409`) · **A3** (wasm) · resolves **A5**. Gates: `[PROP]` no public path yields
+`Proven`/`Refuted` without a passing `check`; a corrupted certificate is rejected ·
+`[UNIT]/[ORACLE]` on a known unbounded net `analyze_liveness` returns `Inconclusive`, not L0 ·
+`[PROP]` a `FiringSequence` checked against a *different* query fails (the target is load-bearing) ·
+`[LINT]` certificates round-trip; `petrivet-wasm` builds in CI.
+
+**M2 — Per-certificate checkers against the original net.** *(the signature contribution)*
+Depends: M1. Items: **C1** (checkers, original-net) · **C2** (checking as a test invariant) ·
+**C4** (in-band verify-on-return) · **C5** (trusted base, `f`) · **C6** (interchange format) ·
+**C7** (frontier map) · **A6** (certifying audit, polarity). Gates: `[PROP]` every accepted
+verdict's `check` returns `true` and matches brute force · `[PROP]` a certificate from a
+*different* generator (or a lifted one) for the same `(net, query, verdict)` validates
+identically (original-net independence) · `[LINT]` CI fails if any emitted certificate fails its
+checker; the trusted base is reported and **non-increasing** · `[UNIT]` format round-trip ·
+`[MEASURE]` the per-property × polarity frontier table with checker complexities and the stated
+wall (general liveness; ILP→cutting-plane). *Precedes the generators that feed it.*
+
+**M3 — Decider registry.** *(before the structural generators)* Depends: M2. Items: **D1**
+(registry with polarity/cost/admissible; a `Policy` whose default reproduces today's cascade
+exactly). Gates: `[REGRESS]` the default-policy driver returns identical verdicts to the current
+cascade across the corpus · `[PROP]` over random admissible orderings the accepted verdict is
+invariant (the soundness theorem, tested — the *enabling* property, not the headline). *B's
+generators are born as `Decider`s.*
+
+**M4 — Exact arithmetic kernel.** Depends: M0 (independent of M1–M3). Items: **B0** (scalar half:
+a `Rational` with a documented overflow policy). Gates: `[PROP]` field axioms; `a + (−a) == 0`
+exactly; value-equality independent of representation; overflow detected, never silently wrapped.
+
+**M5 — Exact linear algebra (Bareiss); negative-path audit closed.** Depends: M4. Items: **B0**
+(matrix half: `rank`, `kernel`, `left_kernel`, exact `farkas_certificate`; the `f64` LP assembly
+becomes an inexact filter that never constructs `Proven`/`Refuted`) · **B1a** (the
+float-`Unreachable` hole closed: negative verdicts re-derived over ℚ) · **A4** (structural
+boundedness as an exact P-subinvariant decider). Gates: `[PROP]` rank–nullity; `C·k == 0`
+exactly; Farkas duality exact · `[ORACLE]` the ill-conditioned feasible-at-a-degenerate-vertex
+net is *not* reported `Unreachable` · `[REGRESS]/[ORACLE]` exact agrees with the prior `f64` LP
+where it was correct and corrects every near-boundary disagreement; coverage non-decreasing.
+*The §1 design defect is resolved; the silent negative-path hole is closed.*
+
+**M6 — Cluster quotient and Rank Theorem.** Depends: M5 (rank), M2 (certified verdict). Items:
+**B2** (union-find clusters → `c`; `well_formed ⇔ rank(C) == c−1`; certifies the
+`is_covered_by_s_components` half of A2) · **B8** (NUPN `unit_safe`, forest preserved). Gates:
+`[PROP]` cluster = flow-components · `[ORACLE]` `rank == c−1` agrees with state-space on FC nets ·
+`[REGRESS]` the stub's ledger entry becomes a certified verdict · `[UNIT]` a `unit_safe` input
+emits a checked certificate.
+
+**M7 — Semiflows, invariants, the closure family.** Depends: M5. Items: **B1** (the
+certificate/coverage split: a *single separating* P-invariant on the fast path, exact-checked;
+minimal-semiflow coverage lazy and **capped**) · **B7** (the `Closure` trait; the exponential
+minimal-siphon enumeration capped or scoped with a logged bound). Gates: `[PROP]` each invariant
+satisfies `yᵀC == 0` / `Cx == 0` exactly; the separating invariant passes `y·(m'−m₀) ≠ 0` ·
+`[PROP]` minimality · `[ORACLE]` coverage ⇒ the property vs. ground truth · `[LINT]` no
+unexplained `#[expect(unused)]` engines; the enumeration bound is logged.
+
+**M8 — Free-choice and T-net structural deciders.** Depends: M3, M6, M7. Items: **B3**
+(S-components, exact FC bounds — certifies the FC-boundedness half of A2) · **B4** (T-net bounds,
+circuit-based liveness) · **B5** (Rank/cluster simultaneous L+B) · **B6** (FC reachability +
+unmarked-trap check). Gates: `[ORACLE]` each class decides structurally with a checkable
+certificate · `[MEASURE]` `f_struct` re-measured against the M0 floor; the delta this milestone
+contributes is reported. *The number moves, measurably.*
+
+**M9 — The two class-agnostic deciders.** Depends: M3, M5, M7. Items: **B10** (continuous/fluid
+relaxation, `ProveNo`, Fraca–Haddad PTIME — decides general/unbounded instances at the ω-frontier)
+· **B11** (general-net deadlock-free siphon certificate; the converse excluded as unsound). Gates:
+`[PROP]/[ORACLE]` zero soundness violations; a net where the state-equation LP passes but
+continuous reachability fails returns `Unreachable` · `[ORACLE]` deadlock-free soundness ·
+`[MEASURE]` a measured fraction of previously-abstained instances converted — the falsifier is a
+table.
+
+**M10 — Order abstraction and backward coverability.** Depends: M1 (independent of M5–M9). Items:
+**B9** (`WellQuasiOrder` + `Ideal<D>` with `join`; `Omega == Ideal<ℕ>`; the Abdulla-style backward
+loop) · **E1** (honest general-net degradation). Gates: `[REGRESS]` the generalized engine
+reproduces the current graphs exactly (a pure refactor); a second trivial WQO domain drives it
+unchanged · `[ORACLE]` backward = forward on bounded nets · `[REGRESS]` some prior `Inconclusive`
+becomes a refinement carrying an over-approximation certificate; no decided verdict changes.
+
+**M11 — Observation crate and the soundness sentinel.** Depends: M3, M2. Items: **D2**
+(`petrivet-observe`, JSONL schema, φ) · **D3** (corpus driver, soundness sentinel, differential
+fitness). (**D4** per-decider fibres is the author's-call seam.) Gates: `[LINT]` the core never
+imports `observe` · `[PROP]` scaling all raw wall-times by `k>0` leaves every `FitnessComparison`
+ranking/log-ratio unchanged (origin-free, torsor) · `[ORACLE]` the sentinel detects a deliberately
+broken decider (the live regression for the M0 stub fixes).
+
+**M12 — The thesis and evaluation rig.** *(alongside M6–M11)* Depends: M0, M2, M11. Items: **G1**
+(commit the claim) · **G2** (the structural-tier ablation baseline) · **G3** (versioned corpus) ·
+**G4** (family-held-out, two-denominator protocol) · **G5** (reproducibility) · **G6** (certificate
+coverage = `f`) · **G7** (related work) · **G8** (write-up to 2026-11-02). **G9** is OUT for the
+thesis window. Gates: `[MEASURE]` one run produces the `f_struct` table and the `f` check-pass
+rate; every thesis number traces to a harness output · `[REGRESS]/[ORACLE]` family-held-out CV and
+SBS/VBS computed; results origin-free · `[LINT]` the thesis residue deleted; the Introduction
+states the falsifiable claim with its falsifier and named baseline. *MCC ranking is not a goal.*
+
+### The gated sequel and the horizon (off the thesis-critical path)
+
+Dependency-gated by the spine and the checker, so a wrong choice costs time, never correctness.
+
+- **Certified reductions (Epic F).** F1 (the `Reduction { applicable, apply, lift }` trait + the
+  lifting-firewall test) · F2 (implicit-place removal reusing the B1 Farkas dual). Depends: M2, M5,
+  M3. Gate: `[PROP]` an identity reduction round-trips; a **deliberately wrong `lift` is caught by
+  the unchanged original-net checker**; the trusted-base size is unchanged. Trusted lifts are
+  restricted to *existential* witnesses until the compositional checker-completeness obligation is
+  discharged.
+- **The learned-selection ladder (D5–D8).** D6 (cancellation seam) · D5 (Rung 1 ranker) · D7 (Rung
+  2) · D8 (Rung 3 planner). Depends: M2, M3, M11, **and a measured SBS→VBS gap**. Gate: `[MEASURE]`
+  the gap is reported *first*; the ranker is built only if it exceeds a threshold (else Rung-0 is the
+  honest answer). `[PROP]` if built, every verdict is still certificate-checked. **MCC ranking is OUT.**
+- **Generality and the residuals (Epic H).** H1 (the WSTS zoo, once M10 abstracts the order) · H2a
+  (Φ_bound, scheduled first) · H2b (Φ_inv, the Rank-Theorem link). Gate: `[ORACLE]/[MEASURE]`
+  Φ_bound monotone and zero on FC/T-net fixtures; the **distribution measured over the corpus,
+  indexed by `NetClass`** is the deliverable; `[LINT]` no stochastic/IIT apparatus introduced.
+
+### Critical path
+
+```
+M0 ──┬── M1 ── M2 ── M3 ───────────────────────────┐   (defects+floor → contract → checkers → registry)
+     │                    │                         │
+     └── M4 ── M5 ──┬── M6 ─┬── M8 ── M9 ───────────┤   (exact LA → quotient/invariants → FC/T-net → new deciders)
+                    └── M7 ─┘                        │
+                                                     ├── M11 ── M12   (observe → the rig → f_struct, f)
+     M10 ── (order abstraction, second phase) ───────┘
+
+   sequel/horizon (gated, off the thesis-critical path):
+     Epic F (reductions)   <- M2, M5, M3
+     Epic D5-D8 (ladder)   <- M2, M3, M11, a measured SBS->VBS gap
+     Epic H (Phi, WSTS)    <- M10 (H1); M5/M6/M7 (Phi_bound, Phi_inv)
+```
+
+**M2** (the checkers) and **M5** (the exact linear algebra) are the two load-bearing milestones —
+the signature contribution and the soundness precondition. Capability and measured coverage rise
+across the milestones while soundness, enforced by S1–S4 and the original-net checking invariant,
+stays constant. The thesis is the two numbers — `f_struct` (coverage) and `f` (certifying
+fraction) — not the soundness theorem.
