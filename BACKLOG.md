@@ -125,15 +125,33 @@ be trustworthy and for any learned selection to be safe.
   Epic D.**
 
 ### A3 — Reconcile `petrivet-wasm` against the consolidated API
-- **Status:** `OBSERVED`
-- **Observation:** The wasm crate targets the post-`model` API and has unbound
-  `labels`/`graphics` locals in `parse_pnml`; it cannot compile and is excluded from
-  `default-members`.
-- **Proposed work:** Treat it as the target-surface spec; once A1 lands, make it
-  compile and add it to CI.
-- **Acceptance criteria:** `petrivet-wasm` compiles; a CI job builds it; `parse_pnml`
-  fixed.
-- **Dependencies:** A1. **Confidence:** high.
+- **Status:** `OBSERVED` (split A3a / A3b after measurement, 2026-06-20)
+- **Observation:** The wasm crate is written against a *future, post-capability* API, not merely the
+  post-`model` one. Measured at M1 (`cargo build -p petrivet-wasm`): **28 compile errors.** They split:
+  - **A3a (M1-bounded, A1 dependency — MET):** the `petrivet::model` names wasm imports from the
+    A1-landed contract surface (`CoverabilityResult`, `NonCoverabilityProof`, `ReachabilityProof`,
+    `ReachabilityResult`, `UnreachabilityProof`, `BoundednessAnalysisMethod`) resolve. This is the
+    A1 unblock the M1 gate names.
+  - **A3b (capability-gated — NOT a function of A1):** the remaining errors need API that M1 must not
+    build. (1) Method-tracking enums `LivenessMethod` / `DeadlockAnalysisMethod` / `LivenessLevel`
+    (do not exist — A6/M2). (2) The `ReachabilityProof` witness redesign: variants
+    `StronglyConnectedStateMachine`, `StateMachineMarkingEquationRationalSolution`,
+    `MarkedGraphMarkingEquationIntegerSolution`, the `.firing_sequence()` accessor, and the
+    `StateMachineTokenConservation` field layout (M5/M6 witness shapes). (3) Downstream type
+    mismatches that follow (`place_position(i)`/`support()` signatures; `PetriArc`/`BuilderArc` names).
+    (4) The `parse_pnml` `labels`/`graphics` unbound locals are themselves capability-gated, not a
+    one-line fix: M0 reworked `to_pt_system` to return a bare `PetriNet<Net>` (convert.rs:503), so
+    the labels/graphics the struct fields need are no longer in the conversion's return — re-exposing
+    them is a core-API change beyond M1's A1 surface.
+- **Proposed work:** Treat the crate as the target-surface spec. **A3a** lands with A1 (done). **A3b**
+  — the full compile + CI build + `parse_pnml` fix — is armed at M2 (A6 enums) and closed at M5/M6
+  (witness shapes + the `to_pt_system` labels/graphics reconciliation).
+- **Acceptance criteria:** *A3a* — the A1-landed `model` surface wasm imports resolves. *A3b* —
+  `petrivet-wasm` compiles; a CI job builds it; `parse_pnml` binds real labels/graphics.
+- **Dependencies:** A3a: A1 (**done**). A3b: A1 + A6/M2 (method enums) + M5/M6 (witness redesign and
+  the `to_pt_system` triple). **Confidence:** high (the split is measured, not estimated). *The prior
+  "Dependencies: A1, Confidence: high" was the optimistic estimate the M1 build falsified — recorded
+  here so the correction is re-derivable (doctrine #1).*
 
 ### A4 — Route the boundedness LP proof through the API as a general-net decider
 - **Status:** `OBSERVED` (reframed: not a refactor but a polynomial general-net decider)
@@ -422,7 +440,7 @@ The trusted base reduces to `{C1 checkers} ∪ {remaining bare-boolean deciders}
   render the Farkas S-invariant (B1) for unreachability rather than a bare "no."
 - **Acceptance criteria:** the front-end shows method, a positive check, and a witness
   animation per analysis.
-- **Dependencies:** A3, C1, B1, the `⚙` WASM methods. **Confidence:** medium-high.
+- **Dependencies:** A3b, C1, B1, the `⚙` WASM methods. **Confidence:** medium-high.
 
 ### C4 — In-band certificate checking (verify-on-return); mandatory for lifted certificates
 - **Status:** `INFERRED`
@@ -943,9 +961,9 @@ nets, not minds; IIT absent from the repo — is kept verbatim.
 ### X3 — Lint and documentation build clean across the workspace
 - **Status:** `OBSERVED`
 - **Proposed work:** Maintain clean `clippy`/`cargo doc` across all crates, including the
-  non-default members once A3 restores their build.
+  non-default members once A3b restores their build.
 - **Acceptance criteria:** CI enforces it workspace-wide.
-- **Dependencies:** A3. **Confidence:** high.
+- **Dependencies:** A3b. **Confidence:** high.
 
 ### X4 — φ feature artifact and sufficiency test
 - **Status:** `INFERRED`
@@ -1008,20 +1026,31 @@ certificate; a live FC net is not reported unbounded, a live marked graph not no
 
 **M1 — Verdict/certificate contract.** Depends: M0. Items: **A1** (`Verdict<P,N>`,
 `Certificate::check(net, m0, query)`, owned/serializable payloads, the `model` module resolving
-`literature.rs:409`) · **A3** (wasm) · resolves **A5**. Gates: `[PROP]` no public path yields
-`Proven`/`Refuted` without a passing `check`; a corrupted certificate is rejected ·
+`literature.rs:409`) · **A3a** (the A1-bounded wasm surface) · resolves **A5**. Gates: `[PROP]` no
+public path yields `Proven`/`Refuted` without a passing `check`; a corrupted certificate is rejected ·
 `[UNIT]/[ORACLE]` on a known unbounded net `analyze_liveness` returns `Inconclusive`, not L0 ·
 `[PROP]` a `FiringSequence` checked against a *different* query fails (the target is load-bearing) ·
-`[LINT]` certificates round-trip; `petrivet-wasm` builds in CI.
+`[LINT]` certificates round-trip; the `petrivet::model` names `petrivet-wasm` imports from the
+A1-landed surface resolve. *(The full `petrivet-wasm` compile + CI build was the A3 estimate's
+optimistic dependency — it is **A3b**, gated on capability M1 must not build: see A3, and the M2/M5/M6
+gates that now carry it. Re-scoped 2026-06-20 after the M1 adversarial gate found the verbatim
+"`petrivet-wasm` builds in CI" criterion unmeetable without breaching the milestone boundary; rationale
+in `foundational-design.md` §F3″.)*
 
 **M2 — Per-certificate checkers against the original net.** *(the signature contribution)*
 Depends: M1. Items: **C1** (checkers, original-net) · **C2** (checking as a test invariant) ·
 **C4** (in-band verify-on-return) · **C5** (trusted base, `f`) · **C6** (interchange format) ·
-**C7** (frontier map) · **A6** (certifying audit, polarity). Gates: `[PROP]` every accepted
+**C7** (frontier map) · **A6** (certifying audit, polarity) · **A3b** (the full `petrivet-wasm`
+compile + CI build, relocated here from M1 — A6's polarity/method surface supplies the
+`LivenessMethod`/`DeadlockAnalysisMethod`/`LivenessLevel` enums wasm reaches for; the residual
+`ReachabilityProof` witness-shape variants finish at M5/M6, so A3b's CI gate is *armed* here and
+*closed* once the witness redesign lands). Gates: `[PROP]` every accepted
 verdict's `check` returns `true` and matches brute force · `[PROP]` a certificate from a
 *different* generator (or a lifted one) for the same `(net, query, verdict)` validates
 identically (original-net independence) · `[LINT]` CI fails if any emitted certificate fails its
 checker; the trusted base is reported and **non-increasing** · `[UNIT]` format round-trip ·
+`[LINT]` `petrivet-wasm` compiles and a CI job builds it; `parse_pnml` binds real labels/graphics
+(needs the M0-changed `to_pt_system` conversion to re-expose them — the A3b/M5–M6 reconciliation) ·
 `[MEASURE]` the per-property × polarity frontier table with checker complexities and the stated
 wall (general liveness; ILP→cutting-plane). *Precedes the generators that feed it.*
 
