@@ -45,6 +45,7 @@ mod format;
 mod frontier;
 mod ledger;
 mod query;
+mod registry;
 mod verdict;
 
 pub use accept::{accept, Decided};
@@ -61,6 +62,9 @@ pub use format::{
 pub use frontier::{frontier_table, CheckComplexity, FrontierEntry, Polarity, Property};
 pub use ledger::{trusted_base, Decider, DeciderKind, TrustedBaseLedger};
 pub use query::Query;
+pub use registry::{
+    reachability_driver, BareBooleanCert, Budget, CostClass, Decide, DefaultPolicy, Driver, Policy,
+};
 pub use verdict::{Abstention, Proof, Refutation, Verdict};
 
 // --- Per-property result and proof shapes, re-exported from their analyses. ---
