@@ -986,6 +986,44 @@ representative example** (doctrine #7). A milestone is complete when its gates a
 the standing invariants stay green. The rationale behind the components is in
 [`docs/foundations/foundational-design.md`](docs/foundations/foundational-design.md).
 
+### Status (2026-06-20) — Workflow 1 complete; M3 + B2 are next (Workflow 2)
+
+**Landed and green** on two stacked local branches — `foundation-docs` (docs) and `foundation-code`
+(code, stacked on it), both off `f3356bc`, **never pushed**: **M0, M1, M2, M4, M5**, plus the post-M2
+**A6 polarity-coherence gate** and the doctest-suite modernization. Green gate: lib **218/0**, doctests
+**25/0**, `checker_invariants` 9/0, `firewall_probe` 2/0; `cargo build`/`clippy -p petrivet --all-targets`
+clean (no new warnings). The complete next-phase brief is
+[`docs/foundations/m3-b2-handoff.md`](docs/foundations/m3-b2-handoff.md).
+
+What landed *beyond* the verbatim gates (build record in `foundational-design.md` §1.2/§F3″/§F3‴/§4.x;
+the soundness remediation in [`m2-soundness-remediation.md`](docs/foundations/m2-soundness-remediation.md)):
+- **M0** also fixed two engine bugs found closing the green gate: an inert `fire_unchecked` (it discarded
+  its token delta) and a scrambled petgraph mirror in `build()` (`HashMap`-order node labels corrupted
+  `circuits()`/SCC liveness).
+- **M1** the firewall was hardened from a grep-checked convention to a **type invariant** (private
+  `Proof`/`Refutation` fields; `Verdict` is `Serialize` but not `Deserialize`); **A3** split into A3a
+  (done) / A3b (wasm, deferred).
+- **M2** the first cut of two checkers shipped **unsound** (false `Proven` — the cardinal sin), caught by
+  an independent oracle-counterexample review and **remediated**: `ParikhVectorCert` now accepts by
+  **realization** (replay), sound on any class; `SiphonTrapCoverCert` re-derives the Commoner–Hack
+  **universal** and carries a typed `SiphonTrapClaim { Live, DeadlockFree }` (`Live` class-gated to
+  free-choice). Three legacy **f64 verdict paths** (`Uncoverable`, the reachability ILP arm, positive
+  `is_bounded`) were closed over ℚ. **A6** added the polarity-coherence gate on `accept`.
+- **M5** B1a closed; A4's exact checker exists but rewiring the *live* boundedness decider through it is
+  the M6 completion.
+
+**Next — Workflow 2:** **M3** (the decider registry, D1) and the **B2 cluster-quotient keystone** (the B2
+portion of M6 — *keystone only*: the union-find quotient, the count `c`, the `rank(C) == c−1` invariant;
+**not** the S/T-component deciders it unlocks). Standing instruction: decompose the M3+B2 work into
+legible commits for Michael at the end.
+
+**Open theory ratifications for Michael** (his domain — do not re-litigate; flag new ones): T1–T8 in
+`m2-soundness-remediation.md` §4, and the vending-machine S-net correction in `doctest-modernization.md`.
+
+**Note on the epic catalog (Epics A–H):** the per-item `Status` fields below are the *pre-build* analysis
+(`OBSERVED`/`INFERRED`/…). For what has actually *landed*, this milestone status and the
+`foundational-design.md` build records are authoritative.
+
 A gate is an invariant plus the form of its proof:
 
 | Tag | Proof form |
@@ -1013,7 +1051,7 @@ Any milestone that violates one of these is blocked regardless of its own gates.
 
 ### Milestones
 
-**M0 — Soundness defects fixed; trust boundary defined; floor measured.** *(north star)*
+**M0 ✅ DONE — Soundness defects fixed; trust boundary defined; floor measured.** *(north star)*
 Depends: —. Items: **A2** (the two `Some(false)` stubs → abstention) · **A5** (type-distinct
 inconclusive-vs-dead) · **A7/E4/E7** (PNML fidelity → hard errors) · **B1a** (the
 float-`Unreachable` audit) · **F0** (the `STRUCTURAL_REDUCTION` mis-tag) · **G4a** (the
@@ -1024,7 +1062,7 @@ certificate; a live FC net is not reported unbounded, a live marked graph not no
 `[LINT]` the dependency-direction lint passes · `[MEASURE]` a floor `f_struct` is reported with
 **both denominators**, counted in queries-decided. *Gates the firewall, `f`, and all structural work.*
 
-**M1 — Verdict/certificate contract.** Depends: M0. Items: **A1** (`Verdict<P,N>`,
+**M1 ✅ DONE — Verdict/certificate contract.** Depends: M0. Items: **A1** (`Verdict<P,N>`,
 `Certificate::check(net, m0, query)`, owned/serializable payloads, the `model` module resolving
 `literature.rs:409`) · **A3a** (the A1-bounded wasm surface) · resolves **A5**. Gates: `[PROP]` no
 public path yields `Proven`/`Refuted` without a passing `check`; a corrupted certificate is rejected ·
@@ -1037,7 +1075,7 @@ gates that now carry it. Re-scoped 2026-06-20 after the M1 adversarial gate foun
 "`petrivet-wasm` builds in CI" criterion unmeetable without breaching the milestone boundary; rationale
 in `foundational-design.md` §F3″.)*
 
-**M2 — Per-certificate checkers against the original net.** *(the signature contribution)*
+**M2 ✅ DONE (incl. soundness remediation + A6) — Per-certificate checkers against the original net.** *(the signature contribution)*
 Depends: M1. Items: **C1** (checkers, original-net) · **C2** (checking as a test invariant) ·
 **C4** (in-band verify-on-return) · **C5** (trusted base, `f`) · **C6** (interchange format) ·
 **C7** (frontier map) · **A6** (certifying audit, polarity) · **A3b** (the full `petrivet-wasm`
@@ -1054,18 +1092,18 @@ checker; the trusted base is reported and **non-increasing** · `[UNIT]` format 
 `[MEASURE]` the per-property × polarity frontier table with checker complexities and the stated
 wall (general liveness; ILP→cutting-plane). *Precedes the generators that feed it.*
 
-**M3 — Decider registry.** *(before the structural generators)* Depends: M2. Items: **D1**
+**M3 ▶ NEXT (Workflow 2) — Decider registry.** *(before the structural generators)* Depends: M2. Items: **D1**
 (registry with polarity/cost/admissible; a `Policy` whose default reproduces today's cascade
 exactly). Gates: `[REGRESS]` the default-policy driver returns identical verdicts to the current
 cascade across the corpus · `[PROP]` over random admissible orderings the accepted verdict is
 invariant (the soundness theorem, tested — the *enabling* property, not the headline). *B's
 generators are born as `Decider`s.*
 
-**M4 — Exact arithmetic kernel.** Depends: M0 (independent of M1–M3). Items: **B0** (scalar half:
+**M4 ✅ DONE — Exact arithmetic kernel.** Depends: M0 (independent of M1–M3). Items: **B0** (scalar half:
 a `Rational` with a documented overflow policy). Gates: `[PROP]` field axioms; `a + (−a) == 0`
 exactly; value-equality independent of representation; overflow detected, never silently wrapped.
 
-**M5 — Exact linear algebra (Bareiss); negative-path audit closed.** Depends: M4. Items: **B0**
+**M5 ✅ DONE — Exact linear algebra (Bareiss); negative-path audit closed.** Depends: M4. Items: **B0**
 (matrix half: `rank`, `kernel`, `left_kernel`, exact `farkas_certificate`; the `f64` LP assembly
 becomes an inexact filter that never constructs `Proven`/`Refuted`) · **B1a** (the
 float-`Unreachable` hole closed: negative verdicts re-derived over ℚ) · **A4** (structural
@@ -1075,7 +1113,7 @@ net is *not* reported `Unreachable` · `[REGRESS]/[ORACLE]` exact agrees with th
 where it was correct and corrects every near-boundary disagreement; coverage non-decreasing.
 *The §1 design defect is resolved; the silent negative-path hole is closed.*
 
-**M6 — Cluster quotient and Rank Theorem.** Depends: M5 (rank), M2 (certified verdict). Items:
+**M6 — Cluster quotient and Rank Theorem.** *(B2 keystone = the Workflow 2 target; B8 NUPN + the S-component decider that B2 unlocks are deferred)* Depends: M5 (rank), M2 (certified verdict). Items:
 **B2** (union-find clusters → `c`; `well_formed ⇔ rank(C) == c−1`; certifies the
 `is_covered_by_s_components` half of A2) · **B8** (NUPN `unit_safe`, forest preserved). Gates:
 `[PROP]` cluster = flow-components · `[ORACLE]` `rank == c−1` agrees with state-space on FC nets ·
