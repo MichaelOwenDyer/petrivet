@@ -1,6 +1,10 @@
 # Core Principles of petrivet
 
-This document summarizes the four organizing principles of petrivet, followed by a capstone quantity, Φ_PN, whose definition depends on all four. The first part states each principle compactly; the second part expands each into detail with an index of reference identifiers.
+> Status: condensed statement. This is the distilled, near-axiomatic companion to [petrivet in four principles](petrivet-in-four-principles.md) (the long legible reading). It states the four organizing principles compactly, then expands each with an index of reference identifiers anchored to the code. The four principles are the genuine spine and survive intact; what they converge on has been recast — see the capstone, and the note on the dissolved scalar Φ.
+
+This document summarizes the four organizing principles of petrivet, then states the result they converge on. The first part states each principle compactly; the second expands each into detail with an index of reference identifiers. The principles describe a real, mostly-implemented architecture; the result they converge on is the project's ratified direction — a certificate that is the stone, a measured coverage claim that is the headline, and a soundness firewall that makes both trustworthy.
+
+A note on what changed, stated once and plainly. Earlier drafts of this document ended on a single net-level scalar, Φ_PN, presented as "the one quantity the architecture was built to compute." That capstone is **dissolved**. The scalar/boolean Φ_PN, and the claim that the architecture exists to compute it, predicted nothing and are retired. What survives of that thread is narrow and honest: two computable per-property *factorization residuals*, treated as a measurement, developed in the dedicated essay [the factorization residual](the-factorization-residual.md). The four principles below are unchanged; only their capstone is corrected.
 
 ---
 
@@ -14,7 +18,7 @@ A transition affects only its preset and its postset; the entire net is captured
 
 ## Principle 2: The completion
 
-Rather than enumerating the state space, complete it. Omega represents infinity as a type — the ideal completion of ℕ, implemented directly without being named as such. The kernel is the incidence matrix completed into its conservation laws. The arithmetic rule ω + anything = ω; the boundary between the finite and completed worlds is a single line of code.
+Rather than enumerating the state space, complete it. Omega represents infinity as a type — the ideal completion of ℕ, implemented directly without being named as such. The kernel is the incidence matrix completed into its conservation laws. The arithmetic rule is ω + anything = ω; the boundary between the finite and completed worlds is a single line of code.
 
 `enum Omega { Finite(u32), Unbounded }`. One engine runs over ℕ or over its completion. A finite witness stands in for an infinite fact.
 
@@ -30,9 +34,17 @@ Compute the reason, not just the answer: a finite witness that an independent ch
 
 There is no zero-test, no Turing power, and no undecidability; and what is trusted is the certificate, not the prover.
 
-## Capstone: Φ_PN
+## What the four converge on
 
-Φ_PN measures how far a net is from being a product of independent parts. It is a minimum, taken over every structural cut, of the gap between the verdict for the whole net and the tensor of the verdicts for its parts. The gap is the number; the cut that achieves it is the witness; the residual is the part that no decomposition compresses. Defining it requires all four principles simultaneously.
+The principles do not converge on a scalar. They converge on a program with three parts, in order of weight:
+
+1. **The certificate is the stone.** Principle 4's witness, made into an interoperable, machine-checkable object re-validated by a small external checker that is the *entire* trusted base. This is the signature contribution. Each verdict carries a proof anchored to the original net; an independent checker re-establishes the property, sharing nothing with the prover. See [the checkable frontier](the-checkable-frontier.md).
+
+2. **The measured coverage is the result.** The falsifiable headline is empirical: *on the real MCC P/T corpus, a polynomial structural certifying tier decides a large, characterizable fraction of queries — counted as queries decided, two-denominator, family-held-out — without state-space exploration; where it abstains, it abstains honestly.* The figures of merit are `f_struct` (the structural-coverage fraction) and `f` (the certifying fraction of accepted verdicts). See [the coverage claim](the-coverage-claim.md).
+
+3. **The firewall is what makes both trustworthy.** Principle 4's separation of guess from proof — soundness independent of the selection policy — is the *enabling property*. As a theorem it is a one-line corollary of certifying algorithms composed with algorithm selection. Its non-trivial content is a precondition the code must discharge first: the two `Some(false)` stubs that today return a fabricated verdict with no certificate. See [soundness as a free variable](soundness-as-a-free-variable.md).
+
+Two horizons sit past the headline, and are named as horizons, not spine. **Learned selection** — a SATzilla-style ranker over the certified deciders — is the sequel; it is safe precisely because the firewall holds, and it is justified only if a measured single-best-to-virtual-best gap warrants it (the rungs: [1](rung-1-empirical-hardness-ranker.md), [2](rung-2-sequential-policy.md), [3](rung-3-certified-reductions.md)). The **factorization residuals** are the far horizon: two per-property measurements, not a metaphysics. Neither is the result. The result is the stone and the number.
 
 ---
 
@@ -84,6 +96,8 @@ Completion adds ideal points so that a process that almost converges now converg
 - `coverability-finiteness-guarantee`, `coverability-trees-always-finite`, `boundedness-iff-no-omega` — boundedness read off as the absence of the infinity symbol
 - `coverability-over-approximates-reachability`, `coverability-graph-decides-coverability`, `coverability-tree-introduces-omega-as-infinity`, `short-circuit-coverability-before-reachability` — an over-approximation: it refutes with certainty but only approximates an exact "yes"; consult the cheaper procedure first
 
+This identification is **real**, not exposition: `Omega` *is* the ideal completion of (ℕ, ≤), and so the existing engine *is* a latent well-structured-transition-system. The payoff is concrete and near-term — abstracting the order into a `WellQuasiOrder` (the wqo obligation licenses termination) turns the blanket `Inconclusive` at the ω-frontier into a backward-coverability refinement (BACKLOG B9/E1), rather than the far-horizon WSTS zoo.
+
 ### 2.1.b — The order is the one component left un-abstracted; Dickson's Lemma guarantees the completion terminates.
 - `wqo-is-the-unabstracted-thing` — the blanket `impl<T:Ord> PartialOrd for IdxMarking<T>`; `merge-ordering-fold` — the product order returns `None` the instant two coordinates disagree in direction
 - `dickson-guarantees-termination` — (ℕ^P, ≤) is a WQO, which is why ω-acceleration terminates
@@ -100,6 +114,8 @@ Completion adds ideal points so that a process that almost converges now converg
 - `infeasible-LP-means-S-invariant-violated`, `farkas-yields-dual-certificate`, `farkas-dual-as-explanation`, `unreachability-carries-an-invariant` — yᵀC = 0 with y·(m′−m₀) ≠ 0: the place-weighting that witnesses the contradiction
 - `extract-dual-makes-negative-carry-certificate`, `farkas-dual-checks-by-dot-product` — extracting it would make the negative verdict carry a certificate symmetric to the positive ones, checkable by a single dot product
 - `discarded-lp-dual-gets-a-job` — in the reduction calculus the discarded dual becomes a reduction's soundness witness
+
+One honesty caveat belongs here, because it is a soundness hole the firewall does *not* protect (there is no positive object to check on the negative path): today's `Unreachable` verdict rests on a *floating-point* LP failing to find a rational solution. A spurious floating "infeasible" yields a silent false `Unreachable`. The emitted invariant must be exact-rational and pass `y·C = 0 ∧ y·(m′−m₀) ≠ 0` in exact arithmetic before the verdict returns (BACKLOG B0/B1/B1a).
 
 ### 2.2.b — Every structural good-behavior property is itself a conservation-law certificate.
 - `conservativeness-is-s-invariant-coverage`, `conservativeness-is-positive-s-invariant-coverage`, `consistency-is-positive-t-invariant-coverage`, `consistency-is-t-invariant-coverage` — full conservativeness ⟺ S-invariant coverage; consistency ⟺ T-invariant coverage
@@ -121,6 +137,8 @@ A closure is a monotone shrinking map iterated to its fixpoint; a quotient colla
 - `petrivet-routes-around-worst-case` — fast not by solving the worst case but by avoiding it: classify into a tractable structural class first
 - `petrivet-is-portfolio-solver`, `ascending-cost-cascade`, `reachability-cascade-ladder`, `cascade-gated-by-class` — an ascending-cost sequence of partial deciders, each stage gated by `self.class()`: try the cheap reason first
 
+This structural tier is exactly the object the headline number measures: the fraction of corpus queries it decides, without exploration, is `f_struct` (BACKLOG G4a/G4). The generators of Principle 2 and Principle 3 are what widen that fraction.
+
 ### 3.2 — On the free-choice class, liveness and boundedness become exact polynomial-time decisions.
 - `island-where-approximations-stop-approximating`, `island-is-philosophical-heart`, `commoner-decides-fc-liveness-polynomially`, `subclass-exact-shortcuts`, `six-concerns-are-an-arc`
 - the catalog of exact domains — each a class where the cheap reason *is* the truth:
@@ -136,29 +154,32 @@ A closure is a monotone shrinking map iterated to its fixpoint; a quotient colla
 - `siphons-traps-govern-starvation-trapping`, `chc-needs-marked-trap-in-every-siphon`, `commoner-hack-liveness-iff`, `chc-sufficient-for-general-nets`
 - the closure result carries proof or counterexample: `chc-result-carries-witness-or-counterexample`, `chc-positive-and-negative-evidence` — every siphon with its marking witness on success, the exact starving siphon (a deadlock certificate) on failure
 
+That siphon and trap are De Morgan-dual closures is another **real** identification — two implementors of one closure operation, with duality an incidence-direction flip — and it is exactly the closure that makes free-choice liveness a *polynomially checkable* certificate: the verifier checks the exhibited cover even though enumerating all siphons is hard (BACKLOG B7, and the frontier map in [the checkable frontier](the-checkable-frontier.md)).
+
 ### 3.3 — The cluster quotient: the missing construction that unlocks both halves of the class.
-The same partition is also the natural domain of composition — the lattice over which the capstone minimizes.
-- `everything-is-order-completion-closure-quotient`, `four-primitives-enumerated`, `code-is-already-four-abstractions-longhand`, `future-is-making-four-constructions-abstract` — the meta-statement naming the four operations these principles rest on: order, completion, closure, quotient
 - `cluster-quotient-is-the-keystone`, `cluster-is-equivalence-of-place-transition-coupling`, `union-find-computes-clusters-cheaply`, `cluster-quotient-unlocks-both-halves`, `quotient-gives-cluster-count-c`, `quotient-gives-s-and-t-components`
 - the Rank Theorem awaiting it: `rank-vs-clusters-decides-boundedness`, `cluster-appears-once-in-crate` — rank = c−1, c = number of clusters; `no-cluster-construction-no-rank`
 - the unimplemented pieces: `island-stops-at-waterline`, `s-component-decomposition-charted-and-absent`, `is-covered-by-s-components-hardcoded-false`
+- the meta-statement, kept as exposition only: `everything-is-order-completion-closure-quotient`, `four-primitives-enumerated`, `code-is-already-four-abstractions-longhand`, `future-is-making-four-constructions-abstract` — the reading that order, completion, closure, and quotient are the four constructions the code spells out by hand. This framing is *lovely and it is exposition*: it organizes the code, but it predicts nothing and licenses no new theorem. It is named as a reading, not a result. (Of the four, only `WellQuasiOrder` and `Closure` earn a trait now, each with two implementors; `Quotient`/`Completion` stay concrete — a trait over a population of one is aesthetics, not generality.)
 
 ---
 
 ## Principle 4: The epistemic law
 
-This principle explains why the other three are run. Principles 1–3 describe what petrivet builds; this one describes the purpose of a build: not to enumerate, but to construct a finite, checkable reason — and, once the reason is checkable, the search producing it may use arbitrary heuristics. It contains the trust boundary, the answer to the project's founding question, and the principle that only quotient-invariant content counts as truth.
+This principle explains why the other three are run. Principles 1–3 describe what petrivet builds; this one describes the purpose of a build: not to enumerate, but to construct a finite, checkable reason — and, once the reason is checkable, the search producing it may use arbitrary heuristics. It contains the trust boundary, the answer to the project's founding question, and the discipline that only checkable content counts as believed.
 
 ### 4.1 — Refuse to enumerate; the reason for the refusal is exactly the decidability sweet spot.
 - `sub-turing-no-zero-test`, `universality-traded-for-analyzability`, `decidability-sweet-spot` — a net cannot test a place for emptiness; the absence of a zero-test is exactly why the core questions remain decidable
 - `inhibitor-arc-cliff` — one inhibitor arc installs a zero-test, restores Turing-completeness, and destroys decidability at a single stroke
 - `universality-needs-infinite-nets`, `worst-case-vs-operative-question`, `roadmap-extensions-are-syntactic-sugar`, `extensions-chosen-not-collected` — expressive power is a deliberately incurred cost; every gain in power is a loss of decidability
 
-### 4.2 — A verdict is a witness, not a bit; the boolean is a byproduct.
+### 4.2 — A verdict is a witness, not a bit; the boolean is a byproduct. The witness is the stone.
 - `result-not-boolean`, `proof-carrying-stance`, `proof-carrying-as-deliberate-stance`, `evidence-types-per-subclass`, `results-cite-their-theorems`
 - `verdicts-carry-different-witnesses`, `coverability-dual-witness`, `certifying-algorithms-vocabulary`, `certifying-decider-definition` — a scalar token-sum, a Parikh vector, a replayable firing sequence: the proof's shape is dictated by the theorem that produced it; an independent checker verifies it without trusting the prover
-- the verification calculus not yet built (the witness made re-checkable): `instinct-not-calculus`, `five-properties-five-shapes`, `result-pattern-once`, `proofs-inert-no-verify`, `caller-must-trust-sequence`, `certificate-trait-implied`, `data-already-certificate-shaped`, `firing-sequence-checks-by-replay`, `marking-equation-proof-checks-by-recompute`, `siphon-trap-checks-by-closure`, `no-new-theory-needed`, `certificates-auditable-offline`, `certificate-verdict-coda-abstraction`
+- the verification calculus to be built (the witness made re-checkable, and the signature contribution): `instinct-not-calculus`, `five-properties-five-shapes`, `result-pattern-once`, `proofs-inert-no-verify`, `caller-must-trust-sequence`, `certificate-trait-implied`, `data-already-certificate-shaped`, `firing-sequence-checks-by-replay`, `marking-equation-proof-checks-by-recompute`, `siphon-trap-checks-by-closure`, `no-new-theory-needed`, `certificates-auditable-offline`, `certificate-verdict-coda-abstraction`
 - the trusted base is the checker, not the decider: `checker-not-decider-is-trusted-base`, `shrink-then-verify-the-checker`
+
+This is the project's signature contribution and the reason it is *the stone* rather than a tendency: a `Certificate::check(net, m0, query)` that re-establishes the property against the **original** net, the `query` argument required (a firing-sequence witness is meaningless without the target it claims to reach), assuming nothing about which decider produced the witness. An interoperable, name-anchored serialization makes a certificate from one procedure check identically against another. The trusted base is `{checkers} ∪ {remaining bare-boolean deciders}`, measured and required non-increasing. See [the checkable frontier](the-checkable-frontier.md) for the per-property × polarity map, including the wall: general (non-free-choice) liveness has no known compact certificate, and integer-only infeasibility's honest witness is a cutting-plane derivation, not a single Farkas dual.
 
 ### 4.3 — State only what can be shown: a claim is robust when it is labeled with its true strength.
 - `claim-honesty-as-method`, `precision-makes-claims-unshakable`, `five-grades-of-claim` — SEE / READ-INTO / IMAGINE / BELIEVE / PROMISE; precision, not emphasis, is what removes grounds for doubt
@@ -169,57 +190,55 @@ This principle explains why the other three are run. Principles 1–3 describe w
 
 ### 4.4 — The certificate is the trust boundary: the heuristic chooses what to try, the proof decides what is believed. (This answers the founding question: use both a guess and a proof, separated by a boundary.)
 - `proof-or-guess-both-with-a-wall`, `certificate-firewall`, `certificate-is-the-firewall`, `guess-chooses-what-to-try`, `proof-decides-what-is-believed`, `learning-and-soundness-never-touch`, `heuristic-inside-verifier-without-anxiety`
-- the policy-independence theorem: `soundness-theorem`, `soundness-proof-mechanism`, `learner-outside-trusted-base`, `order-cannot-affect-answer`, `learning-confined-to-performance`, `flat-guarantee-rising-capability`, `wrong-guess-only-wastes-time`, `distribution-shift-benign`, `theorem-says-safe-not-helpful`
-- every leaf is a verified proof (an asymmetry the game of Go lacks): `every-leaf-can-be-checked`, `go-has-no-verified-leaf`, `muzero-inverse-of-petrivet`, `strictly-stronger-than-muzero`, `real-rollouts-verified-rewards`
+- the policy-independence property: `soundness-theorem`, `soundness-proof-mechanism`, `learner-outside-trusted-base`, `order-cannot-affect-answer`, `learning-confined-to-performance`, `flat-guarantee-rising-capability`, `wrong-guess-only-wastes-time`, `distribution-shift-benign`, `theorem-says-safe-not-helpful`
 - where the boundary has gaps (the real risk is trusted-but-wrong code, not the ML): `firewall-strength-is-certifying-fraction`, `trusted-decider-is-trusted-base`, `two-some-false-stubs`, `two-some-false-hazards`, `real-soundness-risk-is-not-ml`, `prerequisite-fix-some-false-stubs`, `certificate-and-portfolio-one-project`
 
-### 4.4.a — The portfolio operationalizes the trust boundary: the cascade as data, the ordering as a learnable parameter; the policy learns an effective theory of hardness — what can be coarse-grained.
+The firewall is the *enabling property*, not the headline — and it is worth being exact about its standing. As a **theorem** it is one line: a verdict is returned only if a checker accepted a certificate, and the policy cannot alter the acceptance predicate; therefore soundness is independent of the policy (the proof composes McConnell–Mehlhorn certifying algorithms with Rice/SATzilla algorithm selection — both mature). Its **non-trivial content is a precondition**, not the corollary: the theorem covers only the *certifying* fraction of the decider set, and today two arms — `is_covered_by_s_components` (`api/net/mod.rs:270`) and the marked-graph liveness arm (`liveness.rs:107`) — return a fabricated `Some(false)` with no certificate. They are trusted-but-wrong. Fixing them so a decider that cannot yet certify returns `None` and escalates is the **near-term north star** (BACKLOG A2). The figure of merit is the certifying fraction `f` (BACKLOG A6/C5/G6), measured and required to rise.
+
+The framing that petrivet is "strictly stronger than MuZero / has a verified leaf where Go does not" is a *true and clarifying* observation about where the learner sits relative to the trusted base — but the AlphaGo/MuZero lineage is dropped as the design's spine. The honest lineage of selection is SATzilla and Rice. petrivet *has* checkable leaves, which makes its problem easier than and unlike AlphaGo; presenting it as AlphaGo-with-a-twist overclaims the kinship. The selection direction is the sequel, developed in [soundness as a free variable](soundness-as-a-free-variable.md) and the rungs.
+
+### 4.4.a — Selection as an instrumented policy (the sequel, not the spine).
 - the cascade lifted into data: `routing-is-algorithm-selection`, `runtime-prediction-then-select`, `selection-as-sequential-decision-process`, `decider-set-already-exists`, `decider-table-cost-polarity-cert`, `soundness-domain-examples`, `cascade-hardcoded`, `no-decider-trait`, `decider-metadata-in-doccomments`, `lift-cascade-into-data`, `default-schedule-reproduces-behavior`, `one-trait-one-telemetry-hook-away`, `anytime-corollary-parallel-racing`, `learned-parallel-portfolio-natural-completion`, `ml-policy-schedules`, `learned-policy-predicts-which-fires`, `decider-learned-schedule-coda-abstraction`
 - the precursor already present in the code: `policy-already-exists-as-one-if`, `technique-tags-are-telemetry-embryo`, `only-learned-part-is-policy-next`, `little-new-machinery`
 - the prior work and the unoccupied synthesis: `proposer-checker-lineage`, `fastforward-domain-precedent`, `generalize-fastforward`, `three-families-of-learners`, `petrivet-synthesis-of-one-and-two`, `contest-names-structural-reduction`, `composition-is-the-synthesis`
-- the AlphaGo correspondence and the effective theory: `alphago-move-not-smaller`, `learn-distribution-collapse-difficulty`, `policy-value-triad`, `triad-exact-mapping`, `policy-is-effective-theory-of-hardness`, `policy-discovers-effective-theory`, `hardness-on-distribution-different-object`, `reachability-graph-is-micro-substrate`, `israeli-goldenfeld-coarse-grain`, `commuting-diagram-criterion`, `autonomous-means-self-predicting`, `causal-states-minimal-sufficient`, `information-bottleneck-lagrangian`
-- which macro-variables to coarse-grain onto: `feature-design-doctrine`, `prefer-aggregate-descriptors`, `structural-features-are-autonomous-macrovariables`, `mutual-information-feature-test`, `feature-sufficiency-empirical`, `bach-borrowable-move`
+- the effective-theory reading, marked speculation, never a design justification: `policy-is-effective-theory-of-hardness`, `israeli-goldenfeld-coarse-grain`, `causal-states-minimal-sufficient`, `information-bottleneck-lagrangian`, `feature-design-doctrine`, `mutual-information-feature-test`. This material is an *interpretation* of why selection might help on a distribution; it is not evidence and not a justification for any design choice. Whether the chosen features suffice for the hardness label is a measured question (BACKLOG X4), gated on a measured single-best-to-virtual-best gap (BACKLOG D5).
 
-### 4.4.b — The stages: rising ambition, constant soundness. Each stage dominates the previous one; the certificate holds correctness fixed.
-- the stages themselves: `ladder-rung-0`, `ladder-rung-1`, `ladder-rung-2`, `ladder-rung-3`, `implementation-branches-vs-ladder-rungs`
-- Stage 1 — static ranker: `rung1-makes-prior-a-learned-function`, `rung1-is-one-shot-static`, `failure-confined-to-cheap-dimension`, `objective-is-cost-sensitive-regret`, `sbs-floor-vbs-ceiling`, `tree-models-fit-tabular-features`, `ranker-is-an-instrument`, `ranker-only-reorders`, `performance-not-provably-monotone`, `run-free-shortcuts-first`, `cap-first-pick-with-deadline`, `blend-with-hand-order-prior`, `split-by-family-not-instance`, `cold-start-covered-by-prior`, `model-stays-outside-core`
-- Stage 2 — adaptive controller: `rung2-closes-the-loop`, `new-verb-is-preempt`, `rung2-action-space`, `pandoras-box-index-baseline`, `three-formulations-increasing-ambition`, `reach-for-simplest-formulation`, `anytime-parallel-racing`, `race-only-under-uncertainty`, `offline-off-policy-from-logs`, `offline-rl-extrapolation-error`, `new-actions-harmless-to-soundness`, `rung2-dominates-rung1`, `rung2-monotone-only-if-bootstrapped`, `reward-design-is-performance-knob`, `certificate-seals-correctness-off`, `cancellation-is-hard-prerequisite`, `cancellation-reaches-toward-core-minimally`, `budget-cancellation-absent`, `deadlines-start-coarse`
+### 4.4.b — The rungs: rising ambition, constant soundness. Each rung is a horizon, gated behind the certificate.
+- the rungs themselves: `ladder-rung-0`, `ladder-rung-1`, `ladder-rung-2`, `ladder-rung-3`, `implementation-branches-vs-ladder-rungs` — see [rung 1](rung-1-empirical-hardness-ranker.md), [rung 2](rung-2-sequential-policy.md), [rung 3](rung-3-certified-reductions.md). MCC *ranking* is out of scope as a goal: the contest is the crucible (honest, protocol-correct abstention, cross-checked against an oracle) and the labelling source (the certificate is the training label), not a leaderboard to climb.
 - self-labeling — the certificate is the label: `certificate-is-the-training-label`, `self-play-against-cost`, `oracle-is-cross-check-not-training-dep`, `solving-corpus-yields-proof-trees`, `features-present-as-data-absent-as-vector`, `nupn-unit-tree-is-missing-feature`
-- Stage 3 — certified reductions, the apparatus used as moves: `rung3-second-verb-transform`, `moves-simplify-a-proof-obligation`, `reduction-trait-three-methods`, `lift-is-the-keystone`, `reductions-are-scaffolding`, `reduction-library-is-apparatus-as-actions`, `rung3-eats-the-whole-apparatus`, `each-reduction-must-be-certifying`, `buggy-lift-cannot-break-soundness`, `muzero-frontier-bright-line`, `and-or-proof-tree-search`, `theorem-proving-correspondence`, `value-net-learns-cost-to-proof`, `curriculum-emerges`, `lift-functions-are-the-real-work`, `search-blowup-value-net-is-hope`, `rung3-is-the-spire-raised-last`, `prove-like-a-mathematician`
+- Stage 3 — certified reductions as moves, the apparatus reused: `rung3-second-verb-transform`, `reduction-trait-three-methods`, `lift-is-the-keystone`, `each-reduction-must-be-certifying`, `buggy-lift-cannot-break-soundness`, `and-or-proof-tree-search`. The robustness here is clean for *existential* witnesses (a wrong `lift` produces a firing sequence the original-net checker rejects, so it costs time, not correctness); for compositional/invariant lifts it must be proven per certificate kind (BACKLOG F1).
 
 ### 4.5 — Truth is what survives a quotient: keep only what is invariant under the don't-cares.
 Firing order, the prover's identity, and micro-level detail are precisely the don't-cares that a reason must be invariant under.
 - firing ORDER quotiented (the Parikh image): `state-equation-is-necessary-not-sufficient` — necessity-but-not-sufficiency is exactly the information the quotient discards; `marking-equation-becomes-refinement-loop`
 
 ### 4.5.a — The machine origin is a don't-care: costs live in a torsor, fitness in the quotient.
-- `measure-differences-record-the-bundle`, `absolute-timings-have-no-origin`, `schedule-is-a-choice-of-origin`, `log-costs-form-a-torsor`, `fitness-lives-in-quotient`, `torsor-glossary-group-forgot-identity`, `section-is-a-schedule`, `bundle-of-torsors-precise-not-loose`, `persist-raw-fibers-tagged-with-context`, `never-bake-schedule-into-measurement`, `fitness-tests-are-differential-assertions`, `committing-baseline-commits-a-section`, `no-regression-on-log-ratios`, `raw-cost-not-cross-comparable`, `prefer-invariant-counters`, `regret-is-torsor-quotient-quantity`, `ranker-needs-differential-not-absolute`, `ranker-learns-section-of-bundle`, `rung2-adaptive-section`, `torsor-survives-into-rung3`, `torsor-keeps-measurement-honest`, `timing-noise-mitigated-structurally`
+- `measure-differences-record-the-bundle`, `absolute-timings-have-no-origin`, `schedule-is-a-choice-of-origin`, `log-costs-form-a-torsor`, `fitness-lives-in-quotient`, `torsor-glossary-group-forgot-identity`, `section-is-a-schedule`, `bundle-of-torsors-precise-not-loose`, `persist-raw-fibers-tagged-with-context`, `never-bake-schedule-into-measurement`, `fitness-tests-are-differential-assertions`, `committing-baseline-commits-a-section`, `no-regression-on-log-ratios`, `raw-cost-not-cross-comparable`, `prefer-invariant-counters`, `regret-is-torsor-quotient-quantity`, `ranker-needs-differential-not-absolute`, `ranker-learns-section-of-bundle`, `torsor-keeps-measurement-honest`, `timing-noise-mitigated-structurally`
 
 ### 4.5.b — Observe, never act: the harness measures fitness and the dependency arrow points only one way.
-- `observability-is-measurement-domain`, `harness-is-self-test-and-training-set`, `harness-describes-fitness-does-not-act`, `harness-observes-never-certifies-never-schedules`, `dependency-arrow-points-only-to-core`, `pure-downstream-observer`, `harness-hands-off-dataset-not-model`, `scope-creep-guarded-by-arrow-lint`, `seam-is-only-point-of-contact`, `two-record-types`, `phase1-no-core-change`, `phase2-minimal-additive-seam`, `each-phase-independently-shippable`, `loading-excluded-from-cost`, `timing-is-greenfield`, `harness-no-ops-on-missing-corpus`, `soundness-sentinel-runs-underneath`, `soundness-sentinel-catches-stubs`, `oracle-is-truth-signal-until-check-exists`, `phi-features-already-cheap-accessors`, `phi-recorded-as-raw-named-fields`
+- `observability-is-measurement-domain`, `harness-is-self-test-and-training-set`, `harness-describes-fitness-does-not-act`, `harness-observes-never-certifies-never-schedules`, `dependency-arrow-points-only-to-core`, `pure-downstream-observer`, `harness-hands-off-dataset-not-model`, `scope-creep-guarded-by-arrow-lint`, `seam-is-only-point-of-contact`, `two-record-types`, `phase1-no-core-change`, `phase2-minimal-additive-seam`, `each-phase-independently-shippable`, `loading-excluded-from-cost`, `harness-no-ops-on-missing-corpus`, `soundness-sentinel-runs-underneath`, `soundness-sentinel-catches-stubs`, `oracle-is-truth-signal-until-check-exists`, `phi-features-already-cheap-accessors`, `phi-recorded-as-raw-named-fields`
+
+The soundness sentinel here — every `Decided` row with a known oracle must agree — is the live regression that catches exactly the A2 stubs. It is the firewall's precondition turned into a test.
 
 ### 4.6 — Specify the interface before implementing it: the design is committed to disk ahead of the code.
-The vision is committed to disk before construction, so the architecture's later parts are constrained by promises made early.
 - `literature-tells-what-petrivet-is`, `literature-as-load-bearing-index`, `citation-index-binds-theorem-to-function`, `deeplinks-to-nonexistent-module`, `blueprint-drawn-ahead-of-stone`, `blueprint-ahead-of-the-stone`, `gap-is-self-authored-map`, `unbuilt-names-are-promise-to-self`, `architecture-promises-to-itself`, `seams-cut-with-next-generality`, `dream-is-completion-not-invention`, `every-abstraction-has-pointer-today`, `literature-organized-by-source`, `literature-imports-only-under-rustdoc`, `doc-links-as-cfg-doc-imports`
 - the project's stated goal — the union it embodies: `motto-theory-application-union`, `for-researchers-and-practitioners`, `readable-api-over-rigorous-impl`
 
 ---
 
-## Capstone: Φ_PN
+## Capstone: the certificate, the coverage, the firewall
 
-Φ_PN measures how far a net is from being a product of independent parts. Cut the net every way the structure permits; the smallest gap between the whole and its reassembled parts is the number, and the cut that achieves it is the witness.
+The four principles converge, and the convergence is the project's ratified direction — not a scalar but a program.
 
-Φ_PN is not a fifth principle but the fixpoint of the whole — the one quantity whose definition requires all four principles at once. It is a minimum (Principle 2's order) over a decomposition lattice (Principle 3's quotient) of a distance between a verdict (Principle 4) and a tensor of sub-verdicts (Principle 1's monoid, factored). It measures the residual that the completion cannot complete and the coarse-graining cannot compress. The policy learns what can be coarse-grained; Φ_PN measures what cannot.
+**The certificate is the stone.** Principle 4's witness, raised from a tendency into an interoperable, machine-checkable object re-validated by a small external checker that is the entire trusted base. Every verdict carries a proof anchored to the original net; an independent checker re-establishes the property without trusting the prover. This is the signature contribution, and it is what the architecture is actually built around.
 
-### The factorization residual: a minimum over a partition lattice.
-- `phi-pn-honest-number`, `factorization-as-the-goal`, `phi-pn-definition`, `phi-is-minimum-over-cuts`, `iit-mathematical-kernel`, `phi-zero-means-reducible`, `phi-positive-means-irreducible-with-witness`, `phi-pn-is-number-and-witness`, `phi-pn-real-mathematics`, `delta-measures-shortfall`, `tensor-is-property-specific`, `phi-pn-resists-coarse-graining`, `learn-what-can-be-coarse-grained-phi-measures-rest`
+**The measured coverage is the result.** The falsifiable headline is empirical: on the real MCC P/T corpus, the polynomial structural certifying tier (Principles 2 and 3) decides a large, characterizable fraction of queries — `f_struct`, two-denominator, family-held-out — without state-space exploration; where it abstains, it abstains honestly, and the boundary is predictable from cheap structural features. The certifying fraction `f` reports how much of what it accepts is independently checked. These two numbers, not a theorem, are the thesis.
 
-### Convergence: Φ_PN requires every principle.
-- `phi-needs-all-five-prior-structures`, `phi-needs-order-engine` (Principle 2), `phi-needs-structural-decomposition` (Principle 3), `phi-needs-linear-algebra` (Principle 2 — C completed into kernel and Farkas dual), `phi-needs-certificate-calculus` (Principle 4), `phi-needs-decision-portfolio` (Principle 4), `phi-is-what-architecture-built-to-compute`, `verdict-calculus-is-whole-behavior`, `decomposition-and-integration-same-lattice`
+**The firewall is what makes both trustworthy.** Soundness independent of the selection policy is the enabling property — a one-line corollary as a theorem, a real precondition as code (the two `Some(false)` stubs). It is why the structural tier can be reordered, raced, or eventually learned without endangering correctness, and why honest abstention is always available.
 
-### Where the partitions come from, and the cut as a learned action.
-- `decomposition-lattice-source`, `nupn-unit-tree-is-candidate-partition`, `nupn-parsed-into-forest`, `fixtures-have-deep-unit-trees`, `nupn-unconsulted-decomposition-oracle`, `no-analysis-reads-nupn`, `unit-safe-flag-unused-invariant`, `no-composition-operator`, `composition-most-purely-potential`, `boundary-spec-is-software-not-nets`, `unittree-phi-coda-abstraction`
-- the cut as a candidate move: `value-net-recognizes-clean-cuts`, `phi-pn-as-live-heuristic-subthread` — a cut is a good move exactly when the property factors over it; the value net is in part learning to predict Φ_PN
-- good behavior as clean factorization (Φ_PN = 0): `s-component-coverage-implies-bounded`, `t-component-coverage-implies-consistent`
+### The factorization residuals are a measurement, not a metaphysics.
+
+The earlier capstone — a single net-level scalar Φ_PN, "the one quantity the architecture was built to compute" — is dissolved. The scalar/boolean Φ_PN, and the necessity claim that it requires all four principles, predicted nothing and are retired. What survives is two computable per-property residuals: Φ_bound (a boundedness-factorization residual: how much a net is bounded only through cross-block synchronization, provably zero on live bounded free-choice nets and strongly-connected T-nets) and Φ_inv (an invariant rank-defect residual: the count of conservation laws no single block can see, linked to the Rank Theorem's cluster count). Each is monotone, theorem-backed-zero, non-vacuous, and emits a minimizing cut as a C1-checkable witness. The deliverable is their *distribution over the corpus*, indexed by net class — a measurement. This is a far horizon (BACKLOG H2a/H2b), recorded, not scheduled. It is developed in [the factorization residual](the-factorization-residual.md).
 
 ### Scope limit: the residual is mathematics; any extension to minds is metaphor and lies outside this work.
 - `iit-absent-from-repository`, `consciousness-leap-is-the-metaphor`, `full-iit-needs-stochastic-semantics` — a "Petri-net Φ" is a number and a witness measuring failure-to-factor; it makes no claim about minds. IIT is not present in the repository.
@@ -233,10 +252,12 @@ The vision is committed to disk before construction, so the architecture's later
 - **Principle 3 — Structural subclasses.** Choose the algorithm by net shape before computing. One closure answers a question about every subset at once; on the free-choice class, approximations become exact.
 - **Principle 4 — Epistemic law.** Compute the reason, not just the answer — a finite witness anyone can re-verify. A heuristic chooses what to try; only the checked witness is believed. "Cannot yet decide" is a valid verdict, not a failure.
 
-And the quantity they converge on:
+And what they converge on:
 
-- **Φ_PN** — how far a net is from being a product: the smallest gap, over every cut the structure permits, between the whole and its reassembled parts. The gap is the number; the cut is the witness; the residual is what nothing compresses.
+- **The certificate** — the witness made interoperable and externally checkable, the entire trusted base reduced to a small checker. *The stone.*
+- **The coverage** — `f_struct` and `f`, measured on the MCC corpus, queries-decided and certifying-fraction. *The result, and the falsifier: the fraction is small, or the structural path is not cheaper, or the certificates are not independently checkable.*
+- **The firewall** — soundness independent of selection, an enabling property whose real content is the precondition the code discharges first.
 
 ---
 
-The overall structure: locality makes the question hard (Principle 1); completion makes it answerable without traversing the trajectory (Principle 2); the right structural shape makes whole classes of it exact (Principle 3); and the certificate makes it safe to reach those answers via an arbitrary heuristic while remaining correct (Principle 4) — converging on Φ_PN, the single quantity the architecture was built to compute.
+The overall structure: locality makes the question hard (Principle 1); completion makes it answerable without traversing the trajectory (Principle 2); the right structural shape makes whole classes of it exact (Principle 3); and the certificate makes it safe to reach those answers via an arbitrary heuristic while remaining correct (Principle 4). They converge not on a number-to-compute but on a thing-to-trust and a thing-to-measure: a certificate that any third party can check, and a coverage fraction that says how far the cheap, checkable tier reaches.

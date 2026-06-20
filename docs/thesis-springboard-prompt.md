@@ -1,3 +1,15 @@
+> **Addendum (2026-06-19) — the menu has landed; this body is kept as historical record.**
+>
+> This document was written to *open* the space of possible thesis directions and to keep its menu (Section F) deliberately unranked. That phase has since resolved, and the resolution is recorded here so the body below is read as the conversation that produced it, not as a still-open question.
+>
+> - **A primary claim is now committed.** The thesis's primary claim is the **structural-coverage characterization** (Direction 4's empirical spine fused with Direction 1's proof-carrying contribution): on the MCC P/T corpus, a polynomial structural certifying tier decides a large, characterizable fraction of queries without state-space exploration, and abstains honestly where it cannot — the headline measured as `f_struct`. The exact wording remains the author's to finalize; the framing is settled.
+> - **MCC ranking is OUT** as a thesis goal. The contest is the **crucible** (honest, protocol-correct abstention with an oracle cross-check) and the **labelling source** (the certificate is the training label), not a leaderboard to climb. The unit of evidence is a characterization plus a construction, not a benchmark ranking.
+> - **The four candidate directions resolved as follows.** The **coverage map** (Direction 4) is the headline and the **proof-carrying certificate** framework (Direction 1) is the signature artifact; the two are committed together. **Learned selection** (Direction 3) is deferred to explicit future work, kept safe to defer because the certificate makes mis-selection cost time, not correctness. **Temporal logic (CTL/LTL)** is out of scope.
+>
+> The authoritative, sequenced version of this resolution is [`BACKLOG.md`](../BACKLOG.md); the reconciled vision corpus is [`docs/essays/README.md`](essays/README.md). Everything below is preserved verbatim as the springboard that led here.
+
+---
+
 # A Conversation Starter About Where the Thesis Could Head
 
 *(A prompt to be read by you, the assisting LLM, before you talk with Michael. It refers to Michael in the third person on purpose. Read it all before you say anything to him.)*

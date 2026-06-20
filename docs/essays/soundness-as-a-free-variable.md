@@ -1,199 +1,151 @@
 # Soundness as a Free Variable
-## A learned algorithm-selection policy over a certificate-gated decider lattice, extended from `petrivet`'s certifying apparatus
+## The firewall is the enabling property, not the headline — and that honesty relocates the work
 
-> Status: design paper. This is exploratory work (Daniel Dyer, with Claude), built on Michael's tool. It realizes Rung 1 of the ambition ladder in its companion implementation plan, [`self-measurement-harness-plan.md`](../self-measurement-harness-plan.md). The core theory is Michael's; the proposed extensions here are marked as such.
+> Status: design essay. Exploratory work (Daniel Dyer, with Claude), built on Michael's tool. The core Petri-net theory is Michael's; the proposed extensions are marked as such. This essay was **rewritten under a ratified inversion of its own earlier emphasis**: the soundness theorem, which an earlier draft put at the centre, is here demoted to what it actually is — a one-line corollary whose value lies entirely in a precondition the code does not yet satisfy. What the project *contributes* is not the theorem but **the firewall built and measured**: the certificate-and-checker as the trusted base, and the certifying fraction `f` as the figure of merit. The companion to this demotion is the empirical headline — the structural-coverage fraction `f_struct` — developed in [the-coverage-claim.md](the-coverage-claim.md). The learned-selection material that an earlier draft foregrounded is moved to its honest place as a sequel: §6 and the [rung essays](rung-1-empirical-hardness-ranker.md).
 
-**Abstract.** The decision problems `petrivet` answers — reachability, liveness, boundedness — have worst-case complexities that no engineering removes: Ackermannian in the unbounded case, EXPSPACE-hard even when decidable. The tool is nonetheless fast on real instances, because it does not solve the worst case; it routes around it, dispatching each net to the cheapest technique its structure admits. This paper argues that this routing — today a hand-written cascade of `match self.class()` arms — is an instance of the algorithm-selection problem of the kind machine learning addressed for game-tree search, and that `petrivet` is well positioned to learn it: it is a *certifying* analyzer, in which every successful decider emits a machine-checkable proof. We prove that, over a portfolio of certifying deciders, **soundness is independent of the selection policy**: the policy is a free variable that may be optimized for cost by any means, including learning under a misspecified reward, without endangering correctness. This is the approach AlphaGo took (learn the distribution of good moves over an intractable search) with a property Go did not have: every leaf is a verified proof, so the learner lies wholly outside the trusted computing base. We formalize the scheduling problem as a sequential decision process with verified terminal rewards, map the policy/value/search triad onto the existing decider set, show that the MCC harness is already a self-labeling training-data generator (the certificate is the label; no oracle required), give the minimal extension of the real code that realizes each rung of an ambition ladder from a SATzilla-style ranker to a MuZero-grade planner over structural reductions, and ground the *learnability* of instance-hardness in the effective-theory literature, which also dictates which features the policy should consume. We close with an account of the one precondition the theorem demands — that every fast decider be certifying, which today's bare-boolean shortcuts and two `Some(false)` stubs violate — and a discussion of Petri nets as cellular automata and the policy as the effective theory of verification hardness.
-
----
-
-## 1. Motivation and analogy
-
-AlphaGo did not make Go's game tree smaller. The branching factor stayed ~250, the depth ~150, the tree astronomical. What changed is that two learned functions — a **policy network** giving a distribution over moves (narrowing *which* branches to explore) and a **value network** estimating the winner (truncating *how deep* to look) — let Monte-Carlo tree search concentrate its budget on the regions that matter (Silver et al., *Nature* 2016, 2017; *Science* 2018). The hard problem was not solved; the distribution of good play was learned, and the search rode it. Eric Jang's recent from-scratch reimplementation illustrates that this is now inexpensive — a few thousand dollars of commodity compute, with KataGo's 40× efficiency gain as the load-bearing fact — but the underlying point is older and exact: **when a search problem has intractable worst cases but a structured instance distribution, learning the distribution reduces the operative difficulty even though the worst case is untouched.**
-
-`petrivet`'s analysis problems have this shape. The README is candid that unbounded reachability, liveness, and deadlock-freedom are decidable but Ackermannian, and the tool returns `Inconclusive` rather than overstate ([`reachability.rs`](../../petrivet/src/api/system/reachability.rs)). But on the distribution of nets people actually analyze — and the Model Checking Contest corpus is such a distribution — the operative question is not "what is the worst case" but "which of my techniques will decide *this* instance cheaply." That meta-question is low-dimensional and statistical. It is the **algorithm-selection problem** (Rice, 1976), and learning it is what portfolio SAT solvers such as SATzilla (Xu, Hutter, Hoos, Leyton-Brown, *JAIR* 2008) have done for two decades.
-
-What makes `petrivet` notable is not that it *could* host such a learner — anything could — but that it can host one **without placing machine learning anywhere near the trusted computing base.** Because every decider that concludes emits a checkable certificate (a firing sequence, a Parikh vector, an invariant, a siphon/trap pair), a learned scheduler can only change *which proofs are attempted and in what order*; it can never cause a false proof to be accepted. This is the property Go does not have. In AlphaGo the value network's estimate at a non-terminal leaf *is* the signal — a wrong estimate costs the game. In `petrivet` a leaf is a proof: a wrong policy estimate costs milliseconds before the next decider, or the exhaustive fallback, produces a real one. MuZero (Schrittwieser et al., *Nature* 2020) is the contrast from the other side: it learns the *dynamics model itself*, inside the trust boundary, and its correctness is empirical, not certified. `petrivet` is the inverse — the learner is outside, and correctness is structural.
-
-The rest of this paper makes that claim a theorem, then builds outward from the code that already exists.
+**Abstract.** `petrivet` is a *certifying* analyzer: every decider that concludes can, in principle, emit a machine-checkable witness, and a small external checker re-validates it against the original net. From this one fact a theorem follows immediately — *over a portfolio of certifying deciders, the verdict's soundness is independent of which decider is selected and in what order*. We state that theorem precisely and then say, in plain terms, what it is: **nearly trivial.** It is a one-line composition of certifying algorithms (McConnell–Mehlhorn–Näher, 2011) with algorithm selection (Rice, 1976; SATzilla). This triviality is not a defect to hide; it is a signpost. It tells us the real content is not in the theorem but in its *precondition* — "every fast decider is certifying" — which the code **violates today**, in two stubs that return a confident, fabricated `false`. The contribution this essay actually defends is therefore the firewall **built and measured**: discharge the precondition (demote the stubs to honest abstention), reduce the trusted base to the certificate *checker* alone (the GRAT discipline — an unverified generator, a small verified checker), and report the **certifying fraction `f`** — the share of accepted verdicts that carry a checked certificate — holding it non-increasing in CI. We make precise the one sense in which "soundness is a free variable" is exactly true (the learner may be arbitrarily wrong about *cost* while being structurally incapable of being wrong about *truth*), which is what makes the selection sequel safe and what makes it honest to defer that sequel. We close at the one place the firewall must be *proven* rather than assumed: certified reductions, where a buggy lift is caught only because the checker re-validates against the original net.
 
 ---
 
-## 2. The scheduling problem, formally
+## 1. What is actually being claimed
 
-Fix a property $P$ (say, reachability of a target marking) and a net $N$ with query $q$. A **decider** $d$ is a partial procedure that returns either $\bot$ (inconclusive) or a verdict $v \in \{\textsf{yes}, \textsf{no}\}$ together with a certificate $c$. Call $d$ **certifying** if there is a checker $\mathrm{chk}_P(N, q, v, c) \in \{\textsf{accept}, \textsf{reject}\}$ that is *sound*: $\textsf{accept} \Rightarrow v$ is the true answer. The checker — not the decider — is the trusted computing base, and the design goal is to keep it small (ideally formally verified, as the SAT community keeps only `gratchk` in its trusted base while the proof *generator* `gratgen` stays unverified; Lammich, *CADE* 2017).
+A decision problem `petrivet` answers — reachability, liveness, boundedness — has a worst case no engineering removes: EXPSPACE-hard where decidable, Ackermannian in the unbounded case. The tool is nonetheless fast on real nets, because it does not solve the worst case. It dispatches each net to the cheapest technique its structure admits, returning `Inconclusive` rather than overstating where no cheap technique applies ([`reachability.rs`](../../petrivet/src/api/system/reachability.rs)).
 
-`petrivet` already has the decider set: the `is_efficiently_*` / `analyze_*` family. For reachability the ordered set is — trivial equality; S-net token conservation; live-T-net integer marking equation; rational LP filter; integer ILP filter; Karp–Miller exploration — each gated by structural class, each with a known cost, polarity, and soundness domain:
+There are two very different claims one can attach to this design, and the central act of this essay is to keep them apart.
 
-| Decider | Cost | Polarity | Terminating? | Certificate |
-|---|---|---|---|---|
-| token-sum (S-net) | $O(|P|)$ | prove-NO; +YES if strongly connected | always | `LiveStateMachineTokenConservation` |
-| integer marking eq. (live T-net) | ILP | exact | always | Parikh vector `HashMap<Transition,u32>` |
-| rational LP filter | LP | prove-NO only | always | (Farkas dual — *discarded today*) |
-| integer ILP filter | ILP | prove-NO only | always | (dual — discarded) |
-| CHC siphon/trap | poly | exact on free-choice | always | `SiphonTrapPair`s / counterexample siphon |
-| structural-boundedness LP | LP | prove-YES (bounded) | always | weight vector `Box<[f64]>` |
-| Karp–Miller | exp | exact if bounded | coverability: yes; reachability: only if bounded | firing sequence / ω-marking |
+The first is **empirical and falsifiable**: *on the real MCC P/T corpus, a polynomial structural certifying tier decides a large, characterizable fraction of queries — call it `f_struct` — without state-space exploration, and where it abstains, it abstains honestly.* This is the headline. It can be wrong: the fraction might be small, or the structural path might not be cheaper than exploration, or the certificates might not be independently checkable. Its falsifier is a corpus table. It is developed in [the-coverage-claim.md](the-coverage-claim.md) and is the committed thesis claim.
 
-We model selection as a **sequential decision process**. A *state* is $s = (N, q, H, \rho)$ where $H$ is the history of deciders already attempted and $\rho$ is any residual produced by structural reductions (initially $\rho = N$). An *action* is "run decider $d$" or, in the richest formulation, "apply reduction $r$" (producing a smaller residual). Running $d$ either reaches a **terminal** state (it returned $(v,c)$ and $\mathrm{chk}_P$ accepts — reward $= -\text{cost incurred}$, done) or continues. A **policy** $\pi(d \mid s)$ chooses the next action; a **value** $V(s)$ estimates the expected remaining cost to an accepted certificate. The mapping to the AlphaGo triad is then exact:
-
-- **Policy network** $\leftrightarrow$ $\pi(d \mid s)$: which decider to attempt next — *narrows the breadth* of the portfolio search.
-- **Value network** $\leftrightarrow$ $V(s)$: expected cost-to-certificate from here (e.g., "this net will hit ω; skip exploration") — *truncates the depth*, pruning hopeless branches.
-- **MCTS / search** $\leftrightarrow$ the certificate-gated execution itself — but with **real rollouts** (running a decider *is* attempting a proof, not simulating one) and **verified terminal rewards** (a passing certificate is ground truth, not a learned estimate).
-- **Self-play + distillation** $\leftrightarrow$ run the portfolio over the corpus, log $(\varphi(N), d, \text{accepted?}, \text{cost})$, train $\pi$ and $V$; the certificate is the label (§5).
+The second is **structural and nearly certain**: *no matter which decider the tool selects, the answer it returns is sound.* This is the soundness firewall. It is the subject of this essay. It is not the headline — it is the property that makes the headline's measurement *trustworthy* and the eventual learned-selection sequel *safe*. An earlier draft of this document mistook the firewall for the contribution. It is not. It is the enabling condition. Stating it as a theorem is easy; the work is in earning its precondition and measuring its reach.
 
 ---
 
-## 3. The soundness theorem
+## 2. The theorem, stated precisely
 
-> **Theorem (Soundness is policy-independent).** Let $D$ be a portfolio of certifying deciders for property $P$, each with a sound checker $\mathrm{chk}_P$. For every policy $\pi$, the certificate-gated execution of $D$ under $\pi$ returns a verdict $v$ only if $v$ is the true answer to $P$ on $(N,q)$. The returned answer is sound regardless of $\pi$.
+Fix a property $P$ (say, reachability of a target marking) and a net $N$ with query $q$. A **decider** $d$ is a partial procedure returning either $\bot$ (inconclusive) or a verdict $v \in \{\textsf{yes}, \textsf{no}\}$ together with a certificate $c$. Call $d$ **certifying** if there is a checker $\mathrm{chk}_P(N, q, v, c) \in \{\textsf{accept}, \textsf{reject}\}$ that is *sound*: $\textsf{accept} \Rightarrow v$ is the true answer to $P$ on $(N, q)$. The checker — not the decider — is the trusted computing base. A **policy** $\pi$ chooses which decider to run next, as a function of the net, the query, and the history of attempts.
 
-**Proof.** The execution returns $v$ only if some decider produced $(v, c)$ and $\mathrm{chk}_P(N, q, v, c) = \textsf{accept}$. By soundness of the checker, $\textsf{accept} \Rightarrow v$ is the true answer. The policy $\pi$ influences only *which* deciders are run and in *what order* — hence which $(v,c)$ pairs are generated and tested — and cannot return an unaccepted certificate nor modify $\mathrm{chk}_P$. Therefore the returned verdict is true irrespective of $\pi$. $\blacksquare$
+> **Theorem (soundness is policy-independent).** Let $D$ be a portfolio of certifying deciders for $P$, each with a sound checker $\mathrm{chk}_P$. Run them under any policy $\pi$, accepting a verdict only when its certificate passes $\mathrm{chk}_P$. Then the accepted verdict is the true answer to $P$ on $(N, q)$, for every $\pi$.
 
-> **Corollary (Learning is confined to performance).** Since soundness holds for *all* $\pi$, the policy may be chosen to optimize any performance objective — expected time-to-accept, resource budget, anytime quality — by any procedure, including reinforcement learning under a possibly-misspecified reward. A wrong policy wastes time; it cannot produce a wrong answer. The learner lies entirely outside the trusted computing base $\{\mathrm{chk}_P\}$.
+**Proof.** The execution returns $v$ only when some decider produced $(v, c)$ and $\mathrm{chk}_P(N, q, v, c) = \textsf{accept}$. By soundness of the checker, $\textsf{accept} \Rightarrow v$ is true. The policy $\pi$ governs only *which* $(v, c)$ pairs are generated and *in what order* they are tested; it cannot accept an unchecked certificate nor alter $\mathrm{chk}_P$. Hence the accepted verdict is true irrespective of $\pi$. $\blacksquare$
 
-This is the formal content of the claim that the certificate is the trust boundary. It is what separates this proposal from the unsound branch of the literature (NeuroSAT answering directly; data-driven Petri-reachability approximators; MuZero's uncertified learned model) and aligns it with the sound branch: SATzilla and Graph-Q-SAT (learning *outside* the trust boundary, scheduling or branching within a complete solver); and the *proposer–checker* systems — Code2Inv, which by its own description "takes a verification task **and a proof checker as input**" and accepts only SMT-certified invariants; Neural Termination and Neural Model Checking, which learn a candidate and then *SMT-check it* ("formally sound, and practically effective", Giacobbe et al., *NeurIPS* 2024); and AlphaProof, an AlphaZero-style search whose every output is gated by the Lean kernel — *"if the Lean verifier accepts a proof, it is correct by construction"* (silver-medal at IMO 2024). The nearest *domain* neighbor is **FastForward** (Blondin, Haase, Offtermatt, *TACAS* 2021), which already uses Petri-net over-approximations — the state equation, the continuous relaxation — as **distance oracles for A\*** toward a target marking, returning the witnessing firing sequence on success. FastForward demonstrates that a *heuristic in the guidance slot* is sound-on-success because the found sequence is self-certifying. Our proposal is its generalization: put the *learned* heuristic in the slot, and let the certificate calculus extend the guarantee from one property to all of them.
-
-> **Remark (the precondition — and where today's code violates it).** The theorem requires every decider in $D$ to be *certifying*. A **trusted** decider — one returning a bare verdict with no checkable certificate — is, in effect, part of the trusted computing base; scheduling it with a learned $\pi$ neither protects nor repairs it. The strength of the trust boundary is exactly the fraction of the decider set that is certifying. Today many `petrivet` deciders return bare booleans (`is_efficiently_bounded -> Some(bool)`, `is_live() -> bool`), and two of them — [`is_covered_by_s_components`](../../petrivet/src/api/net/mod.rs) and the marked-graph liveness arm in [`liveness.rs`](../../petrivet/src/api/system/liveness.rs) — return a *definitive* `Some(false)` where the theory gives an exact answer, i.e., they are trusted-but-wrong. **This is the real soundness risk in the construction, and it is not the machine learning.** Making every fast decider emit a certificate (the `Certificate::check` of the companion essay) is therefore not a parallel nicety but the enabling precondition for safe learning. The evidence calculus and the decision portfolio are one project.
+> **Corollary (learning is confined to performance).** Because the conclusion holds for *all* $\pi$, the policy may be optimized for any performance objective — expected time, resource budget, anytime quality — by any procedure, including reinforcement learning under a misspecified reward. A wrong policy wastes time; it cannot return a wrong answer. The learner lies entirely outside the trusted base $\{\mathrm{chk}_P\}$.
 
 ---
 
-## 4. Why the intractable problem becomes learnable
+## 3. The theorem is nearly trivial — and that is the point
 
-The Theorem says learning is *safe*. It does not say it *helps*. The case that it helps has a rigorous basis.
+Read the proof again. It is one paragraph, and every step is a definition unfolding. *Certifying* was defined as "$\textsf{accept} \Rightarrow$ true"; the policy was defined as "chooses order, nothing else"; the conclusion is the conjunction. There is no induction, no case analysis, no inequality. It is a corollary of two results that predate this project by decades:
 
-The worst case is genuinely untouched: finite P/T-net reachability is EXPSPACE-hard and, unbounded, Ackermann-complete (Czerwiński–Orlikowski; Leroux–Schmitz). No policy changes this. But hardness on a *distribution* is a different object. The effective-theory literature establishes that an intractable micro-dynamics can admit a tractable, low-dimensional *macro*-theory — when the macro-variables are chosen well. Israeli and Goldenfeld (*PRL* 2004) showed that elementary cellular automata across all Wolfram classes — *including Rule 110, which is Turing-universal* — can be coarse-grained into predictable macro-rules, under one exact condition: the coarse-graining must commute with the dynamics,
-$$ \mathrm{CoarseGrain} \circ \mathrm{MicroEvolve} \;=\; \mathrm{MacroEvolve} \circ \mathrm{CoarseGrain}, $$
-i.e., the macro-variables must be *autonomous* — closed under the dynamics, predicting their own future without the micro-detail. Computational mechanics makes the optimal version a theorem: the *causal states* (Shalizi–Crutchfield, 2001) are the **coarsest partition of histories that remains sufficient for prediction** — the minimal sufficient statistic, the right macro-variables by construction. The information bottleneck (Tishby–Pereira–Bialek, 1999) gives the tunable Lagrangian form of the same trade-off.
+- **Certifying algorithms** (McConnell, Mehlhorn, Näher, Schweitzer, *Computer Science Review*, 2011): an algorithm should emit a witness a simple checker can verify, moving trust from the (complex, possibly buggy) solver to the (simple, auditable) checker. The SAT community's DRAT/GRAT discipline is the canonical instance — trust only the tiny verified `gratchk`, never the unverified `gratgen` (Lammich, *CADE* 2017).
+- **Algorithm selection** (Rice, *Advances in Computers*, 1976; operationalized by SATzilla — Xu, Hutter, Hoos, Leyton-Brown, *JAIR* 2008): choose, per instance, which of several procedures to run, using cheap features of the instance.
 
-Applied to our setting, this yields a **feature-design doctrine**:
+Compose them — "select among procedures, each of which is certifying" — and the theorem falls out with no further mathematics. **As a theorem it earns no credit.** Saying so is not modesty for its own sake; it is the load-bearing move of this essay, because it forces the question: *if the theorem is free, where is the work?*
 
-> A learned selection policy should consume macro-features of the net that are (i) approximately *autonomous under the firing dynamics* — structural and invariant quantities that summarize behavior without tracking the micro-marking — and (ii) *sufficient* for the hardness label, i.e., conditioning on them makes predicted difficulty approximately independent of the discarded micro-detail. Prefer aggregate descriptors — structural class, strong-connectivity, P/T-invariant dimension, S-/T-component and siphon/trap counts, NUPN unit-tree shape, concurrency and token-sum summaries — over the raw per-place marking. A feature earns its place to the extent that $I(\text{feature};\text{hardness})$ is high at low description length; this is a measurable selection test against the corpus, not a guess.
-
-This is why the policy's input is the *structural* feature vector, and it is convenient that those are exactly the quantities `petrivet` already computes cheaply (§5). The raw reachability graph is the intractable micro-substrate; `NetClass`, `is_strongly_connected`, structural-boundedness, and the invariant/decomposition descriptors are the candidate autonomous macrostates. The policy is, in a literal and defensible sense, learning the effective theory of verification hardness over this net distribution.
+The work is in the **precondition**. The theorem's entire non-trivial content is the hypothesis that *every decider in the portfolio is certifying.* A decider that returns a bare verdict with no checkable witness is, in effect, part of the trusted base; scheduling it under any $\pi$ neither protects nor repairs it. The strength of the firewall is therefore *exactly* the fraction of the decider set that is certifying — and nothing in the theorem makes that fraction large. Making it large is engineering, and it is the actual project.
 
 ---
 
-## 5. Extending from the apparatus: what exists, what is one hook away
+## 4. Where the code violates the precondition today
 
-The proposal's credibility rests on how little new machinery it needs. The audit is encouraging: the soundness substrate is nearly complete and the learning substrate is largely plumbing.
+The precondition is not satisfied. Two deciders return a *definitive* `Some(false)` — a confident negative verdict — where the underlying theory gives an exact answer they have simply not computed. They are not abstaining; they are asserting, and one of them asserts a falsehood.
 
-**The decider set already exists** as the `is_efficiently_*` / `analyze_*` family. **The "policy" already exists too — as a single `if`.** The MCC harness's entire instance-dependent technique choice is one branch in [`run_liveness`](../../mcc-2026/petrivet-mcc/src/main.rs):
+**The first** is `is_covered_by_s_components`, which returns `false` unconditionally:
 
 ```rust
-if system.class().is_free_choice() && system.commoner_hack_criterion().is_ok() {
-    print_boolean_result(name, true, STRUCTURAL_TECHNIQUES);   // structural shortcut fired
-    return Ok(());
-}
-let rg = system.try_build_reachability_graph()?;
-print_boolean_result(name, rg.transition_liveness().is_live(), DEFAULT_TECHNIQUES); // explicit RG
-```
-
-The hardcoded `STRUCTURAL_TECHNIQUES` / `DEFAULT_TECHNIQUES` tags are a faithful binary record of which of two deciders fired — the start of a telemetry signal. The learned policy is the generalization of this one branch from a hand-coded predicate to a function of the full feature vector.
-
-**The certificate is already the training label.** The MCC oracle ([`oracle.rs`](../../mcc-tests/src/oracle.rs)) parses the community-consensus verdict files (`value = None` encodes the literal `?`, "consensus not reached") — a useful independent cross-check, but *not required for training*. By the Theorem, whenever a decider's certificate passes its checker, the verdict is ground truth. So running the portfolio over the corpus emits $(\varphi(N), \text{property}, \text{decider}, \text{accepted?}, \text{cost})$ tuples that are **self-labeling**: no oracle, no human annotation. This is "self-play" against the cost objective. An accounting of the tuple against today's code:
-
-| Field | Status | Where |
-|---|---|---|
-| features $\varphi(N)$ | present as *data*, absent as a *vector* | the cheap accessors below |
-| property | present | `Examination` / `BK_EXAMINATION` |
-| decider tried | present only for liveness (the technique tag); else internal | `main.rs`; `is_efficiently_*` |
-| conclusive? | present | `RunResult`, `…Result::Inconclusive` |
-| certificate | **present and rich** | the proof enums |
-| wall-time | **absent** — no `Instant` anywhere in the workspace | — |
-
-**The feature vector $\varphi(N)$ is assembled from accessors that already exist**, most cached on `DenseNet` at build time: `NetClass` and its four `const fn` sub-predicates; `is_strongly_connected` (cached `tarjan_scc(...).len() == 1`); place/transition/node/arc counts; `is_structurally_bounded` (one LP); the initial token sum; minimal-siphon counts (today only via the CHC side-effect). The one genuinely missing structural feature is the **NUPN unit-tree shape** (depth/width/`unit_count`/`unit_safe`) — the corpus carries it, but only `place_count_from_nupn` reads the `<size>` tag.
-
-**What does not exist** is the thin learning scaffold, and it attaches to named code:
-
-```rust
-enum Outcome<V> { Decided { verdict: V, certificate: Cert }, Inconclusive }
-
-trait Decider<Q, V> {
-    fn cost_class(&self) -> CostClass;            // O1 | Lp | Ilp | Poly | Exp
-    fn polarity(&self)  -> Polarity;             // ProveYes | ProveNo | Exact
-    fn admissible(&self, phi: &Features) -> bool; // soundness domain
-    fn run(&self, sys: &PetriNet, q: &Q, budget: Budget) -> Outcome<V>;
-}
-
-trait Policy { fn next(&self, st: &SearchState) -> Option<DeciderId>; }   // the ONLY learned part
-
-fn decide<Q, V>(sys: &PetriNet, q: &Q, ds: &[Box<dyn Decider<Q,V>>], pi: &dyn Policy)
-    -> Verdict<V>
-{
-    let mut st = SearchState::new(phi(sys));                 // phi(): assemble cached accessors
-    while let Some(id) = pi.next(&st) {                      // policy schedules; soundness-irrelevant
-        if let Outcome::Decided { verdict, certificate } = ds[id].run(sys, q, st.budget()) {
-            if certificate.check(sys, q, &verdict) {         // the trust boundary — the trusted base
-                return Verdict::Proven(verdict, certificate);
-            }
-        }
-        st.record(id, /* outcome, cost */);                  // the telemetry tuple
-    }
-    Verdict::Inconclusive
+// petrivet/src/api/net/mod.rs:270
+pub fn is_covered_by_s_components(&self) -> bool {
+    // todo
+    false
 }
 ```
 
-Four additions, each with a home: the `Decider` trait wraps the `is_efficiently_*` ladder; `phi()` concatenates the cached accessors (plus a new NUPN parse); the telemetry `record` belongs in [`run_analysis`](../../mcc-tests/src/runner.rs) — the harness's explicitly "measured function" — wrapped in `Instant::now()/elapsed()`; and a `Budget`/deadline with cooperative cancellation, which the codebase entirely lacks today (the only "give up" is the ω short-circuit and process-level `catch_unwind`), threaded into the exploration loop and the LP/ILP solver calls. Note that the trust-boundary line, `certificate.check(...)`, is the companion essay's `Certificate` trait: the precondition of §3 is the same line of code.
+This is consumed on the live-free-choice boundedness path at [`boundedness.rs:67`](../../petrivet/src/api/system/boundedness.rs): a live free-choice net is bounded iff every place lies in an S-component, so a hardcoded `false` reports a genuinely bounded net as *not* efficiently bounded. Here the damage is contained — `is_efficiently_bounded` returns `Some(false)`, the caller falls through to `is_structurally_bounded` and the coverability graph ([`boundedness.rs:141`](../../petrivet/src/api/system/boundedness.rs)) — but the *shape* is the violation: a fast decider asserting a verdict it has not earned.
+
+**The second** is the marked-graph arm of `is_efficiently_live`:
+
+```rust
+// petrivet/src/api/system/liveness.rs:106-108
+NetClass::MarkedGraph => {
+    Some(false) // todo  ← liveness.rs:107, the fabricated negative verdict
+},
+```
+
+A marked graph is live iff every circuit is marked — an exact, polynomial structural test. Returning `Some(false)` reports *every* marked graph as non-live. Because `is_live` short-circuits on `is_efficiently_live` ([`liveness.rs:118`](../../petrivet/src/api/system/liveness.rs)) before consulting the reachability graph, this is **trusted-but-wrong**: a live marked graph is reported non-live with no fallback. This is the real soundness defect in the present construction, and — the point that the inversion sharpens — **it is not the machine learning.** No learned policy is anywhere near it. It is a `// todo` in a `match` arm.
+
+The near-term first move is therefore not to build a learner. It is to **demote both stubs to abstention**: a decider that cannot yet certify must return `None` and escalate, never a fabricated `Some(false)`. This is item **A2** in the [backlog](../../BACKLOG.md) — "the near-term north star and the precondition of the firewall" — and the stated first move in [for-michael.md](for-michael.md): *"there are two places in your code that confidently return the wrong answer where the theory gives a real one … Start there."* Demotion is the floor; the eventual ceiling is to make each arm emit a certificate (the S-component cover; the circuit token counts — backlog B3, B4), which converts abstention into a checked positive verdict. The evidence calculus and the decision portfolio are one project, and A2 is where it begins.
+
+There is a quieter cousin worth naming for honesty's sake. The `Unreachable` verdict on the general path rests on the *floating-point* LP failing to find a rational solution ([`reachability.rs:172`](../../petrivet/src/api/system/reachability.rs)). A spurious numerical "infeasible" on a genuinely feasible system would be a silent false `Unreachable` — and the firewall does **not** protect it, because on the negative path there is no positive witness to re-check (backlog B1a). This is a different and subtler obligation than the two stubs: it argues that negative verdicts must be re-derived in exact arithmetic before they are trusted. It belongs to the same discipline — *no verdict without a checkable reason* — and is flagged here so the firewall's coverage is not overstated.
 
 ---
 
-## 6. An ambition ladder
+## 5. The trusted base, the checker, and the figure of merit `f`
 
-Calibrated to effort, because most of the value is cheap:
+Once the precondition is discharged, the firewall has a precise extent, and that extent is measurable. The trusted base is not "the tool"; it is
 
-- **Rung 0 — today.** Hardcoded per-class `match`; one instance-dependent branch. Static, sound, leaves wins on the table.
-- **Rung 1 — empirical hardness model.** A cost-sensitive ranker (gradient-boosted trees / random forest over $\varphi(N)$, SATzilla-style) predicting the fastest *admissible* decider. Sound by the Theorem, trains in minutes on the corpus, likely captures most of the achievable speedup. **No deep learning required.**
-- **Rung 2 — sequential policy.** A contextual bandit, then full RL, over decider *order* with a deadline budget: learns when to abandon a slow ILP or a diverging exploration and escalate, and supports anytime *parallel racing* of cheap deciders (needs the cancellation hook). The reward is wall-time; misspecify it freely — §3 protects soundness.
-- **Rung 3 — structural reductions as actions.** Promote **structural reductions** (agglomeration, implicit-place removal, NUPN decomposition into independent sub-problems) to *actions*. The state is then a shrinking residual net, the action space is heterogeneous (decide vs. transform), and there is a genuine branching game tree over reduced problems — policy + value + search, AlphaZero in form. The discipline that keeps it sound while MuZero is not: **each reduction must itself be certifying** — sound iff property-preserving, with a witness — so that even the learned *transformations* stay outside the trusted computing base. (Specced separately in [rung-3-certified-reductions.md](rung-3-certified-reductions.md).)
+$$ \text{TCB} \;=\; \{\text{certificate checkers}\} \;\cup\; \{\text{remaining bare-boolean deciders}\}. $$
 
-The through-line: difficulty is monotone in ambition, but soundness is *constant* across all four rungs — a flat guarantee under a rising capability curve. That is what the certificate provides.
+The design goal, following the GRAT discipline, is to shrink the right-hand union to empty and the left-hand set to something small enough to audit and eventually to verify formally. Each checker must re-establish the property against the **original** $(N, q)$ — assuming nothing about which decider or reduction produced the witness, sharing no code with the generators beyond primitive net access (backlog C1). That original-net discipline is what holds the trusted base constant under reduction-lifting (§7) and what would let the certificate format be tool-agnostic. The trust boundary is a single line in the decision loop:
 
----
+```rust
+if certificate.check(net, m0, query) {        // the trusted base — and the precondition of §3
+    return Verdict::Proven(verdict, certificate);
+}
+```
 
-## 7. Related work, placed
+The figure of merit for the firewall is the **certifying fraction**
 
-Three families, distinguished by where the learner sits relative to the trusted computing base:
+$$ f \;=\; \frac{\#\{\text{accepted verdicts carrying a checked certificate}\}}{\#\{\text{accepted verdicts}\}}. $$
 
-1. **Learner outside the boundary (schedules sound procedures).** Rice (1976); SATzilla (Xu et al., 2008); Kotthoff's survey (2014); Graph-Q-SAT replacing VSIDS inside complete CDCL (Kurin et al., 2020); FastForward's LP distance oracle for Petri reachability (Blondin et al., 2021). *Soundness preserved by construction.*
-2. **Learner proposes, checker disposes.** AlphaProof + Lean kernel (2024); HyperTree Proof Search + ITP kernel (Lample et al., 2022); Code2Inv / CLN2INV / ICE invariant synthesis + SMT (2018–2020); Neural Termination (Giacobbe et al., 2022) and Neural Model Checking (Giacobbe et al., 2024) + SMT; underwritten theoretically by certifying algorithms (McConnell, Mehlhorn, Näher, Schweitzer, 2011) and exemplified in tooling by DRAT/GRAT, where the SAT community trusts only a tiny verified checker (Lammich, 2017). *Soundness from the checker.*
-3. **Learner answers directly (unsound).** NeuroSAT standalone; data-driven Petri-reachability approximators; MuZero's uncertified learned dynamics. *Soundness empirical or absent.*
+`f = 1` means the firewall is total: every answer the tool commits to is backed by a witness an independent checker accepted, and the bare-boolean trusted base is empty. `f < 1` names exactly how far short of that the tool falls — it is the honest accounting of the gap between the theorem's hypothesis and the code's reality. The discipline (backlog A6, C5) is to **report `f` over the corpus and require the bare-boolean trusted base to be non-increasing in CI**: every release may certify more, never less. This is the firewall as a *built and measured* artifact rather than a stated theorem — a number that can be tracked, regressed against, and pointed at. It is the contribution.
 
-`petrivet`'s proposed position is the synthesis of (1) and (2): algorithm-*selection* in form, certificate-*checked* in guarantee, applied to Petri-net model checking, with FastForward as the domain-matched precedent and the existing proof calculus as the trust boundary that lifts FastForward's sound-on-success-for-one-property into sound-for-all-properties. To my knowledge that specific synthesis — a learned portfolio over a *full certifying* model-checking decider lattice — is not yet occupied in the literature.
-
----
-
-## 8. Limitations
-
-- **The precondition is real and currently unmet.** The Theorem covers *certifying* deciders; the bare-boolean shortcuts and the two `Some(false)` stubs are trusted, and one is a latent bug. The trust boundary must be built before the learner can be trusted to schedule those deciders. Until then, the learner should schedule *only* deciders whose results are independently checked, and the trusted computing base is honestly larger than `{chk_P}`.
-- **Non-termination needs deadlines.** Bounded Karp–Miller exploration can run long with no cooperative cancellation today; anytime racing and RL with budgets both require it.
-- **Distribution shift.** A policy trained on the MCC corpus may misjudge out-of-distribution nets — but, by §3, it *misjudges into wasted time, never wrong answers*, degrading gracefully to the exhaustive fallback. This is the benign failure mode the certificate buys.
-- **Feature sufficiency is empirical.** §4 prescribes *which kind* of feature to prefer and gives a mutual-information test, but whether the chosen $\varphi$ is sufficient for hardness on a given corpus is a measured question, not a theorem.
-- **The checker is the trusted computing base — shrink it, then verify it.** Soundness now rests entirely on the certificate checkers. They should be small, audited, and ideally formally verified (the GRAT discipline). This *concentrates* trust rather than eliminating it, which is the honest and the desirable outcome.
+Two further measurements complete the picture, and both are independent of any learner: the **check-pass rate** (every certificate produced in testing must re-validate, or CI fails — backlog C2, reported as a result in G6), and the **map of the checkable frontier** ([the-checkable-frontier.md](the-checkable-frontier.md); backlog C7) — the per-property, per-polarity table of where compact certificates exist (positive reachability as a firing word; LP-refuted unreachability as a one-dot-product Farkas invariant; structural boundedness as a place invariant) and where complexity theory appears to forbid them (general non-free-choice liveness; integer-only infeasibility, whose honest witness is a super-polynomial cutting-plane derivation). The frontier map is where the firewall meets its limits with the same candor it meets its successes.
 
 ---
 
-## 9. The effective theory of hardness
+## 6. "A free variable" — stated exactly, and why deferral is honest
 
-The connection to cellular automata and to Joscha Bach's computational functionalism is technically load-bearing, and can be fenced precisely.
+The slogan in the title is precise and worth stating without ornament. *Soundness is a free variable* means: **the learner is free to be arbitrarily wrong about cost while being structurally incapable of being wrong about truth.** Cost — which decider is fastest on this net, when to abandon a slow solve, which order minimizes expected time — is the variable the learner optimizes, and it may misjudge it badly: a bad ranker can be slower than the hand-ordered cascade. Truth — whether the returned verdict is correct — is held constant by the checker, the same value for every $\pi$. The learner moves the first freely and cannot touch the second.
 
-A Petri net *is* a local-update concurrent substrate: a transition fires using only its preset and postset, touching nothing else. This is not metaphor — asynchronous cellular automata can implement Petri nets (Golze; Priese, 1982) and infinite Petri nets can simulate universal cellular automata such as Rule 110 in polynomial time (Zaitsev, 2015/2018), while markings form the free commutative monoid that makes composition itself algebraic (Meseguer–Montanari, *"Petri Nets Are Monoids,"* 1990). *(The caveat: those universality results need infinite nets; the finite nets the tool checks are decidable-but-intractable — which is exactly the regime where an effective theory is meaningful and a worst-case-free heuristic is the right tool.)* The micro-dynamics of this substrate — its reachability graph — is intractable. Yet the physics of coarse-graining indicates that even a computationally irreducible local-update system can possess a closed, predictive macro-theory *when the macro-variables are autonomous under the dynamics* (Israeli–Goldenfeld's commuting-diagram criterion) and *sufficient for the target* (the causal-states / information-bottleneck criterion). On this reading — offered as interpretation, not theorem — **a learned selection policy is an attempt to discover the effective theory of verification hardness**: a compressible macrostructure over an intractable substrate, with structural decompositions (NUPN units, S-components, P-invariants) as the candidate coarse-grainings, and the policy's feature panel as the candidate autonomous macrostate.
+This is what makes the eventual selection sequel *safe*, and it is what makes deferring that sequel *honest*. The honest lineage of that sequel is **SATzilla / Rice algorithm selection** — a cost-sensitive ranker over structural features, sound by the theorem, no deep learning required — escalating later to a sequential policy and, at the far end, a planner over certified reductions (the rungs of [rung-1-empirical-hardness-ranker.md](rung-1-empirical-hardness-ranker.md), [rung-2-sequential-policy.md](rung-2-sequential-policy.md), [rung-3-certified-reductions.md](rung-3-certified-reductions.md)). It is a *sequel* in the strict sense: it is gated behind the firewall (a mis-selection must cost time, never soundness — backlog D5–D8), and it is justified only by a *measured* gap between the single-best and virtual-best decider on the corpus. If that gap is within noise on a six-arm portfolio, the hand-ordered cascade is the honest answer and the learner is dead weight. Because the firewall makes the verdict sound regardless, we can *afford* to wait for the measurement rather than build on a hope — the certifying spine is what makes the deferral free of risk. An earlier draft inverted this, casting the learner as the destination and the firewall as a supporting lemma. The corrected order: the firewall is the contribution, the coverage fraction is the headline, and the learner is the safe, deferrable sequel.
 
-This is where Bach's one defensible, borrowable move lives — *objects and agents as coarse-grained aggregate descriptions of a finer computational substrate* ("you only look at the aggregate dynamics … the operators that work in the limit"). We borrow that and set aside the rest of his metaphysics ("only a simulation can be conscious," "the universe is all finite automata") as labeled speculation, not science. And it dovetails with the companion essay's capstone: the integrated-information residual $\Phi_{\mathrm{PN}}$ — the minimum over partitions of how badly the net fails to factor into independent components — is *exactly the quantity that resists this coarse-graining program*, the irreducible remainder the effective theory cannot compress. We import that strictly as the factorization-residual mathematics, and emphatically not as any claim about minds.
+One framing the earlier draft leaned on is retired here as a load-bearing argument: the AlphaGo / MuZero analogy. It is a real and instructive contrast — Go's leaves are *estimated*, so a wrong value network costs the game, whereas `petrivet`'s leaves are *checked*, so a wrong policy costs milliseconds — but the contrast makes `petrivet`'s problem *easier and different*, not grander. It is kept as one clarifying sentence, not as a thesis. Likewise the effective-theory and cellular-automata material — coarse-graining an intractable substrate into a predictive macro-theory — is genuinely interesting as a *feature-design heuristic* (prefer structural macro-features whose mutual information with hardness is high at low description length; backlog X4) but it is **labelled speculation, never a soundness argument**. The firewall stands on the checker alone.
 
-So the picture closes on itself. The policy learns what *can* be coarse-grained — the macro-structure of hardness that lets cheap techniques be routed to easy instances. $\Phi_{\mathrm{PN}}$ measures what *cannot* — the integrated, irreducible core that no decomposition recovers and no policy can shortcut, the instances where one must pay the exhaustive price. One learns the effective theory; the other measures its residual. And underwriting both, holding the entire learned apparatus safely outside the trusted computing base, is the single structural fact that a verdict here is never a guess but a proof — that in this tool, unlike in Go, every leaf can be checked.
+---
 
-![The certifying portfolio loop with its trust boundary: the learned policy schedules, only a checked certificate is accepted.](figures/certifying-portfolio.svg)
+## 7. The one place the firewall must be proven, not assumed
+
+There is a single point in the construction where the firewall is not free, and intellectual honesty requires naming it. It is **certified reductions** ([rung-3-certified-reductions.md](rung-3-certified-reductions.md); backlog Epic F).
+
+A reduction is a property-preserving transformation carrying an applicability witness and a `lift` that maps a certificate on the *residual* net back to the *original*. The firewall's promise is that even a buggy `lift` cannot break soundness, because the lifted certificate is re-checked against the original net: a wrong lift produces a certificate the original-net checker rejects, the search backtracks, and the cost is time, not correctness. That argument is clean — *for existential witnesses.* A firing sequence either fires on the original net or it does not; the checker replays it and the bug is caught.
+
+It is **not** automatically clean for **compositional or invariant** lifts. A buggy interface correction could, in principle, produce a *too-weak* certificate that the checker accepts — the witness checks out, but it witnesses less than the property requires. There the robustness property is no longer a corollary of "re-check against the original net"; it becomes a per-certificate-kind **checker-completeness obligation** that must be *proven*, not assumed. The disciplined response (backlog F1): restrict the *trusted* reduction lifts to existential witnesses until the compositional checker-completeness obligation is discharged for each compositional certificate kind. This is the one open theoretical liability in an otherwise free firewall, and it is recorded as such rather than papered over. The boundary between what the checker buys for free and what it does not is mapped in [the-checkable-frontier.md](the-checkable-frontier.md).
+
+---
+
+## 8. What this essay commits to, and what it hands off
+
+The reconciled position, stated as plainly as the mathematics allows:
+
+- The soundness theorem is true and nearly trivial — a corollary of certifying algorithms composed with algorithm selection. Its value is not as a result but as a *signpost* to its precondition.
+- The precondition — every fast decider is certifying — is **violated today** in the two `Some(false)` stubs ([`api/net/mod.rs:270`](../../petrivet/src/api/net/mod.rs); [`liveness.rs:107`](../../petrivet/src/api/system/liveness.rs)). Demoting them to honest abstention (backlog A2) is the near-term first move and the precondition of everything downstream.
+- The contribution is the **firewall built and measured**: the trusted base reduced to the certificate *checker* (the GRAT discipline), with the certifying fraction `f` reported and held non-increasing in CI, and the checkable frontier mapped.
+- "Soundness is a free variable" means the learner is free to be wrong about cost while structurally unable to be wrong about truth. This makes the [selection sequel](rung-1-empirical-hardness-ranker.md) safe and makes deferring it honest.
+- The one place the firewall must be *proven* rather than assumed is the compositional `lift` ([rung-3-certified-reductions.md](rung-3-certified-reductions.md)); existential lifts are sound for free, compositional ones carry an open obligation.
+
+The empirical headline — the structural-coverage fraction `f_struct` and its honest-abstention boundary — is the companion claim, carried in [the-coverage-claim.md](the-coverage-claim.md). The factorization residual that measures what *cannot* be coarse-grained is developed, strictly as mathematics and emphatically not as any claim about minds, in [the-factorization-residual.md](the-factorization-residual.md). The components this design presupposes, dependency-sequenced, are in [foundations/foundational-design.md](../foundations/foundational-design.md) and [foundations/foundations-backlog.md](../foundations/foundations-backlog.md); the condensed statement of the organizing principles is in [core-principles.md](core-principles.md), and the architectural reading that surfaced them in [latent-architecture.md](latent-architecture.md).
+
+The single fact under all of it, the one that holds the whole apparatus safely outside the trusted base: a verdict here is never a guess but a proof — and unlike in Go, every leaf can be checked. The theorem that says so is free. Earning its hypothesis, and measuring how much of it the code has earned, is the work.
+
+![The certifying portfolio loop with its trust boundary: any policy may schedule the deciders; only a verdict whose certificate the checker accepts is returned, and the certifying fraction f is the share of accepted verdicts that reach that checked state.](figures/certifying-portfolio.svg)
 
 ---
 
 ### References (curated, verified)
 
-- Silver et al. *Mastering the game of Go with deep neural networks and tree search.* Nature 529 (2016); *…without human knowledge.* Nature 550 (2017); *A general RL algorithm…* Science 362 (2018). Schrittwieser et al. *Mastering Atari, Go, chess and shogi by planning with a learned model* (MuZero). Nature 588 (2020).
-- Rice. *The Algorithm Selection Problem.* Adv. Computers 15 (1976). Xu, Hutter, Hoos, Leyton-Brown. *SATzilla.* JAIR 32 (2008). Kotthoff. *Algorithm Selection… A Survey* (2014). Kurin et al. *Graph-Q-SAT* (NeurIPS 2020).
-- Blondin, Haase, Offtermatt. *Directed Reachability for Infinite-State Systems* (FastForward). TACAS 2021. Giacobbe et al. *Neural Model Checking.* NeurIPS 2024. Si et al. *Code2Inv.* NeurIPS 2018. Lample et al. *HyperTree Proof Search.* NeurIPS 2022. DeepMind. *AlphaProof* (Nature 2025).
 - McConnell, Mehlhorn, Näher, Schweitzer. *Certifying algorithms.* Computer Science Review 5(2) (2011). Lammich. *Efficient Verified (UN)SAT Certificate Checking* (GRAT). CADE 2017 / JAR 2019.
-- Israeli, Goldenfeld. *Computational irreducibility and the predictability of complex physical systems.* PRL 92 (2004). Shalizi, Crutchfield. *Computational Mechanics.* J. Stat. Phys. 104 (2001). Tishby, Pereira, Bialek. *The Information Bottleneck Method* (1999).
-- Zaitsev. *Universality in Infinite Petri Nets.* LNCS 9288 (2015); *Simulating Cellular Automata by Infinite Petri Nets.* J. Cellular Automata 13 (2018). Meseguer, Montanari. *Petri Nets Are Monoids.* Inf. & Comput. 88(2) (1990). Wu. *Accelerating Self-Play Learning in Go* (KataGo). arXiv:1902.10565. Jang. *autogo*; Dwarkesh Podcast, 15 May 2026.
+- Rice. *The Algorithm Selection Problem.* Advances in Computers 15 (1976). Xu, Hutter, Hoos, Leyton-Brown. *SATzilla.* JAIR 32 (2008). Kotthoff. *Algorithm Selection for Combinatorial Search Problems: A Survey* (2014).
+- Blondin, Haase, Offtermatt. *Directed Reachability for Infinite-State Systems* (FastForward). TACAS 2021 — the domain-matched precedent: an LP/continuous over-approximation as a sound-on-success distance oracle for Petri reachability, the witnessing firing sequence self-certifying.
+- Si et al. *Code2Inv.* NeurIPS 2018; Giacobbe et al. *Neural Model Checking.* NeurIPS 2024 — learner-proposes / checker-disposes, soundness from the SMT checker. DeepMind. *AlphaProof* (Nature 2025) — every output gated by the Lean kernel.
+- Leroux, Schmitz; Czerwiński, Orlikowski — the reachability complexity frontier (Ackermann-complete unbounded; EXPSPACE-hard where decidable), the worst case no policy removes.
+- Silver et al. *Mastering the game of Go…* Nature 529 (2016), 550 (2017); Science 362 (2018). Schrittwieser et al. *…planning with a learned model* (MuZero). Nature 588 (2020) — retained only as the clarifying contrast (estimated leaves vs. checked leaves), not as a design justification.
 
-*A factual note carried from the research: the Jang figure is "a few thousand dollars" (per the episode transcript), not "a few hundred"; `autogo` is an admittedly-imperfect from-scratch Go agent, not a verified superhuman engine. The robust load-bearing fact is KataGo's 40× training-compute reduction (Wu, 2019). The underlying insight — ML collapsing an intractable search into statistical answerability — is correct and well-grounded.*
+*A note on register, carried from the inversion: where an earlier draft reached for the AlphaGo framing and the effective-theory metaphysics as organizing arguments, this rewrite keeps them as, respectively, one clarifying contrast and one labelled feature-design heuristic. The load-bearing claims here name their falsifiers — the two stubs (a regression test), the fraction `f` (a CI gate), the compositional-lift obligation (a checker-completeness proof) — and rest on the checker alone.*

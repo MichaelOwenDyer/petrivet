@@ -1,5 +1,15 @@
 # Self-Measurement Harness — Rung 1 Implementation Plan
 
+> **Alignment note (2026-06-19) — this harness is the experimental rig for the headline numbers.**
+>
+> Under the ratified inversion ([`docs/essays/README.md`](essays/README.md)), this plan is no longer only the substrate for a future learned ranker — it is the **experimental rig that produces the thesis's headline measurements**. Concretely it yields:
+> - **`f`** — the *certifying fraction*: the share of accepted verdicts that carry a checked certificate (the figure of merit for the soundness firewall).
+> - **`f_struct`** — the *structural-coverage* number: the fraction of **queries decided** by the polynomial structural tier without state-space exploration, reported **two-denominator** (in-scope; and all-MCC counting out-of-scope as abstain) and evaluated **family-held-out**. This is the falsifiable headline claim.
+>
+> The **always-on soundness sentinel** (§6) is the live regression guard for the two `Some(false)` stubs (the near-term north star): every `Decided` row with a known oracle must agree, so a trusted-but-wrong verdict fails the build the moment it appears.
+>
+> This rig is tracked in the authoritative backlog as **epic G** — specifically **G4** (promote the harness to the rig; family-held-out, two-denominator protocol) and **G4a** (the structural-coverage *floor*, runnable now, before any new generators land) — sitting on the measurement substrate of **D2/D3** (the `petrivet-observe` crate, the corpus driver, and the soundness sentinel). The body below is the implementation plan and is unchanged.
+
 Status: draft / proposal
 Scope: a new, separable observability domain that turns `petrivet`'s analysis portfolio into a **differential fitness producer** — usable today as a self-measurement / regression-fitness harness, and later as the training-data substrate for learned algorithm selection (Rung 2+).
 Author lane: this is an *additive tooling* contribution (Daniel). It deliberately does **not** modify analysis algorithms or introduce a model; core algorithm work remains Michael's. Where a minimal core seam is proposed, it is flagged explicitly as a decision for Michael, and Phase 1 needs **no core change at all**.
