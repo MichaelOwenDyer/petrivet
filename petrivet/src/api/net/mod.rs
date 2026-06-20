@@ -259,10 +259,27 @@ impl Net {
     }
 
     /// Returns whether every place in this net belongs to an S-component.
+    ///
+    /// Returns `None` while S-component decomposition is unimplemented: the
+    /// honest answer is "cannot yet decide", **never** a fabricated `false`.
+    ///
+    /// # A2 — soundness north star
+    ///
+    /// This method previously returned a hardcoded `false`. That `false` was
+    /// consumed for live free-choice nets at [`PetriNet::is_efficiently_bounded`]
+    /// (boundedness.rs) and reported as an *unboundedness* verdict carrying no
+    /// evidence — a trusted-but-wrong answer enlarging the trusted base. A
+    /// decider that cannot certify must escalate (`None`), not invent a verdict
+    /// (doctrine #2, soundness before capability). The certifying replacement —
+    /// S-component decomposition emitting an `SComponentCover` certificate — is
+    /// backlog B2/B3 (M6/M8); this method becomes `Some(true)`-with-witness /
+    /// `Some(false)`-with-witness / `None` once that lands. Rationale:
+    /// foundational-design §3 (trust architecture), §F3″.
     #[must_use]
-    pub fn is_covered_by_s_components(&self) -> bool {
-        // todo
-        false
+    pub const fn is_covered_by_s_components(&self) -> Option<bool> {
+        // B2/B3 (M6/M8): replace with a checked S-component decomposition.
+        // Until then we abstain rather than fabricate a verdict.
+        None
     }
 
     /// Returns true if the given marking enables no transitions in this net

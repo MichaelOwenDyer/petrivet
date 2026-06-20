@@ -1,4 +1,4 @@
-use crate::core::analysis::semi_decision;
+use crate::core::analysis::exact_matrix::{self, CoveringInvariantExact};
 use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::marking::Marking;
 use crate::net::{Net, Transition};
@@ -116,21 +116,31 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }.into();
         }
 
-        if semi_decision::find_covering_equation_rational_solution(
+        // M3 — the negative `Uncoverable` verdict must rest on an EXACT
+        // certificate, not on the `f64` microlp covering LP merely failing to find
+        // a (rational or integer) solution. A spurious floating "infeasible" at a
+        // degenerate vertex would be a silent false `Uncoverable` the firewall
+        // cannot catch (there is no positive object to check on the negative path)
+        // — the same B1a hole the reachability arm closed, now closed for
+        // coverability. The exact guard `covering_invariant_exact` re-derives a
+        // *sufficient* uncoverability certificate over ℚ — a non-negative place
+        // sub-invariant `y` with `yᵀ·C ≤ 0` and `yᵀ·target > yᵀ·M₀`. On anything it
+        // cannot certify exactly (NotCertified / Overflowed) we escalate to the
+        // exact, always-terminating Karp–Miller coverability graph rather than
+        // fabricating a verdict from f64. (The f64 covering LP is no longer on the
+        // verdict path at all — it may suggest, never decide.)
+        match exact_matrix::covering_invariant_exact(
             &self.dense_net,
             &self.marking,
-            &target_idx_marking
-        ).is_none() {
-            return NonCoverabilityProof::MarkingEquationNoRationalSolution.into();
-        }
-
-        // todo: only test ILP if the rational solution is not already an integer solution
-        if semi_decision::find_covering_equation_integer_solution(
-            &self.dense_net,
-            &self.marking,
-            &target_idx_marking
-        ).is_none() {
-            return NonCoverabilityProof::MarkingEquationNoIntegerSolution.into();
+            &target_idx_marking,
+        ) {
+            // Exactly confirmed uncoverable by a non-negative place sub-invariant.
+            CoveringInvariantExact::Uncoverable { .. } => {
+                return NonCoverabilityProof::MarkingEquationNoRationalSolution.into();
+            }
+            // Not exactly certified — do NOT fabricate `Uncoverable`; decide by the
+            // exact coverability graph below.
+            CoveringInvariantExact::NotCertified | CoveringInvariantExact::Overflowed => {}
         }
 
         // todo: backwards coverability
@@ -217,5 +227,89 @@ mod tests {
             }
             _ => panic!("expected coverability-graph proof"),
         }
+    }
+
+    /// M3 — the negative `Uncoverable` verdict now rests on an EXACT place
+    /// sub-invariant, not on the `f64` covering LP failing. This pins the
+    /// falsifying invariant (the coverability analogue of the reachability B1a
+    /// falsifier): a target that IS coverable must NEVER be reported `Uncoverable`,
+    /// even at a degenerate vertex where the f64 simplex is prone to a spurious
+    /// "infeasible". An unbounded producer can cover any threshold on its pumped
+    /// place; the exact guard must not certify uncoverability, and the verdict must
+    /// be `Coverable` (decided exactly by the coverability graph).
+    #[test]
+    fn m3_coverable_target_never_reported_uncoverable() {
+        // Unbounded producer pumping p1; p0 conserved at 1.
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p0));
+        b.add_arc((t0, p1));
+        let net = b.build().unwrap();
+        let sys = PetriNet::new(net, [(p0, 1)]);
+        // {p1:5} is coverable (pump t0 five times). Must not be `Uncoverable`.
+        let res = sys.analyze_coverability([(p1, 5)].into());
+        assert!(
+            !res.is_uncoverable(),
+            "M3: a coverable target must never be reported Uncoverable (got {res:?})"
+        );
+        assert!(res.is_coverable(), "the pumped target is in fact coverable");
+    }
+
+    /// ADVERSARIAL (exact lens, post-repair-1) — a near-boundary / degenerate
+    /// coverable target must never be reported `Uncoverable` by a spurious f64
+    /// "infeasible". This is the coverability twin of the reachability B1a
+    /// falsifier built on a deliberately ill-conditioned net: several near-parallel
+    /// place-conservation constraints meeting at a degenerate vertex, plus an
+    /// unbounded pump so the target is genuinely coverable. The public verdict must
+    /// agree with the exhaustive oracle (the Karp–Miller coverability graph), which
+    /// is exact and always terminating. Since M3, `is_coverable` decides via the
+    /// exact `covering_invariant_exact` guard then the coverability graph — no f64
+    /// on the verdict path — so a spurious float infeasibility can never appear.
+    #[test]
+    fn adversarial_degenerate_coverable_target_not_reported_uncoverable() {
+        // p3 is fed by two distinct transitions (degeneracy) and a pump grows pX
+        // without bound, so any threshold on pX is coverable.
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2, p3, px] = b.add_places();
+        let [t0, t1, t2, t3, pump] = b.add_transitions();
+        b.add_arc((p0, t0)); b.add_arc((t0, p1));
+        b.add_arc((p1, t1)); b.add_arc((t1, p2)); b.add_arc((t1, p3));
+        b.add_arc((p2, t2)); b.add_arc((t2, p3));   // second producer of p3
+        b.add_arc((p3, t3)); b.add_arc((t3, p0));
+        // pump: p0 -> p0, px  (always re-enabled while p0 holds a token → unbounded px)
+        b.add_arc((p0, pump)); b.add_arc((pump, p0)); b.add_arc((pump, px));
+        let net = b.build().expect("valid net");
+        let sys = PetriNet::new(net, [(p0, 1)]);
+        // {px:7} is coverable (pump seven times). It must not be Uncoverable, and
+        // the public verdict must match the oracle.
+        let res = sys.analyze_coverability([(px, 7)].into());
+        assert!(
+            !res.is_uncoverable(),
+            "exact lens: a coverable target at a degenerate vertex must never be \
+             reported Uncoverable (got {res:?})"
+        );
+        assert!(sys.is_coverable([(px, 7)].into()), "px is pumped without bound");
+    }
+
+    /// M3 — the exact guard genuinely certifies uncoverability where a sound
+    /// place sub-invariant exists (so capability is preserved, not just soundness).
+    /// A two-place conservative cycle (P-semiflow `(1,1)`) cannot cover any target
+    /// whose weighted sum exceeds the conserved token count.
+    #[test]
+    fn m3_exact_guard_certifies_uncoverable_via_subinvariant() {
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arcs((p0, t0, p1, t1, p0));
+        let net = b.build().unwrap();
+        let sys = PetriNet::new(net, [(p0, 1)]);
+        // {p0:1, p1:1} needs weighted sum 2 > 1 conserved: exactly uncoverable.
+        let res = sys.analyze_coverability([(p0, 1), (p1, 1)].into());
+        assert!(matches!(
+            res,
+            CoverabilityResult::Uncoverable(NonCoverabilityProof::MarkingEquationNoRationalSolution)
+        ));
     }
 }

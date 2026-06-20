@@ -405,7 +405,13 @@
 
 // These imports exist only to make intra-doc links shorter/readable.
 // They are compiled only under rustdoc.
+//
+// `CommonerHackCriterionResult` is now re-exported from the consolidated
+// `crate::model` surface (M1). The previously-referenced `SNetLivenessEvidence`
+// and `TNetLivenessEvidence` were never defined in code — they were a blueprint
+// link to per-class liveness evidence types that the certificate calculus (M2)
+// will introduce — so they are dropped here rather than left dangling.
 #[cfg(doc)]
-use crate::model::{CommonerHackCriterionResult, SNetLivenessEvidence, TNetLivenessEvidence};
+use crate::model::CommonerHackCriterionResult;
 #[cfg(doc)]
 use crate::core::analysis::semi_decision;

@@ -90,13 +90,25 @@ fn main() {
     // 3 raw boards, 1 station slot, everything else empty
     let sys = PetriNet::new(&net, [(raw, 3), (station, 1)]);
     let boundedness = sys.analyze_boundedness();
-    let liveness = sys.liveness();
 
     println!("Bounded: {:?}", boundedness.global_bound());
-    println!("Live (every transition always eventually firable): {}", liveness.global_level().is_live());
 
-    for t in &transitions {
-        println!("Transition {:?} liveness: {}", t, liveness.level(*t));
+    // Use the abstaining accessor: liveness is undecided for an unbounded net
+    // (the reachability graph does not terminate), and `try_liveness` returns
+    // `None` rather than panicking. No shipped code path should panic on an
+    // undecidable net (the infallible `liveness()` is for callers that have
+    // already established decidability).
+    match sys.try_liveness() {
+        Some(liveness) => {
+            println!(
+                "Live (every transition always eventually firable): {}",
+                liveness.global_level().is_live()
+            );
+            for t in &transitions {
+                println!("Transition {:?} liveness: {}", t, liveness.level(*t));
+            }
+        }
+        None => println!("Live: undecided (net is not bounded; liveness graph does not terminate)"),
     }
 
     println!("\n--- Reachability Analysis ---\n");

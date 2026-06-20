@@ -64,8 +64,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn is_efficiently_live(&self) -> Option<bool> {
         match self.class() {
-            NetClass::Circuit => Some(self.marking.sum() > 0),
-            NetClass::StateMachine => Some(self.is_strongly_connected() && self.marking.sum() > 0),
+            // `wide_sum() > 0`, not `sum() > 0`: a `u32` wrap that lands on exactly
+            // 0 (a marked total that is a multiple of 2^32) would mint a false
+            // `Some(false)` — a live net reported dead, a fabricated negative.
+            NetClass::Circuit => Some(self.marking.wide_sum() > 0),
+            NetClass::StateMachine => {
+                Some(self.is_strongly_connected() && self.marking.wide_sum() > 0)
+            }
             NetClass::MarkedGraph => Some(!self.has_unmarked_circuit()),
             NetClass::FreeChoice => Some(self.commoner_hack_criterion().is_ok()),
             _ => None,
@@ -73,16 +78,27 @@ impl<N: AsRef<Net>> PetriNet<N> {
     }
 
     /// Returns true if the Petri net is [`live`](LivenessLevel::L4).
+    ///
+    /// When liveness cannot be decided (an unbounded net, where the reachability
+    /// graph does not terminate), this returns `false` — a *convenience*
+    /// collapse of the honest three-valued answer. Callers who must distinguish
+    /// "provably non-live" from "could not decide" should use
+    /// [`try_liveness`](Self::try_liveness), which abstains with `None` rather
+    /// than fabricating a verdict. (A5: the type-distinct inconclusive case is
+    /// completed by the M1 `Verdict` type; this method preserves the boolean
+    /// contract while no longer resting on a fabricated all-L0 analysis.)
     #[must_use]
     pub fn is_live(&self) -> bool {
         self.is_efficiently_live().unwrap_or_else(|| {
-            self.liveness().is_live()
+            self.try_liveness().is_some_and(|analysis| analysis.is_live())
         })
     }
 
     pub fn efficient_liveness(&self) -> Option<LivenessAnalysis> {
         let levels = match self.class() {
-            NetClass::Circuit | NetClass::StateMachine if self.marking.sum() == 0 => {
+            // `wide_sum() == 0`, not `sum() == 0`: a `u32` wrap to exactly 0 on a
+            // marked net would falsely declare every transition dead (all-L0).
+            NetClass::Circuit | NetClass::StateMachine if self.marking.wide_sum() == 0 => {
                 Some(self.transitions().map(|t| (t, LivenessLevel::L0)).collect())
             }
             NetClass::Circuit => {
@@ -108,25 +124,51 @@ impl<N: AsRef<Net>> PetriNet<N> {
         levels.map(|levels| LivenessAnalysis { levels })
     }
 
+    /// Analyses liveness, dispatching to the cheapest known procedure first,
+    /// abstaining (`None`) when liveness cannot be decided.
+    ///
+    /// `None` means "could not decide" — distinct from a per-transition `L0`
+    /// ("provably dead"). This is the honest three-valued answer the A5 defect
+    /// removed: the unbounded-net fallback no longer fabricates an all-L0
+    /// analysis (which made "unknown" indistinguishable from "dead"). An
+    /// unbounded net, where the reachability graph does not terminate, returns
+    /// `None`. The full type-distinct verdict (`Verdict<LivenessAnalysis, …>`)
+    /// is the M1 `model` contract (A1); this method supplies the abstaining
+    /// boundary M0 requires. Rationale: foundational-design §F3 (the L0 repair),
+    /// BACKLOG A5.
+    #[must_use]
+    pub fn try_liveness(&self) -> Option<LivenessAnalysis> {
+        self.efficient_liveness()
+            .map_or_else(|| self.liveness_via_reachability_graph(), Some)
+    }
+
     /// Analyses liveness, dispatching to the cheapest known procedure first.
+    ///
+    /// # Panics
+    ///
+    /// Panics if liveness cannot be decided (an unbounded net). Prefer
+    /// [`try_liveness`](Self::try_liveness), which abstains honestly with `None`
+    /// instead of fabricating a verdict. This method is retained for callers
+    /// that have already established decidability (e.g. a bounded net).
     #[must_use]
     pub fn liveness(&self) -> LivenessAnalysis {
-        self.efficient_liveness().unwrap_or_else(|| self.liveness_via_reachability_graph())
+        self.try_liveness()
+            .expect("liveness() called on a net whose liveness cannot be decided; use try_liveness()")
     }
 
     /// SCC analysis on the full reachability graph. Only called as a fallback
-    /// from [`liveness`](Self::liveness) for net classes without an efficient procedure.
+    /// from [`try_liveness`](Self::try_liveness) for net classes without an
+    /// efficient procedure.
+    ///
+    /// Returns `None` when the reachability graph cannot be built (the net is
+    /// unbounded): liveness is then undecided by this engine. A5 — this arm
+    /// previously fabricated an all-`L0` analysis, conflating "unknown" with
+    /// "provably dead"; it now abstains instead.
     #[must_use]
-    fn liveness_via_reachability_graph(&self) -> LivenessAnalysis {
-        self.try_build_reachability_graph().map_or_else(
-            |_| {
-                // todo: liveness of unbounded systems
-                LivenessAnalysis {
-                    levels: self.transitions().map(|t| (t, LivenessLevel::L0)).collect(),
-                }
-            },
-            |rg| rg.transition_liveness()
-        )
+    fn liveness_via_reachability_graph(&self) -> Option<LivenessAnalysis> {
+        self.try_build_reachability_graph()
+            .ok()
+            .map(|rg| rg.transition_liveness())
     }
 }
 
@@ -296,6 +338,107 @@ mod tests {
         assert!(sys.is_live());
     }
 
+    /// Verdict-path overflow (the fabricated-negative direction): a Circuit is
+    /// live iff it is marked (`total tokens > 0`). Testing that with a `u32` sum
+    /// *wraps* in release, and a marked total that is a multiple of `2^32` wraps
+    /// to exactly 0 — falsely reporting the live net as dead (`Some(false)`). The
+    /// widened `u64` sum closes it.
+    ///
+    /// Construction: total tokens `= 2^32 = 4_294_967_296` (`4e9 + 294_967_296`),
+    /// which `u32` sums to 0. The net is plainly marked, hence live.
+    #[test]
+    fn marked_total_at_two_to_the_32_is_still_live() {
+        let (net, q0, _u0, q1, _u1) = crate::api::system::tests::two_place_cycle();
+        assert_eq!(net.class(), NetClass::Circuit);
+        // total = 2^32: u32 sum wraps to 0; the net is plainly marked, hence live.
+        let sys = net.with_initial_marking([(q0, 4_000_000_000_u32), (q1, 294_967_296_u32)]);
+        assert_eq!(
+            sys.is_efficiently_live(),
+            Some(true),
+            "a marked circuit whose total is a multiple of 2^32 must not be \
+             reported dead by a u32 sum wrapping to 0"
+        );
+        assert!(sys.is_live());
+    }
+
+    /// A5 regression: a net whose liveness cannot be decided (an unbounded net,
+    /// where the reachability graph does not terminate) must ABSTAIN, not
+    /// fabricate an all-`L0` ("provably dead") analysis. Before A5,
+    /// `liveness_via_reachability_graph` assigned every transition `L0` when the
+    /// reachability graph could not be built, making "unknown" indistinguishable
+    /// from "dead" (and, for a transition that fires infinitely often, an
+    /// outright wrong negative). The honest answer is `try_liveness() == None`.
+    ///
+    /// Net: a *general* (non-free-choice) unbounded net so that liveness has no
+    /// efficient structural shortcut and must fall to the reachability-graph
+    /// fallback, which cannot terminate. `p0` feeds both `t0` and `t1` with
+    /// differing presets (so it is not free-choice → General); `t0` returns a
+    /// token to `p0` and also pumps `p1` without bound. Built with explicit
+    /// `add_arc`.
+    #[test]
+    fn a5_unbounded_net_liveness_abstains_not_l0() {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        // t0: {p0} -> {p0, p1}  (pumps p1 → unbounded)
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p0));
+        b.add_arc((t0, p1));
+        // t1: {p0, p2} -> {p2}  (shares p0 with t0 but with a different preset
+        // → not free-choice → General class, so no efficient liveness path)
+        b.add_arc((p0, t1));
+        b.add_arc((p2, t1));
+        b.add_arc((t1, p2));
+        let net = b.build().expect("valid net");
+        // Asymmetric-choice (p0 feeds t0 and t1 with differing presets): no
+        // efficient liveness procedure, so dispatch falls to the RG fallback.
+        assert_eq!(net.class(), NetClass::AsymmetricChoice);
+        let sys = PetriNet::new(net, [(p0, 1), (p2, 1)]);
+
+        // No efficient liveness procedure for this class.
+        assert!(sys.is_efficiently_live().is_none(), "no efficient liveness path");
+        // This net is genuinely unbounded: the reachability graph does not
+        // terminate, so liveness is undecided by this engine.
+        assert!(sys.try_build_reachability_graph().is_err(), "net must be unbounded");
+
+        // The honest answer is abstention, NOT a fabricated all-L0 analysis.
+        assert!(
+            sys.try_liveness().is_none(),
+            "A5: undecidable liveness must abstain (None), never fabricate L0"
+        );
+    }
+
+    /// A2 sentinel (the soundness north star). A live marked graph — strongly
+    /// connected with every circuit marked — must never be reported non-live.
+    /// The marked-graph efficient-liveness arm (`is_efficiently_live`,
+    /// `Some(!self.has_unmarked_circuit())`) is a real computation, not the old
+    /// `Some(false)` stub; this sentinel guards against any regression to a
+    /// fabricated non-live verdict on the efficient path. Built with explicit
+    /// `add_arc` calls (not the `add_arcs` tuple chain).
+    #[test]
+    fn a2_live_marked_graph_not_reported_non_live() {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        // Two parallel paths between t0 and t1 forming a marked graph with two
+        // circuits: t0 -> p0 -> t1 -> p1 -> t0 and t0 -> p2 -> t1.
+        b.add_arc((t0, p0)); b.add_arc((p0, t1));
+        b.add_arc((t1, p1)); b.add_arc((p1, t0));
+        b.add_arc((t0, p2)); b.add_arc((p2, t1));
+        let net = b.build().expect("valid net");
+        assert_eq!(net.class(), NetClass::MarkedGraph);
+        // Mark both circuits so the net is live.
+        let sys = PetriNet::new(net, [(p1, 1), (p2, 1)]);
+        // The efficient path must report live (Some(true)), never a fabricated
+        // Some(false).
+        assert_eq!(
+            sys.is_efficiently_live(),
+            Some(true),
+            "A2: a live marked graph must not be reported non-live on the efficient path"
+        );
+        assert!(sys.is_live(), "the marked graph with every circuit marked is live");
+    }
+
     #[test]
     fn mutex_is_live_and_bounded() {
         let mut b = NetBuilder::new();
@@ -453,9 +596,45 @@ mod tests {
     }
 
     /// Non-SC T-net with source transition: source always L4, downstream L4
-    /// if all circuits are marked.
+    /// when all circuits are marked.
+    ///
+    /// The circuit `t0 -> p0 -> t1 -> p1 -> t0` is marked (a token on `p0`), so by
+    /// the marked-graph liveness theorem (a marked graph is live iff every directed
+    /// circuit holds a token) every transition on it is live; the source `t_src`
+    /// (empty preset) is always enabled, hence L4. The original fixture left the
+    /// circuit *unmarked* yet asserted L4 for `t0`/`t1`, which contradicts both the
+    /// theorem and the test's own "if all circuits are marked" precondition; it had
+    /// been masked by the scrambled-`Net::graph` bug fixed in `NetBuilder::build`
+    /// (see `builder::tests::petgraph_mirror_agrees_with_dense_adjacency`) which
+    /// corrupted `circuits()` and so the marked-graph liveness pass. M0 repair:
+    /// foundational-design §F3.
     #[test]
     fn t_net_source_transition_l4() {
+        let mut b = NetBuilder::new();
+        let [p_src, p0, p1] = b.add_places();
+        let [t_src, t0, t1] = b.add_transitions();
+        b.add_arcs((t_src, p_src, t0));
+        b.add_arcs((t0, p0, t1, p1, t0));
+        let net = b.build().unwrap();
+        assert_eq!(net.class(), NetClass::MarkedGraph);
+
+        // A token on the circuit (p0) marks the single circuit, so all of t0/t1 are
+        // live; t_src is a source and always L4.
+        let sys = PetriNet::new(net, [(p0, 1)]);
+        let analysis = sys.liveness();
+        assert_eq!(analysis.level(t_src), LivenessLevel::L4);
+        assert_eq!(analysis.level(t0), LivenessLevel::L4);
+        assert_eq!(analysis.level(t1), LivenessLevel::L4);
+    }
+
+    /// Companion to `t_net_source_transition_l4`: the *unmarked*-circuit case the
+    /// original (buggy) fixture conflated with the marked case. With the circuit
+    /// `t0 -> p0 -> t1 -> p1 -> t0` carrying no token, neither circuit transition
+    /// can ever fire (the source `t_src` only feeds `p_src`, off the circuit), so
+    /// `t0`/`t1` are dead (L0) while the source `t_src` stays L4. This pins the
+    /// honest marked-graph semantics that the graph fix restored.
+    #[test]
+    fn t_net_source_transition_unmarked_circuit_dead() {
         let mut b = NetBuilder::new();
         let [p_src, p0, p1] = b.add_places();
         let [t_src, t0, t1] = b.add_transitions();
@@ -467,8 +646,8 @@ mod tests {
         let sys = PetriNet::new(net, []);
         let analysis = sys.liveness();
         assert_eq!(analysis.level(t_src), LivenessLevel::L4);
-        assert_eq!(analysis.level(t0), LivenessLevel::L4);
-        assert_eq!(analysis.level(t1), LivenessLevel::L4);
+        assert_eq!(analysis.level(t0), LivenessLevel::L0);
+        assert_eq!(analysis.level(t1), LivenessLevel::L0);
     }
 
     /// Non-SC T-net: predecessor SCC dead → downstream dead.

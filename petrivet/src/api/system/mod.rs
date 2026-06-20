@@ -8,7 +8,7 @@
 //!
 //! ```
 //! use petrivet::builder::NetBuilder;
-//! use petrivet::net::system::PetriNet;
+//! use petrivet::system::PetriNet;
 //!
 //! // Build a simple producer-consumer net
 //! let mut b = NetBuilder::new();
@@ -17,15 +17,15 @@
 //! b.add_arcs((idle, start, busy, finish, idle));
 //! let net = b.build().expect("valid net");
 //!
-//! let mut sys = PetriNet::new(&net, [(idle, 1)].into());
+//! let mut sys = PetriNet::new(&net, [(idle, 1)]);
 //!
 //! // Simulation
 //! assert!(sys.is_enabled(start));
 //! sys.fire_unchecked(start);
-//! assert_eq!(sys.current_marking(), [(busy, 1)].into());
+//! assert_eq!(sys.marking(), [(busy, 1)].into());
 //!
 //! // Behavioral analysis
-//! let sys = PetriNet::new(&net, [(idle, 1)].into());
+//! let sys = PetriNet::new(&net, [(idle, 1)]);
 //! assert!(sys.is_bounded());
 //! assert!(sys.is_live());
 //! ```
@@ -36,19 +36,22 @@
 //!
 //! ```
 //! # use petrivet::builder::NetBuilder;
-//! # use petrivet::net::system::PetriNet;
+//! # use petrivet::system::PetriNet;
 //! # let mut b = NetBuilder::new();
 //! # let [p0, p1] = b.add_places();
 //! # let [t0, t1] = b.add_transitions();
 //! # b.add_arc((p0, t0)); b.add_arc((t0, p1));
 //! # b.add_arc((p1, t1)); b.add_arc((t1, p0));
 //! # let net = b.build().unwrap();
-//! # let mut sys = PetriNet::new(net, [1, 0]);
+//! # let mut sys = PetriNet::new(net, [(p0, 1)]);
 //! // 1. I know which transition - just try it
 //! sys.try_fire(t0).unwrap();
 //!
-//! // 2. I need to choose from the enabled set - zero redundant checks
-//! sys.choose_and_fire(|enabled| enabled.first());
+//! // 2. I need to choose from the enabled set
+//! let choice = sys.enabled_transitions().next();
+//! if let Some(t) = choice {
+//!     sys.try_fire(t).expect("enabled");
+//! }
 //!
 //! // 3. Fire anything, I don't care which
 //! sys.fire_any();
@@ -71,23 +74,43 @@ use std::ops::Deref;
 
 /// A Petri net system `(N, M₀)` consists of a [`Net`] `N` and an initial [`Marking`] `M₀`.
 ///
-/// ```no_run
-/// use petrivet::prelude::PetriNet;
-/// let pn = PetriNet::new(&net, [(p0, 1), (p2, 5)]);
+/// ```
+/// # use petrivet::{Net, PetriNet};
+/// # let mut b = Net::builder();
+/// # let [p0, p1] = b.add_places();
+/// # let [t0, t1] = b.add_transitions();
+/// # b.add_arcs((p0, t0, p1, t1, p0));
+/// # let net = b.build().expect("valid net");
+/// let pn = PetriNet::new(&net, [(p0, 1)]);
+/// assert_eq!(pn.marking(), [(p0, 1)].into());
 /// ```
 ///
 /// You may simulate the behavior of the system, mutating its marking,
 /// by firing [`Transitions`](Transition).
 ///
-/// ```no_run
-/// pn.try_fire(t0).ok_or(|| "not enabled!")?;
+/// ```
+/// # use petrivet::{Net, PetriNet};
+/// # let mut b = Net::builder();
+/// # let [p0, p1] = b.add_places();
+/// # let [t0, t1] = b.add_transitions();
+/// # b.add_arcs((p0, t0, p1, t1, p0));
+/// # let net = b.build().expect("valid net");
+/// # let mut pn = PetriNet::new(&net, [(p0, 1)]);
+/// pn.try_fire(t0).expect("t0 is enabled");
 /// ```
 ///
 /// If you want to fire any enabled transition without caring which one,
 /// use [`fire_any()`](Self::fire_any).
 ///
-/// ```no_run
-/// pn.fire_any().ok_or("deadlock!")?;
+/// ```
+/// # use petrivet::{Net, PetriNet};
+/// # let mut b = Net::builder();
+/// # let [p0, p1] = b.add_places();
+/// # let [t0, t1] = b.add_transitions();
+/// # b.add_arcs((p0, t0, p1, t1, p0));
+/// # let net = b.build().expect("valid net");
+/// # let mut pn = PetriNet::new(&net, [(p0, 1)]);
+/// pn.fire_any().expect("not a deadlock");
 /// ```
 ///
 /// To reset the system back to the marking it was initialized with,
@@ -234,10 +257,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn fire_unchecked(&mut self, t: Transition) {
         if let Some(t_idx) = self.mapping.transition_idx(t) {
             for &p_idx in &self.net.as_ref().dense_net.preset_t[t_idx] {
-                self.marking[p_idx].checked_sub(1).expect("fire_unchecked: token underflow");
+                self.marking[p_idx] = self.marking[p_idx]
+                    .checked_sub(1)
+                    .expect("fire_unchecked: token underflow");
             }
             for &p_idx in &self.net.as_ref().dense_net.postset_t[t_idx] {
-                self.marking[p_idx].checked_add(1).expect("fire_unchecked: token overflow");
+                self.marking[p_idx] = self.marking[p_idx]
+                    .checked_add(1)
+                    .expect("fire_unchecked: token overflow");
             }
         }
     }

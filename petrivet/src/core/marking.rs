@@ -45,6 +45,13 @@ impl<T: TokenOps> IdxMarking<T> {
     }
 
     /// Returns the sum of all tokens in the marking.
+    ///
+    /// Note: for `T = u32` this sums in `u32` and would *wrap* in release on a
+    /// marking whose total exceeds `u32::MAX` (e.g. many places near
+    /// `u32::MAX`). It is therefore unsuitable for a *verdict* path, where a
+    /// silently-wrapped sum is the integer analogue of an unsound `f64` (a wrong
+    /// magnitude is a wrong verdict). Verdict-deciding callers must use
+    /// [`IdxMarking::<u32>::wide_sum`] instead.
     pub fn sum(&self) -> T {
         self.iter().copied().sum()
     }
@@ -63,6 +70,25 @@ impl<T: TokenOps> IdxMarking<T> {
             }
         }
         acc
+    }
+}
+
+impl IdxMarking<u32> {
+    /// Returns the total token count accumulated in `u64`, so the sum can neither
+    /// wrap nor panic regardless of the marking magnitude.
+    ///
+    /// This is the verdict-path token sum: token-conservation reachability
+    /// (`is_efficiently_reachable`, `analyze_reachability`) and the
+    /// state-machine/circuit liveness tests all compare token totals, and a
+    /// release-mode `u32` wrap on those paths could make two genuinely-different
+    /// totals compare equal (a false `Some(true)` reachable — the cardinal sin)
+    /// or wrap a marked total to exactly 0 (a false "dead" liveness verdict).
+    /// Accumulating in `u64` removes the wrap; a `u32`-per-place marking has at
+    /// most `place_count · u32::MAX < 2^64` total, so `u64` cannot itself
+    /// overflow. (Foundational-design §4.4, the verdict-path widening minor.)
+    #[must_use]
+    pub fn wide_sum(&self) -> u64 {
+        self.iter().map(|&t| u64::from(t)).sum()
     }
 }
 

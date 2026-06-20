@@ -17,10 +17,17 @@ tap = "1.0.1"
 
 [features]
 default = ["pnml"]
+# A first-class `serde` feature: the certificate/verdict contract (the `model`
+# module) is serde-ready by design (owned, borrow-free payloads — the external
+# checker input and the training label). Today serde arrives only transitively
+# via `pnml`; this makes it directly selectable so `model` can derive without
+# pulling the whole PNML stack. See docs/foundations/foundational-design.md §F3″.
+serde = ["dep:serde"]
 pnml = ["serde", "quick-xml"]
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
+serde_json = "1.0.145"
 
 [[bench]]
 name = "analysis"

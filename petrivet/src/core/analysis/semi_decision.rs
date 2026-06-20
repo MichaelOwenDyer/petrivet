@@ -17,9 +17,7 @@
 //! # Example
 //!
 //! ```
-//! use petrivet::builder::NetBuilder;
-//! use petrivet::marking::IdxMarking;
-//! use petrivet::net::system::PetriNet;
+//! use petrivet::NetBuilder;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -27,15 +25,13 @@
 //! b.add_arc((p0, t0)); b.add_arc((t0, p1));
 //! b.add_arc((p1, t1)); b.add_arc((t1, p0));
 //! let net = b.build().unwrap();
-//! let sys = PetriNet::new(net, [1u32, 0]);
+//! let sys = net.with_initial_marking([(p0, 1)]);
 //!
-//! // Can we reach (0, 1)? The marking equation says: feasible
-//! let result = sys.analyze_reachability(&IdxMarking::from([0u32, 1]));
-//! assert!(result.is_reachable());
+//! // Can we reach one token on p1? The marking equation says: feasible
+//! assert!(sys.is_reachable(&[(p1, 1)].into()));
 //!
-//! // Can we reach (2, 0)? Conservation law violated — definitely not
-//! let result = sys.analyze_reachability(&IdxMarking::from([2u32, 0]));
-//! assert!(!result.is_reachable());
+//! // Can we reach two tokens on p0? Conservation law violated — definitely not
+//! assert!(!sys.is_reachable(&[(p0, 2)].into()));
 //! ```
 
 use crate::core::marking::IdxMarking;
@@ -58,6 +54,16 @@ use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, Solv
 ///   "a nonnegative integer solution x must exist" is a necessary reachability condition.
 /// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation)
 ///   (state equation as necessary condition)
+//
+// `dead_code`: M4/M5 demoted the f64 LP off the *verdict* path — the negative
+// `Unreachable` is now decided by the exact `marking_equation_exact` guard (B1a),
+// so the former `find_marking_equation_rational_solution(..).is_none()` filter
+// call was removed (M4). It is retained as the documented inexact *filter* the
+// design keeps available ("may suggest, never decide", foundational-design §1,
+// §4.1) and as the live anchor for the `literature.rs` citation links; it has no
+// in-crate caller today. (The integer variant below is still used by the live
+// marked-graph positive arm.)
+#[allow(dead_code)]
 #[must_use]
 pub fn find_marking_equation_rational_solution(
     net: &DenseNet,
@@ -147,100 +153,13 @@ fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
         })
 }
 
-/// Checks a *covering* variant of the marking equation: is there a
-/// reachable marking m' such that m'\[p\] >= threshold\[p\] for each place?
-///
-/// Unlike [`find_marking_equation_rational_solution`], this uses inequality constraints
-/// (`>=`) rather than equality, so it asks whether *any* marking at least
-/// as large as `threshold` is reachable.
-///
-/// This is useful for checking whether a transition can ever be enabled:
-/// set `threshold[p] = 1` for each input place and `0` elsewhere.
-///
-/// Still a necessary condition only (LP relaxation of the marking equation).
-#[must_use]
-pub fn find_covering_equation_rational_solution(
-    net: &DenseNet,
-    initial: &IdxMarking<u32>,
-    threshold: &IdxMarking<u32>,
-) -> Option<Box<[f64]>> {
-    find_covering_equation_solution(
-        net,
-        initial,
-        threshold,
-        &variable().min(0.0),
-        |v| v,
-    )
-}
-
-/// Finds a non-negative integer solution to the covering equation:
-/// does there exist x ∈ ℕ^{|T|} such that `m₀ + N · x >= threshold`?
-///
-/// This is a broader necessary condition than [`find_covering_equation_rational_solution`].
-/// If no integer solution exists, the target is definitely not coverable.
-///
-/// References:
-/// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation) (state equation is a necessary condition)
-/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (firing count vector must be integer)
-#[must_use]
-pub fn find_covering_equation_integer_solution(
-    net: &DenseNet,
-    initial_marking: &IdxMarking<u32>,
-    target: &IdxMarking<u32>,
-) -> Option<Box<[u32]>> {
-    // Safe because we are using integer variables
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    find_covering_equation_solution(
-        net,
-        initial_marking,
-        target,
-        &variable().integer().min(0),
-        |v| v.round() as u32,
-    )
-}
-
-#[must_use]
-fn find_covering_equation_solution<T, F: Fn(f64) -> T>(
-    net: &DenseNet,
-    initial: &IdxMarking<u32>,
-    threshold: &IdxMarking<u32>,
-    variable_def: &VariableDefinition,
-    extract: F,
-) -> Option<Box<[T]>> {
-    let mut variables = ProblemVariables::new();
-    let parikh_vector: Box<[Variable]> = net
-        .transition_indices()
-        .map(|_| variables.add(variable_def.clone()))
-        .collect();
-
-    let incidence = net.incidence_matrix();
-    let constraints = net
-        .place_indices()
-        .map(|p| {
-            let change: Expression = net
-                .transition_indices()
-                .map(|t| f64::from(incidence.get(p, t)) * parikh_vector[t])
-                .sum();
-            let m0_p = f64::from(initial[p]);
-            let thresh = f64::from(threshold[p]);
-            constraint!(change >= thresh - m0_p)
-        });
-
-    let objective: Expression = parikh_vector.iter().copied().sum();
-    variables
-        .minimise(objective)
-        .using(good_lp::microlp)
-        .with_all(constraints)
-        .solve()
-        .ok()
-        .map(|solution| {
-            parikh_vector
-                .into_iter()
-                .map(|v| solution.value(v))
-                .map(extract)
-                .collect()
-        })
-}
+// The `f64` *covering*-equation LP variants were removed at M3: a negative
+// `Uncoverable` verdict no longer rests on the `f64` LP failing (the silent-false
+// hole), so they had no remaining call site. The exact covering guard
+// (`exact_matrix::covering_invariant_exact`) plus the Karp–Miller coverability
+// graph now decide coverability soundly; the f64 covering LP was neither on the
+// verdict path nor wired as a filter. If a future inexact *filter* is wanted, it
+// is reintroduced as a suggester, never a decider (foundational-design §1, §4.1).
 
 /// Checks structural boundedness: is the net bounded for every possible
 /// initial marking?

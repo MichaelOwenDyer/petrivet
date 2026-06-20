@@ -99,11 +99,29 @@ impl<T: TokenOps> Marking<T> {
     }
 
     /// Returns the total number of tokens across all places in this marking.
+    ///
+    /// Note: for `T = u32` this sums in `u32` and would *wrap* in release on a
+    /// marking whose total exceeds `u32::MAX`. It must not be used on a verdict
+    /// path — see [`Marking::<u32>::total_tokens_wide`] for the non-wrapping
+    /// verdict-path sum.
     #[must_use]
     pub fn total_tokens(&self) -> T {
         self.support.iter()
             .map(|(_, t)| *t)
             .sum()
+    }
+}
+
+impl Marking<u32> {
+    /// Returns the total token count accumulated in `u64`, so the sum can neither
+    /// wrap nor panic regardless of the marking magnitude. This is the
+    /// verdict-path token sum (cf. [`Marking::total_tokens`], which sums in `u32`
+    /// and would wrap in release). See the core
+    /// [`IdxMarking::<u32>::wide_sum`](crate::core::marking::IdxMarking) for the
+    /// rationale (foundational-design §4.4, the verdict-path widening minor).
+    #[must_use]
+    pub fn total_tokens_wide(&self) -> u64 {
+        self.support.iter().map(|(_, t)| u64::from(*t)).sum()
     }
 }
 

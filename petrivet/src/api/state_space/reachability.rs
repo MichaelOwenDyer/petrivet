@@ -26,21 +26,20 @@ use ahash::HashMap;
 /// ```
 /// use petrivet::{NetBuilder, PetriNet};
 /// use petrivet::state_space::ExplorationOrder;
-/// use petrivet::state_space::reachability::{ReachabilityExplorer, ReachabilityGraph};
 ///
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
 /// let [t0] = b.add_transitions();
-/// b.add_arcs((p0, t0));
+/// b.add_arc((p0, t0));
 /// b.add_arc((t0, p0));
 /// b.add_arc((t0, p1));
 /// let net = b.build().unwrap();
-/// let sys = PetriNet::new(net, [1, 0]);
+/// let sys = PetriNet::new(net, [(p0, 1)]);
 ///
 /// // Explore an unbounded net incrementally, stopping after 50 states
 /// let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
-/// explorer.iter().take(50).for_each(|s| println!("{:#?}", s.marking));
-/// assert!(explorer.state_count() >= 50);
+/// explorer.explore_iter().take(50).for_each(|s| println!("{:#?}", s.marking));
+/// assert!(explorer.marking_count() >= 50);
 /// assert!(!explorer.is_fully_explored()); // unbounded → never finishes
 /// ```
 pub type ReachabilityExplorer<'a> = StateGraphExplorer<'a, u32>;

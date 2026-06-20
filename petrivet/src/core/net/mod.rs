@@ -1,5 +1,4 @@
 use crate::core::analysis::incidence::IncidenceMatrix;
-use crate::core::analysis::semi_decision;
 use crate::core::class::NetClass;
 use crate::core::marking::IdxMarking;
 use crate::core::unique_sorted_slice::UniqueSortedSlice;
@@ -118,22 +117,14 @@ impl DenseNet {
         IncidenceMatrix::new(self)
     }
 
-    /// Checks if the net is structurally bounded.
-    /// This means that there exists no initial marking
-    /// which would cause any place in the net to become unbounded.
-    #[must_use]
-    pub fn is_structurally_bounded(&self) -> bool {
-        semi_decision::find_positive_place_subvariant(self).is_some()
-    }
-
-    /// Checks if a single place is structurally bounded.
-    /// This means that there exists no initial marking
-    /// which would cause this place to become unbounded.
-    #[must_use]
-    pub fn is_place_structurally_bounded(&self, place: PlaceIdx) -> bool {
-        semi_decision::find_semipositive_place_subvariant(
-            self,
-            |&p| p == place
-        ).is_some()
-    }
+    // NOTE (foundational-design §4.6): the former `DenseNet::is_structurally_bounded`
+    // and `DenseNet::is_place_structurally_bounded` returned the *bare* `f64` LP
+    // result (`find_positive_place_subvariant(..).is_some()`) directly as a verdict —
+    // a near-boundary `yᵀ·C` that the float simplex rounds to ≤ 0 could mint a false
+    // `true`. The public structural-boundedness predicates now live on the api
+    // [`Net`](crate::net::Net) (`api/net/boundedness.rs`), where they route the f64 LP
+    // *suggestion* through the exact `BoundednessSubinvariantCert` /
+    // `PlaceBoundednessSubinvariantCert` re-verified over ℚ. The f64 LP itself
+    // (`semi_decision::find_*_place_subvariant`) remains an inexact *suggester*, never
+    // a verdict path.
 }

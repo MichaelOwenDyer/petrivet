@@ -308,7 +308,7 @@ impl NetBuilder {
     /// b.add_arcs((t1, p1, t2, p2, t3));
     /// assert_eq!(b.transition_count(), 3);
     /// assert_eq!(b.arc_count(), 4);
-    /// assert!(b.remove_transition(p2));
+    /// assert!(b.remove_transition(t2));
     /// assert_eq!(b.transition_count(), 2);
     /// assert_eq!(b.arc_count(), 2);
     /// ```
@@ -479,11 +479,17 @@ impl NetBuilder {
         let graph = {
             let node_count = ordered_places.len() + ordered_transitions.len();
             let mut graph = petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
-            let p_indices: Box<[NodeIndex]> = place_to_index.values()
-                .map(|&p| graph.add_node(IdxNode::Place(p)))
+            // The node-index arrays are addressed by dense index below (`p_indices[p_idx]`,
+            // `t_indices[t_idx]`), so they MUST be built in dense-index order. `ordered_places`
+            // / `ordered_transitions` are exactly the dense order (position == dense index);
+            // iterating `place_to_index.values()` instead would visit hash order, scrambling
+            // the place/transition → NodeIndex correspondence and so wiring the petgraph edges
+            // between the wrong nodes (the root cause of the spurious `circuits()` cycles).
+            let p_indices: Box<[NodeIndex]> = (0..ordered_places.len())
+                .map(|p_idx| graph.add_node(IdxNode::Place(p_idx)))
                 .collect();
-            let t_indices: Box<[NodeIndex]> = transition_to_index.values()
-                .map(|&t| graph.add_node(IdxNode::Transition(t)))
+            let t_indices: Box<[NodeIndex]> = (0..ordered_transitions.len())
+                .map(|t_idx| graph.add_node(IdxNode::Transition(t_idx)))
                 .collect();
             (0..)
                 .zip(preset_t.iter().zip(postset_t.iter()))
@@ -1139,5 +1145,92 @@ mod tests {
         let net = b.build().unwrap();
         let p_idx = net.mapping.place_idx(p).expect("built net contains p");
         assert_eq!(net.mapping.place(p_idx), p);
+    }
+
+    /// Regression: the petgraph mirror (`Net::graph`) must encode exactly the
+    /// flow relation held by the dense adjacency (`DenseNet`). The two were built
+    /// in `NetBuilder::build` from `place_to_index`/`transition_to_index`, whose
+    /// `.values()` iterate in `HashMap` (hash) order, not dense-index order; the
+    /// per-dense-index node arrays were then *addressed* by dense index, so the
+    /// place/transition → `NodeIndex` correspondence was scrambled and the
+    /// petgraph edges were wired between the wrong nodes. This silently corrupted
+    /// every consumer of `Net::graph` — `circuits()`, marked-graph and
+    /// state-machine liveness, `tarjan_scc`-derived strong connectivity — in a
+    /// hash-order-dependent (hence flaky) way: a *source* transition (empty
+    /// preset) could be reported as lying on a circuit, which is structurally
+    /// impossible. This test pins the invariant directly at its source: the edge
+    /// set of `graph` equals the dense flow relation, and no edge contradicts it.
+    ///
+    /// The fixture deliberately uses a source transition plus a circuit (the
+    /// topology that exposed the bug) and enough nodes that RCM dense order and
+    /// hash order are very unlikely to coincide. Built with explicit `add_arc`.
+    #[test]
+    fn petgraph_mirror_agrees_with_dense_adjacency() {
+        use crate::core::net::IdxNode;
+        use petgraph::visit::EdgeRef;
+
+        // A directed arc keyed for comparison: (is-place, idx) for each endpoint.
+        // `IdxNode` is not `Ord`, so we project to a sortable key.
+        fn key(n: IdxNode) -> (u8, usize) {
+            match n {
+                IdxNode::Place(p) => (0, p),
+                IdxNode::Transition(t) => (1, t),
+            }
+        }
+
+        let mut b = NetBuilder::new();
+        let [p_src, p0, p1, p2] = b.add_places();
+        let [t_src, t0, t1, t2] = b.add_transitions();
+        // source transition feeding the circuit's entry place
+        b.add_arc((t_src, p_src));
+        b.add_arc((p_src, t0));
+        // circuit t0 -> p0 -> t1 -> p1 -> t0
+        b.add_arc((t0, p0));
+        b.add_arc((p0, t1));
+        b.add_arc((t1, p1));
+        b.add_arc((p1, t0));
+        // a second branch so dense (RCM) order diverges from insertion order
+        b.add_arc((t1, p2));
+        b.add_arc((p2, t2));
+        b.add_arc((t2, p_src));
+        let net = b.build().expect("valid net");
+
+        // Reconstruct the dense flow relation as a set of directed arc keys.
+        let mut dense_arcs: Vec<((u8, usize), (u8, usize))> = Vec::new();
+        for t_idx in net.dense_net.transition_indices() {
+            for &p_idx in &net.dense_net.preset_t[t_idx] {
+                dense_arcs.push((key(IdxNode::Place(p_idx)), key(IdxNode::Transition(t_idx))));
+            }
+            for &p_idx in &net.dense_net.postset_t[t_idx] {
+                dense_arcs.push((key(IdxNode::Transition(t_idx)), key(IdxNode::Place(p_idx))));
+            }
+        }
+        dense_arcs.sort_unstable();
+
+        // Reconstruct the same set from the petgraph mirror's node weights.
+        let mut graph_arcs: Vec<((u8, usize), (u8, usize))> = net
+            .graph
+            .edge_references()
+            .map(|e| (key(net.graph[e.source()]), key(net.graph[e.target()])))
+            .collect();
+        graph_arcs.sort_unstable();
+
+        assert_eq!(
+            graph_arcs, dense_arcs,
+            "petgraph mirror edges must equal the dense flow relation"
+        );
+
+        // The structural impossibility the bug produced: a source transition
+        // (empty preset) on a circuit. With a correct mirror, no circuit contains
+        // a source transition.
+        let sys = net.with_initial_marking([(p0, 1)]);
+        let t_src_idx = net.mapping.transition_idx(t_src).expect("t_src in net");
+        assert!(net.dense_net.preset_t[t_src_idx].is_empty(), "t_src is a source");
+        for circuit in sys.circuits() {
+            assert!(
+                !circuit.transition_indices().any(|t| t == t_src_idx),
+                "a source transition must never appear on a circuit"
+            );
+        }
     }
 }

@@ -122,10 +122,14 @@ pub enum NetClass {
     /// let mut b = Net::builder();
     /// let [bal_0, bal_5, bal_10, bal_15, bal_20] = b.add_places();
     /// let [bal_0_dep_5, bal_0_dep_10, bal_5_dep_5, bal_5_dep_10, bal_10_dep_5,
-    ///     bal_10_dep_10, bal_15_dep_5, get_candy_for_15, get_candy_for_20] = b.add_transitions();
+    ///     bal_10_dep_10, bal_15_dep_5, get_candy_for_15, get_candy_for_20,
+    ///     get_candy_for_15_with_change] = b.add_transitions();
     ///
     /// // Note how in an S-net,
     /// // every transition is just a simple bridge between two places.
+    /// // (Buying a 15¢ candy with a 20¢ balance is its own transition — a single
+    /// // transition serving both bal_15 and bal_20 would have two inputs and break
+    /// // the state-machine property.)
     /// b.add_arcs((bal_0, bal_0_dep_5, bal_5));
     /// b.add_arcs((bal_0, bal_0_dep_10, bal_10));
     /// b.add_arcs((bal_5, bal_5_dep_5, bal_10));
@@ -135,7 +139,7 @@ pub enum NetClass {
     /// b.add_arcs((bal_15, bal_15_dep_5, bal_20));
     /// b.add_arcs((bal_15, get_candy_for_15, bal_0));
     /// b.add_arcs((bal_20, get_candy_for_20, bal_0));
-    /// b.add_arcs((bal_20, get_candy_for_15, bal_5));
+    /// b.add_arcs((bal_20, get_candy_for_15_with_change, bal_5));
     /// let class = b.build().unwrap().class();
     /// assert!(class == NetClass::StateMachine);
     /// assert!(!class.is_circuit());
@@ -346,9 +350,9 @@ pub enum NetClass {
     /// let [t1, t2] = b.add_transitions();
     /// // A shared resource p2 and a private resource p1.
     /// // p1• = {t1}, p2• = {t1, t2}. Since p1• ∩ p2• = {t1}, and p1• ⊆ p2•, this is an AC net.
-    /// b.add_arcs((p1, t1));
-    /// b.add_arcs((p2, t1));
-    /// b.add_arcs((p2, t2));
+    /// b.add_arc((p1, t1));
+    /// b.add_arc((p2, t1));
+    /// b.add_arc((p2, t2));
     /// let class = b.build().unwrap().class();
     /// assert!(class == NetClass::AsymmetricChoice);
     /// assert!(!class.is_free_choice());
@@ -384,10 +388,10 @@ pub enum NetClass {
     /// // Create a symmetric confusion (which violates Asymmetric-Choice rules).
     /// // p1• = {t1, t2} and p2• = {t2, t3}
     /// // p1• ∩ p2• = {t2}. Neither is a subset of the other.
-    /// b.add_arcs((p1, t1));
-    /// b.add_arcs((p1, t2));
-    /// b.add_arcs((p2, t2));
-    /// b.add_arcs((p2, t3));
+    /// b.add_arc((p1, t1));
+    /// b.add_arc((p1, t2));
+    /// b.add_arc((p2, t2));
+    /// b.add_arc((p2, t3));
     /// let class = b.build().unwrap().class();
     /// assert!(class == NetClass::General);
     /// assert!(!class.is_asymmetric_choice());

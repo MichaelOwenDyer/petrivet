@@ -25,11 +25,13 @@ const DEFAULT_TECHNIQUES: &[Technique] = &[
     Technique::Topological,
 ];
 
-const STRUCTURAL_TECHNIQUES: &[Technique] = &[
-    Technique::SequentialProcessing,
-    Technique::Topological,
-    Technique::StructuralReduction,
-];
+// F0 (backlog): `Technique::StructuralReduction` must be emitted ONLY when a
+// certified structural *reduction* has actually fired (Epic F). The Commoner-Hack
+// criterion on free-choice nets is a structural *decision*, not a reduction, and
+// no reduction code exists yet, so tagging it `STRUCTURAL_REDUCTION` was a
+// mislabel. The CHC liveness shortcut therefore reports `DEFAULT_TECHNIQUES`
+// until a real reduction exists to claim the tag. Rationale: foundational-design
+// §F0 / BACKLOG F0.
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
@@ -137,6 +139,23 @@ fn run_one_safe(input_dir: &Path) -> Result<(), ParticipationError> {
     Ok(())
 }
 
+/// The technique set reported for a liveness verdict.
+///
+/// F0 (backlog): both the Commoner-Hack structural *decision* and the
+/// reachability-graph fallback report `DEFAULT_TECHNIQUES`. Neither path runs a
+/// certified structural *reduction*, so neither may claim
+/// `Technique::StructuralReduction` — that tag is reserved until Epic F lands a
+/// real reduction. Factored into a pure function so the F0 invariant is
+/// unit-testable without filesystem I/O.
+///
+/// The two liveness paths report the *same* technique set today, so this takes
+/// no parameter (lean — no speculative per-path argument until a real distinction
+/// exists). The regression test pins the constant directly: it must never carry
+/// `StructuralReduction`.
+const fn liveness_techniques() -> &'static [Technique] {
+    DEFAULT_TECHNIQUES
+}
+
 /// Liveness has a cheap structural shortcut on free-choice nets via the
 /// Commoner-Hack criterion. Otherwise we fall back to the SCC-based
 /// decision on the explicit RG.
@@ -145,14 +164,14 @@ fn run_liveness(input_dir: &Path) -> Result<(), ParticipationError> {
     let name = Examination::Liveness.as_str();
 
     if system.class().is_free_choice() && system.commoner_hack_criterion().is_ok() {
-        print_boolean_result(name, true, STRUCTURAL_TECHNIQUES);
+        print_boolean_result(name, true, liveness_techniques());
         return Ok(());
     }
 
     let rg = system
         .try_build_reachability_graph()
         .map_err(|_unbounded_graph| ParticipationError::DoNotCompete)?;
-    print_boolean_result(name, rg.transition_liveness().is_live(), DEFAULT_TECHNIQUES);
+    print_boolean_result(name, rg.transition_liveness().is_live(), liveness_techniques());
     Ok(())
 }
 
@@ -196,4 +215,24 @@ fn is_colored_model(input_dir: &Path, input_name: &str) -> bool {
 
 fn has_marker(input_dir: &Path, name: &str) -> bool {
     input_dir.join(name).exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{liveness_techniques, Technique};
+
+    /// F0 regression: the liveness verdict (the Commoner-Hack structural
+    /// *decision* on free-choice nets and the reachability-graph fallback alike)
+    /// is not a certified structural *reduction*, so its technique set must NOT
+    /// emit `STRUCTURAL_REDUCTION`. This would have caught the original mislabel,
+    /// and guards against a future change re-introducing a reduction-bearing
+    /// constant on this path before Epic F lands a real reduction.
+    #[test]
+    fn liveness_path_is_not_tagged_structural_reduction() {
+        let techniques = liveness_techniques();
+        assert!(
+            !techniques.contains(&Technique::StructuralReduction),
+            "liveness technique set must not claim STRUCTURAL_REDUCTION (F0): {techniques:?}"
+        );
+    }
 }

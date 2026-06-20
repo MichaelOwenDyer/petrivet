@@ -679,6 +679,7 @@ dependencies = [
  "petgraph",
  "quick-xml",
  "serde",
+ "serde_json",
  "tap",
 ]
 
