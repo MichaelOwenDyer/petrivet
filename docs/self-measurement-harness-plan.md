@@ -26,7 +26,7 @@ Observability here is not logging bolted onto analysis; it is a **measurement-pr
 ### Non-goals (explicit — these keep the domain bounded)
 - **No model.** No ranker, policy, RL, or scheduler is built here. This domain *describes* fitness; it does not *act* on it.
 - **No new deciders and no algorithm changes.** The harness observes the existing analysis surface; it does not alter how anything is decided.
-- **No change to soundness posture.** This domain observes; it never certifies and never schedules. (The `Certificate::check` firewall is a separate, upstream concern; this harness *records whether* a check passed, once such a check exists, but does not implement it.)
+- **No change to soundness posture.** This domain observes; it never certifies and never schedules. (The `Certificate::check` trust boundary is a separate, upstream concern; this harness *records whether* a check passed, once such a check exists, but does not implement it.)
 - **No core dependency inversion.** Nothing in `petrivet` learns about this domain (see §3).
 
 ---
@@ -221,7 +221,7 @@ Each phase is independently shippable and independently useful. Rung 2 (any rank
 
 ## 10. Boundary with Rung 2+ (what this hands off)
 
-This domain produces, and stops at, the **differential fitness dataset** (`Observation` + `FitnessComparison` JSONL) plus a standing fitness test. A future learned ranker is a *separate consumer* that reads this data and emits a *section* (a schedule). By construction it cannot affect soundness (the certificate firewall, an upstream concern) and it cannot affect this harness (the arrow points the other way). The self-measurement tooling is the contribution; the model is someone else's next move — and the torsor framing is what keeps the measurement honest enough to be worth training on.
+This domain produces, and stops at, the **differential fitness dataset** (`Observation` + `FitnessComparison` JSONL) plus a standing fitness test. A future learned ranker is a *separate consumer* that reads this data and emits a *section* (a schedule). By construction it cannot affect soundness (the certificate trust boundary, an upstream concern) and it cannot affect this harness (the arrow points the other way). The self-measurement tooling is the contribution; the model is someone else's next move — and the torsor framing is what keeps the measurement honest enough to be worth training on.
 
 ---
 

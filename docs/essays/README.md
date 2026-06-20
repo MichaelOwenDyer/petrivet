@@ -1,16 +1,23 @@
-# Essays & research notes
+# Essays and research notes
 
-Exploratory writing about `petrivet` — its latent structure and its future potential. These are **vision/research artifacts**, not authoritative project direction and not part of the thesis proper. They were produced collaboratively (Daniel Dyer, with Claude) by studying the codebase, and they try hard to stay claim-honest: each marks what is *implemented* vs. *charted-but-unbuilt* vs. *dreamed/metaphorical*, and defers the core Petri-net theory to Michael's thesis work.
+This folder contains analysis and design writing about `petrivet`: a study of its current structure and proposals for its development. These are research and design artifacts, not authoritative project direction and not part of the thesis. They were produced by Daniel Dyer with Claude by reading the codebase, and they distinguish throughout between three categories: what is implemented, what is specified but not yet implemented, and what is proposed or speculative. The core Petri-net theory is Michael's.
 
-Read them as a sequence — each descends from the last.
+Reading order (each document builds on the previous):
 
-1. **[The Charted Cathedral](charted-cathedral.md)** — a study of six structures in the codebase (order/WQO, linear algebra, the free-choice island, evidence, decision, composition) and the latent architecture they point at. The central observation: `literature.rs` is a blueprint drawn ahead of the stone, so "future potential" here is unusually legible.
-2. **[Soundness as a Free Variable](soundness-as-a-free-variable.md)** — the framework: a *sound learned algorithm-selection policy* over the certifying decider lattice. Core result: over certificate-emitting deciders, soundness is independent of the selection policy, so machine learning can schedule without ever touching correctness. The AlphaGo move, with verified leaves. The next three documents climb its ladder.
-3. **[Rung 1 — the empirical hardness ranker](rung-1-empirical-hardness-ranker.md)** — the near-term, highest-value rung: a cost-sensitive per-instance decider selector (a learned section of the cost bundle). Trees over structural features, no deep learning; sound by the theorem, with the honest caveat that performance is not auto-monotone.
-4. **[Rung 2 — the sequential policy](rung-2-sequential-policy.md)** — static selection becomes an adaptive, preemptive, anytime controller: abandon a diverging decider, race the cheap ones. A Pandora's-box index baseline → offline RL from the harness logs. Needs a cancellation hook the core lacks today.
-5. **[Rung 3 — the planner over certified reductions](rung-3-certified-reductions.md)** — the far end: structural reductions as actions in an AND/OR proof-tree search, each reduction certifying, so even the learned transformations stay outside the trusted base. The MuZero-grade dream, where the whole structural apparatus becomes the action set.
+1. **[Latent architecture](latent-architecture.md)** — an analysis of six structures in the codebase (the order/WQO, linear algebra, the free-choice subclasses, evidence, decision, composition) and the architecture they imply. Central observation: `literature.rs` documents a module layer that is referenced but not yet implemented, which makes the planned design explicit.
+2. **[Soundness as a free variable](soundness-as-a-free-variable.md)** — the framework: a sound learned algorithm-selection policy over a certificate-gated set of deciders. Main result: over certificate-emitting deciders, soundness is independent of the selection policy, so a learned scheduler cannot affect correctness. The next three documents develop this result.
+3. **[Rung 1 — empirical hardness ranker](rung-1-empirical-hardness-ranker.md)** — the near-term, highest-value step: a cost-sensitive per-instance decider selector. Tree models over structural features; sound by the theorem, with the caveat that performance is not automatically monotone.
+4. **[Rung 2 — sequential policy](rung-2-sequential-policy.md)** — static selection becomes an adaptive, preemptive, anytime controller: a Pandora's-box index baseline, then offline reinforcement learning from the harness logs. Requires a cancellation mechanism the core currently lacks.
+5. **[Rung 3 — certified reductions](rung-3-certified-reductions.md)** — structural reductions as actions in an AND/OR proof-tree search, each reduction certifying, so the learned transformations remain outside the trusted base.
 
-Companion implementation plan: **[Self-Measurement Harness](../self-measurement-harness-plan.md)** — the observability substrate that produces the differential (torsor-invariant) fitness measurements the ladder's learned rungs consume.
+Summaries and companion documents:
 
-### A note on status and provenance
-The code is real and carefully reasoned; the *thesis document* is currently scaffolding; and Integrated Information Theory (the Φ thread that recurs in these essays) appears nowhere in the repository — it is a lens brought from outside and developed here only in its rigorous, factorization-residual form, fenced off from any claim about minds. Where these essays dream, the dreams have coordinates: a `todo`, a stub, a dangling `literature.rs` doc-link, or a named-but-absent module that the existing code already points at.
+- **[Core principles](core-principles.md)** — a condensed statement of the four organizing principles and the Φ_PN capstone, cross-referenced to the codebase.
+- **[petrivet in four principles](petrivet-in-four-principles.md)** — the longer-form treatment of the same four principles.
+- **[For Michael](for-michael.md)** — a personal companion letter to the technical notes.
+- **[Self-measurement harness plan](../self-measurement-harness-plan.md)** — the observability layer that produces the differential cost measurements the learned components consume.
+- **[Foundational design](../foundations/foundational-design.md)** and **[implementation backlog](../foundations/foundations-backlog.md)** — the components the future codebase requires, and the dependency-sequenced plan to build them.
+
+### Status and provenance
+
+The code is real and verifiable; the thesis document is currently a template; and Integrated Information Theory (the Φ thread in these documents) is not present in the repository. It is used here only in its factorization-residual form and is explicitly separated from any claim about cognition. Where these documents propose future work, each proposal is tied to a specific todo, stub, or unresolved reference in the code.
