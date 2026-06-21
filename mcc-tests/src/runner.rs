@@ -75,7 +75,7 @@ pub fn run_analysis(sys: &PetriNet, examination: Examination) -> RunResult {
         },
 
         Examination::OneSafe => {
-            let result = sys.is_safe();
+            let result = sys.boundedness().is_safe();
             RunResult::Verdicts(Box::new([
                 Verdict::Formula {
                     name: examination.to_string(),

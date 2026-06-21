@@ -26,7 +26,7 @@ impl BoundednessAnalysis {
         self.bounds.values()
             .copied()
             .max()
-            .expect("at least one place")
+            .unwrap_or(Boundedness::Bounded(0))
     }
 
     /// Returns the bound for a specific place identified by its [`Place`].
@@ -153,7 +153,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn is_bounded(&self) -> bool {
         self.is_efficiently_bounded().unwrap_or_else(|| {
             self.net.as_ref().is_structurally_bounded()
-                || self.analyze_boundedness().global_bound().is_bounded()
+                || self.boundedness_via_coverability_graph().global_bound().is_bounded()
         })
     }
 
@@ -161,26 +161,21 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn is_place_bounded(&self, place: Place) -> bool {
         self.is_place_efficiently_bounded(place).unwrap_or_else(|| {
             self.net.as_ref().is_place_structurally_bounded(place)
-                || self.analyze_boundedness().place_bound(place).is_bounded()
+                || self.boundedness_via_coverability_graph().place_bound(place).is_bounded()
         })
     }
 
     /// Returns the boundedness of the entire system.
     pub fn boundedness(&self) -> Boundedness {
         self.efficient_boundedness().unwrap_or_else(|| {
-            self.analyze_boundedness().global_bound()
+            self.boundedness_via_coverability_graph().global_bound()
         })
     }
 
     pub fn place_boundedness(&self, place: Place) -> Boundedness {
         self.efficient_place_boundedness(place).unwrap_or_else(|| {
-            self.analyze_boundedness().place_bound(place)
+            self.boundedness_via_coverability_graph().place_bound(place)
         })
-    }
-
-    /// Returns true if the entire system is safe (1-bounded).
-    pub fn is_safe(&self) -> bool {
-        self.boundedness().is_k_bounded(1)
     }
 
     /// Returns true if some reachable marking puts more than one token in any place.
@@ -193,7 +188,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Analyzes boundedness and returns per-place bounds with evidence.
     #[must_use]
-    pub fn analyze_boundedness(&self) -> BoundednessAnalysis {
+    fn boundedness_via_coverability_graph(&self) -> BoundednessAnalysis {
         BoundednessAnalysis {
             bounds: self.build_coverability_graph().place_bounds(),
             method: BoundednessAnalysisMethod::CoverabilityGraph,

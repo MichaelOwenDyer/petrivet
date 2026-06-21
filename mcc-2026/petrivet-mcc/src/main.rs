@@ -132,7 +132,7 @@ fn run_reachability_deadlock(input_dir: &Path) -> Result<(), ParticipationError>
 fn run_one_safe(input_dir: &Path) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
     let name = Examination::OneSafe.as_str();
-    let result = system.is_safe();
+    let result = system.boundedness().is_safe();
     print_boolean_result(name, result, DEFAULT_TECHNIQUES);
     Ok(())
 }

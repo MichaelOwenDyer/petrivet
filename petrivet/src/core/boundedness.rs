@@ -51,8 +51,8 @@ pub type K = usize;
 impl Boundedness {
     /// Returns `true` if the place or Petri net is bounded.
     #[must_use]
-    pub const fn is_bounded(self) -> bool {
-        matches!(self, Boundedness::Bounded(_))
+    pub const fn is_bounded(&self) -> bool {
+        matches!(self, &Boundedness::Bounded(_))
     }
 
     /// Returns `true` if the place or Petri net is known to be k-bounded
@@ -60,13 +60,19 @@ impl Boundedness {
     /// cannot guarantee it to be k-bounded (due to loose bounds),
     /// this returns `false`.
     #[must_use]
-    pub const fn is_k_bounded(self, k: K) -> bool {
-        matches!(self, Boundedness::Bounded(bound) if bound <= k)
+    pub const fn is_k_bounded(&self, k: K) -> bool {
+        matches!(self, &Boundedness::Bounded(bound) if bound <= k)
+    }
+
+    /// Returns `true` if the place or Petri net is safe (1-bounded).
+    #[must_use]
+    pub const fn is_safe(&self) -> bool {
+        self.is_k_bounded(1)
     }
 
     /// Returns `true` if the place or Petri net is unbounded.
     #[must_use]
-    pub const fn is_unbounded(self) -> bool {
+    pub const fn is_unbounded(&self) -> bool {
         matches!(self, Boundedness::Unbounded)
     }
 }
