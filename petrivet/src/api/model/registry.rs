@@ -47,8 +47,16 @@ use crate::model::query::Query;
 use crate::model::verdict::{Abstention, Verdict};
 use crate::net::Net;
 
+pub mod boundedness;
+pub mod coverability;
+pub mod deadlock_freedom;
+pub mod liveness;
 pub mod reachability;
 
+pub use boundedness::{boundedness_driver, BoundednessProof, UnboundedWitness};
+pub use coverability::coverability_driver;
+pub use deadlock_freedom::{deadlock_freedom_driver, DeadlockFreeWitness};
+pub use liveness::liveness_driver;
 pub use reachability::reachability_driver;
 
 /// The asymptotic cost tier of a decider, used as telemetry and as the ordering

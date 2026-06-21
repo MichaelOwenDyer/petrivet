@@ -63,7 +63,9 @@ pub use frontier::{frontier_table, CheckComplexity, FrontierEntry, Polarity, Pro
 pub use ledger::{trusted_base, Decider, DeciderKind, TrustedBaseLedger};
 pub use query::Query;
 pub use registry::{
-    reachability_driver, BareBooleanCert, Budget, CostClass, Decide, DefaultPolicy, Driver, Policy,
+    boundedness_driver, coverability_driver, deadlock_freedom_driver, liveness_driver,
+    reachability_driver, BareBooleanCert, BoundednessProof, Budget, CostClass, Decide,
+    DeadlockFreeWitness, DefaultPolicy, Driver, Policy, UnboundedWitness,
 };
 pub use verdict::{Abstention, Proof, Refutation, Verdict};
 
