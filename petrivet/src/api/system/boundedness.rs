@@ -66,9 +66,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
             NetClass::MarkedGraph => Some(self.is_strongly_connected()),
             // A live free-choice system is bounded iff every place belongs to an s-component
             NetClass::FreeChoice if self.is_live() => Some(self.is_covered_by_s_components()),
-            // CHC is sufficient but not necessary for boundedness in AC systems,
-            // so we can't conclude unboundedness if it fails
-            NetClass::AsymmetricChoice => self.commoner_hack_criterion().ok().map(|_| true),
             _ => None,
         }
     }

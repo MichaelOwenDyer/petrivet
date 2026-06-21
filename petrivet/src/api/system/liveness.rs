@@ -64,16 +64,15 @@ impl<N: AsRef<Net>> PetriNet<N> {
             NetClass::StateMachine => Some(self.is_strongly_connected() && self.marking.sum() > 0),
             NetClass::MarkedGraph => Some(!self.has_unmarked_circuit()),
             NetClass::FreeChoice => Some(self.commoner_hack_criterion().is_ok()),
-            _ => None,
+            NetClass::AsymmetricChoice => self.commoner_hack_criterion().ok().map(|_| true),
+            NetClass::General => None,
         }
     }
 
     /// Returns true if the Petri net is [`live`](LivenessLevel::L4).
     #[must_use]
     pub fn is_live(&self) -> bool {
-        self.is_efficiently_live().unwrap_or_else(|| {
-            self.liveness().is_live()
-        })
+        self.is_efficiently_live().unwrap_or_else(|| self.liveness().is_live())
     }
 
     pub fn efficient_liveness(&self) -> Option<LivenessAnalysis> {
@@ -84,12 +83,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
             NetClass::Circuit => {
                 Some(self.transitions().map(|t| (t, LivenessLevel::L4)).collect())
             },
+            NetClass::StateMachine if self.is_strongly_connected() => {
+                Some(self.transitions().map(|t| (t, LivenessLevel::L4)).collect())
+            },
             NetClass::StateMachine => {
-                if self.is_strongly_connected() {
-                    Some(self.transitions().map(|t| (t, LivenessLevel::L4)).collect())
-                } else {
-                    Some(self.liveness_via_state_machine_marked_sccs())
-                }
+                Some(self.liveness_via_state_machine_marked_sccs())
             },
             NetClass::MarkedGraph => {
                 Some(self.liveness_via_marked_graph_unmarked_circuits())
