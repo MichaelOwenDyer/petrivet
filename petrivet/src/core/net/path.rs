@@ -1,9 +1,9 @@
-use crate::core::net::{DenseNet, IdxArc, IdxNode, PlaceIdx, TransitionIdx};
+use crate::core::net::{DenseNet, IdxNode, PlaceIdx, TransitionIdx};
+use crate::net::Net;
 use crate::system::PetriNet;
 use graph_cycles::Cycles;
 use std::ops::Deref;
 use tap::TryConv;
-use crate::net::Net;
 
 /// A path through the directed bipartite graph of a Petri net.
 ///
@@ -13,7 +13,7 @@ use crate::net::Net;
 /// Implementation note: a Path has no knowledge of the Petri net it belongs to,
 /// so it is just a list of nodes.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub(crate) struct IdxPath {
+pub struct IdxPath {
     /// Nodes in the path.
     nodes: Vec<IdxNode>,
 }
@@ -36,21 +36,6 @@ impl IdxPath {
             .filter_map(|node| match node {
                 IdxNode::Transition(t_idx) => Some(*t_idx),
                 _ => None,
-            })
-    }
-
-    /// Returns an iterator over all [`Arcs`](Arc) in the path.
-    pub fn idx_arcs(&self) -> impl Iterator<Item = IdxArc> + '_ {
-        self.nodes
-            .array_windows::<2>()
-            .map(|neighbors| match neighbors {
-                [IdxNode::Place(p_idx), IdxNode::Transition(t_idx)] => {
-                    IdxArc::PlaceToTransition(*p_idx, *t_idx)
-                }
-                [IdxNode::Transition(t_idx), IdxNode::Place(p_idx)] => {
-                    IdxArc::TransitionToPlace(*t_idx, *p_idx)
-                }
-                _ => unreachable!("the path should maintain alternating nodes"),
             })
     }
 }
@@ -85,30 +70,10 @@ impl TryFrom<Vec<IdxNode>> for IdxPath {
 /// Note: it is not currently guaranteed that the cycle is simple
 /// (that it does not contain repeated nodes).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct IdxCircuit {
+pub struct IdxCircuit {
     /// Nodes in the circuit.
     /// Guaranteed to have positive even length.
     path: IdxPath,
-}
-
-impl IdxCircuit {
-    /// Returns an iterator over all [`Arcs`](Arc) implied by the circuit,
-    /// including the arc between the last and the first node.
-    pub fn idx_arcs(&self) -> impl Iterator<Item = IdxArc> {
-        let last_arc = match (self.last(), self.first()) {
-            (Some(IdxNode::Place(p_idx)), Some(IdxNode::Transition(t_idx))) => {
-                IdxArc::PlaceToTransition(*p_idx, *t_idx)
-            }
-            (Some(IdxNode::Transition(t_idx)), Some(IdxNode::Place(p_idx))) => {
-                IdxArc::TransitionToPlace(*t_idx, *p_idx)
-            }
-            _ => unreachable!("the circuit should maintain alternating nodes"),
-        };
-        std::iter::chain(
-            self.path.idx_arcs(),
-            std::iter::once(last_arc),
-        )
-    }
 }
 
 impl TryFrom<IdxPath> for IdxCircuit {

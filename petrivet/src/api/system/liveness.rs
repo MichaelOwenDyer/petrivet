@@ -31,8 +31,6 @@ impl LivenessAnalysis {
     }
 
     /// Returns the liveness level of the provided `transition`.
-    ///
-    /// If the transition does not
     #[must_use]
     pub fn level(&self, transition: Transition) -> LivenessLevel {
         self.levels
@@ -42,8 +40,6 @@ impl LivenessAnalysis {
     }
 
     /// Returns true if all transitions in the Petri net are live.
-    ///
-    /// This is a convenience method which
     #[must_use]
     pub fn is_live(&self) -> bool {
         self.levels.values().all(LivenessLevel::is_l4_live)
@@ -177,16 +173,19 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 }
             }
             let mut neighbors = condensation_graph.neighbors(scc).peekable();
-            if neighbors.peek().is_none() {
+            if neighbors.peek().is_some() {
+                for neighbor in neighbors {
+                    dfs_from_markable_scc(condensation_graph, neighbor, liveness, reachable_sinks, visited);
+                }
+            } else {
+                // we have reached a terminal SCC.
+                // keep track of whether this is the only one possible to reach (L4)
+                // or if there are multiple possibilities (L3)
                 *reachable_sinks = match *reachable_sinks {
                     ReachableSinks::NoneYet => ReachableSinks::One(scc),
                     ReachableSinks::One(sink) if sink == scc => ReachableSinks::One(sink),
                     _ => ReachableSinks::Multiple,
                 };
-            } else {
-                neighbors.for_each(|neighbor| {
-                    dfs_from_markable_scc(condensation_graph, neighbor, liveness, reachable_sinks, visited);
-                });
             }
         }
 
@@ -372,13 +371,32 @@ mod tests {
     }
 
     #[test]
+    fn one_of_each_liveness() {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [l0, l1, l3, l4] = b.add_transitions();
+        b.add_arcs((p0, l0, p1, l3, p1, l1, p2, l4, p2));
+        let net = b.build().unwrap();
+        let sys = PetriNet::new(net, [(p1, 1)]);
+        let analysis = sys.liveness();
+        assert_eq!(analysis.level(l0), LivenessLevel::L0);
+        assert_eq!(analysis.level(l1), LivenessLevel::L1);
+        assert_eq!(analysis.level(l3), LivenessLevel::L3);
+        assert_eq!(analysis.level(l4), LivenessLevel::L4);
+    }
+
+    #[test]
     fn s_net_non_sc_mixed_levels() {
         let mut b = NetBuilder::new();
-        let [p0, p1, p2, p3] = b.add_places();
+        let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
         b.add_arcs((p0, t0, p1, t1, p0));
-        let [t2, t3, t4] = b.add_transitions();
-        b.add_arcs((p0, t2, p2, t3, p3, t4, p2));
+        let [p2, p3] = b.add_places();
+        let [t3, t4] = b.add_transitions();
+        b.add_arcs((p2, t3, p3, t4, p2));
+
+        let switch = b.add_transition();
+        b.add_arcs((p0, switch, p2));
 
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::StateMachine);
@@ -389,7 +407,7 @@ mod tests {
         assert_eq!(analysis.level(t0), LivenessLevel::L3);
         assert_eq!(analysis.level(t1), LivenessLevel::L3);
         // Inter-SCC transition → L1
-        assert_eq!(analysis.level(t2), LivenessLevel::L1);
+        assert_eq!(analysis.level(switch), LivenessLevel::L1);
         // SCC_B is sink and reachable (receives tokens from SCC_A) → L4
         assert_eq!(analysis.level(t3), LivenessLevel::L4);
         assert_eq!(analysis.level(t4), LivenessLevel::L4);

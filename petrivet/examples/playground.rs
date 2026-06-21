@@ -28,8 +28,9 @@ struct Display<'a>(Marking<u32>, &'a NetLabels);
 impl std::fmt::Display for Display<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{{")?;
-        for &(place, tokens) in self.0.support() {
+        for place in self.0.support() {
             let id = self.1.place_id(place).unwrap_or("unnamed");
+            let tokens = self.0.get(place);
             write!(f, "{id}: {tokens}, ")?;
         }
         write!(f, "}}")?;
