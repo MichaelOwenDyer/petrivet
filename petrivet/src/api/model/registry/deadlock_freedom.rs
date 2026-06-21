@@ -226,6 +226,20 @@ mod tests {
         let expect = if dsys.is_deadlock_free() { "proven" } else { "refuted" };
         assert_eq!(driver_pole(&dnet, &dm0), expect, "driver vs is_deadlock_free");
         assert_eq!(expect, "refuted", "this net can reach a total deadlock");
+
+        // m0-deadlock: an unmarked cycle is a total deadlock at m0 itself. The
+        // driver must Refute (pins the Workflow-2 seed-deadlock soundness fix —
+        // the cascade previously missed an m0 deadlock and the driver minted a
+        // false Proven(DeadlockFree)).
+        let mut b = NetBuilder::new();
+        let [e0, e1] = b.add_places();
+        let [u0, u1] = b.add_transitions();
+        b.add_arcs((e0, u0, e1, u1, e0));
+        let enet = b.build().expect("valid cycle");
+        let esys = PetriNet::new(&enet, []);
+        let em0 = esys.marking();
+        assert!(!esys.is_deadlock_free(), "m0 is itself a total deadlock");
+        assert_eq!(driver_pole(&enet, &em0), "refuted", "driver refutes the m0-deadlock net");
     }
 
     /// `[PROP]` — the accepted pole is invariant under every ordering of the three
