@@ -214,14 +214,14 @@ impl<T: TokenOps> StateGraph<'_, T> {
     /// unbounded.
     #[must_use]
     pub fn place_bound(&self, p: Place) -> T {
-        self.mapping.place_idx(p).map_or(
-            T::ZERO,
+        self.mapping.place_idx(p).map_or_else(
+            T::zero,
             |p_idx| {
                 self.state_space
                     .markings()
                     .map(|marking| marking[p_idx])
                     .max()
-                    .unwrap_or(T::ZERO)
+                    .unwrap_or_else(T::zero)
             }
         )
     }

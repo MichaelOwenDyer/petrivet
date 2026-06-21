@@ -1,5 +1,5 @@
 use crate::core::marking;
-use crate::core::marking::IdxMarking;
+use crate::core::marking::{DefaultToken, IdxMarking};
 use crate::core::net::TransitionIdx;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
 use ahash::{HashSet, HashSetExt};
@@ -8,6 +8,8 @@ use petgraph::visit::EdgeRef;
 use std::cmp::Ordering;
 use std::iter;
 use std::iter::Sum;
+use std::ops::Add;
+use num_traits::Zero;
 
 /// A token count that is either finite or ω (unbounded).
 ///
@@ -15,29 +17,29 @@ use std::iter::Sum;
 /// since ω represents unboundedness but this enum
 /// represents either boundedness or unboundedness.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Omega {
+pub enum Omega<T> {
     /// A concrete finite token count.
-    Finite(u32),
+    Finite(T),
     /// An unbounded token count (ω). Greater than any finite value.
     Unbounded,
 }
 
-impl Omega {
+impl<T> Omega<T> {
     /// Returns `true` if this is a finite value.
     #[must_use]
-    pub const fn is_finite(self) -> bool {
+    pub const fn is_finite(&self) -> bool {
         matches!(self, Omega::Finite(_))
     }
 
     /// Returns `true` if this value is unbounded (ω).
     #[must_use]
-    pub const fn is_omega(self) -> bool {
+    pub const fn is_omega(&self) -> bool {
         matches!(self, Omega::Unbounded)
     }
 
     /// Returns the finite value, or `None` if unbounded.
     #[must_use]
-    pub const fn finite(self) -> Option<u32> {
+    pub const fn finite(&self) -> Option<&T> {
         match self {
             Omega::Finite(n) => Some(n),
             Omega::Unbounded => None,
@@ -45,19 +47,19 @@ impl Omega {
     }
 }
 
-impl Default for Omega {
+impl<T: Default> Default for Omega<T> {
     fn default() -> Self {
-        Omega::Finite(0)
+        Omega::Finite(T::default())
     }
 }
 
-impl From<u32> for Omega {
-    fn from(n: u32) -> Self {
-        Omega::Finite(n)
+impl<T> From<T> for Omega<T> {
+    fn from(t: T) -> Self {
+        Omega::Finite(t)
     }
 }
 
-impl Ord for Omega {
+impl<T: Ord> Ord for Omega<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Omega::Finite(a), Omega::Finite(b)) => a.cmp(b),
@@ -68,29 +70,29 @@ impl Ord for Omega {
     }
 }
 
-impl PartialOrd for Omega {
+impl<T: Ord> PartialOrd for Omega<T> where Omega<T>: PartialEq {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl PartialEq<u32> for Omega {
-    fn eq(&self, other: &u32) -> bool {
+impl<T, R> PartialEq<R> for Omega<T> where T: PartialEq<R> {
+    fn eq(&self, other: &R) -> bool {
         match self {
-            Omega::Finite(n) => n == other,
+            Omega::Finite(t) => t == other,
             Omega::Unbounded => false,
         }
     }
 }
 
-impl PartialEq<Omega> for u32 {
-    fn eq(&self, other: &Omega) -> bool {
-        other == self
-    }
-}
+// impl<T, R> PartialEq<Omega<T>> for R where T: PartialEq<R> {
+//     fn eq(&self, other: &Omega<T>) -> bool {
+//         other == self
+//     }
+// }
 
-impl PartialOrd<u32> for Omega {
-    fn partial_cmp(&self, other: &u32) -> Option<Ordering> {
+impl<T: Ord> PartialOrd<T> for Omega<T> {
+    fn partial_cmp(&self, other: &T) -> Option<Ordering> {
         match self {
             Omega::Finite(n) => n.partial_cmp(other),
             Omega::Unbounded => Some(Ordering::Greater),
@@ -98,24 +100,28 @@ impl PartialOrd<u32> for Omega {
     }
 }
 
-impl PartialOrd<Omega> for u32 {
-    fn partial_cmp(&self, other: &Omega) -> Option<Ordering> {
+impl<T: Ord> PartialOrd<Omega<T>> for T {
+    fn partial_cmp(&self, other: &Omega<T>) -> Option<Ordering> {
         other.partial_cmp(self).map(Ordering::reverse)
     }
 }
 
-impl Sum for Omega {
+impl<T: Zero + Sum> Sum for Omega<T> {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(Self::ZERO, |acc, o| match (acc, o) {
+        iter.fold(Omega::Finite(T::zero()), |acc, o| match (acc, o) {
             (Omega::Unbounded, _) | (_, Omega::Unbounded) => Omega::Unbounded,
             (Omega::Finite(a), Omega::Finite(b)) => Omega::Finite(a + b),
         })
     }
 }
 
-impl TokenOps for Omega {
-    const ZERO: Self = Omega::Finite(0);
-    const ONE: Self = Omega::Finite(1);
+impl<T: TokenOps> TokenOps for Omega<T> {
+    fn zero() -> Self {
+        Omega::Finite(0)
+    }
+    fn one() -> Self {
+        Omega::Finite(1)
+    }
     fn at_least_one(&self) -> bool {
         match self {
             Omega::Finite(n) => *n >= 1,

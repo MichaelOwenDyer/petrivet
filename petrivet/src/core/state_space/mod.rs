@@ -22,9 +22,9 @@ pub enum ExplorationOrder {
 }
 
 /// Operations on a token count needed for state space exploration.
-pub trait TokenOps: Clone + Copy + Eq + Ord + Hash + Sum {
-    const ZERO: Self;
-    const ONE: Self;
+pub trait TokenOps: Copy + Eq + Ord + Hash + Sum {
+    fn zero() -> Self;
+    fn one() -> Self;
     fn at_least_one(&self) -> bool;
     fn increment(&mut self);
     fn decrement(&mut self);

@@ -1,14 +1,28 @@
 use crate::core::net::TransitionIdx;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
 use crate::liveness::LivenessLevel;
+use num_traits::{One, Unsigned, Zero};
 use petgraph::graph::NodeIndex;
+use std::hash::Hash;
+use std::iter::Sum;
+use std::ops::{AddAssign, SubAssign};
 
-impl TokenOps for u32 {
-    const ZERO: Self = 0;
-    const ONE: Self = 1;
-    fn at_least_one(&self) -> bool { *self >= 1 }
-    fn increment(&mut self) { *self += 1; }
-    fn decrement(&mut self) { *self -= 1; }
+impl<T> TokenOps for T where T: Unsigned + Copy + Eq + Ord + Hash + Sum + AddAssign + SubAssign {
+    fn zero() -> Self {
+        <T as Zero>::zero()
+    }
+    fn one() -> Self {
+        <T as One>::one()
+    }
+    fn at_least_one(&self) -> bool {
+        *self >= T::one()
+    }
+    fn increment(&mut self) {
+        *self += T::one();
+    }
+    fn decrement(&mut self) {
+        *self -= T::one();
+    }
 }
 
 /// The core reachability graph exploration algorithm,

@@ -14,6 +14,7 @@ graph-cycles = "0.3.0"
 quick-xml = { version = "0.40.1", features = ["serialize"], optional = true }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 tap = "1.0.1"
+num-traits = "0.2.19"
 
 [features]
 default = ["pnml"]

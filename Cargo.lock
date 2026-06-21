@@ -676,6 +676,7 @@ dependencies = [
  "criterion",
  "good_lp",
  "graph-cycles",
+ "num-traits",
  "petgraph",
  "quick-xml",
  "serde",

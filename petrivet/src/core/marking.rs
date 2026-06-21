@@ -4,6 +4,8 @@ use std::cmp::Ordering;
 use std::ops::{Index, IndexMut};
 use std::{iter, vec};
 
+pub type DefaultToken = u32;
+
 /// A marking: one value of type `T` per place, indexed by [`PlaceIdx`].
 ///
 /// The default token type is `u32`.
