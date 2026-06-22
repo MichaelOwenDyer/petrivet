@@ -7,6 +7,13 @@ precisely. The plain reading gives the direction; the technical reading is the p
 The authoritative source is [`BACKLOG.md`](../../BACKLOG.md) (the dependency-ordered
 milestones M6–M13 and Epics A–H); this is the narrative that makes its shape legible.*
 
+> **Framing note.** The *committed spine* below — the structural deciders that decide without
+> state-space exploration, and the rig that measures their coverage — advances the library Michael
+> described (his "structural analysis" feature and his roadmap toward handling more real nets,
+> faster). The *thesis claim* this lane is framed around (the two numbers `f_struct`/`f`) is a
+> **proposal he owns**, not a settled goal; the structural-and-measurement work is useful to the
+> tool regardless of which framing he chooses.
+
 ---
 
 ## 1. The shape of what's left
@@ -21,7 +28,7 @@ shows they are worth building). The discipline running through all of it is the 
 one that governed the foundation: claim only what a measurement or a proof supports,
 and prefer an honest "we don't know yet" to an overstated result.
 
-**Precisely.** The thesis is **two numbers**, not a theorem:
+**Precisely.** The *proposed* thesis (Michael's to ratify) would rest on **two numbers**, not a theorem:
 
 - **`f_struct`** — the fraction of benchmark-corpus queries the *polynomial structural
   tier* decides without state-space exploration. This is the falsifiable headline.

@@ -10,6 +10,14 @@ reading is the real claim. The detailed records are in
 [`BACKLOG.md`](../../BACKLOG.md); this document is the overview that ties them
 together.*
 
+> **Framing note.** This describes what the development work *adds to the library Michael
+> described*: faster structural answers (decide without state-space exploration), an
+> exact-arithmetic correctness layer, a per-class dispatch registry ("intelligently chooses the
+> most efficient algorithm for your net's structure"), and a set of bug fixes. The
+> *thesis-contribution* framing in §1 — the certificate-and-checker as the contribution, `f_struct`
+> as a headline — is a **proposal Michael owns** (accept, refine, or reject); the library work
+> stands on its own either way.
+
 ---
 
 ## 1. What the project is, and what it claims
@@ -27,10 +35,10 @@ answering *trustworthily* (a fast shortcut is only useful if you can believe it)
 marking reachable from the initial one?), **coverability** (is some reachable marking
 ≥ a target?), **boundedness** (is the reachable state space finite?), **liveness**
 (can every transition always eventually fire again?), and **deadlock-freedom** (is no
-reachable marking a total deadlock?). The thesis's organizing claim — its *ratified
-direction* — is an inversion of where the original vision put its emphasis:
+reachable marking a total deadlock?). The *proposed* thesis framing — Michael's to ratify,
+refine, or reject — would invert where the original vision put its emphasis:
 
-- **The signature contribution is the certificate-and-checker.** Every verdict carries
+- **The proposed signature contribution is the certificate-and-checker.** Every verdict carries
   a machine-checkable *certificate* — a witness (a firing sequence, an invariant, a
   structural cover) that a *small, independent checker re-validates against the
   original net*, sharing no code with the procedure that produced it. That small

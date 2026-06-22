@@ -1,10 +1,24 @@
 # HANDBACK — petrivet foundation (Workflow 2: M3 + B2)
 
 *For Michael. The second workflow of the foundation: the **M3 decider registry** and the **B2
-cluster-quotient keystone**, built on the Workflow-1 base (M0–M2 + M4/M5 + A6) to the working
-doctrine. This records what was built, what is **proven** (with test names), the runway left, and
-the premise-level flags for your ratification. Everything is **local** on branch `workflow-2`
-(stacked on `foundation-code`) — no push, no PR.*
+cluster-quotient keystone**, built on the Workflow-1 base (M0–M2 + M4/M5 + A6). This records what was
+built, what is **proven** (with test names), the runway left, and the premise-level flags for your
+ratification. Delivered as the development PR (stacked on the docs PR).*
+
+> **What this advances in your library** (mapped to your README features):
+> - **Structural analysis without state-space exploration** — the B2 cluster keystone supplies the
+>   missing definition for the `c` your `class.rs` Rank-Theorem doc already names; the decider seam
+>   widens your "System too complex for state-space exploration?" feature.
+> - **Intelligent per-class dispatch** — M3 turns "petrivet intelligently chooses the most efficient
+>   algorithm for your net's structure" into a first-class, reorderable seam, **purely additive**
+>   (your five cascade methods are untouched and serve as the regression oracle).
+> - **Correctness** — the exact-arithmetic guard and the bug fixes (incl. two false-`Proven` holes
+>   and the `m₀`-deadlock) protect the answers your analyses return; your fast `f64` path is kept as a
+>   *suggester*, with an exact guard added so a near-boundary float can't mint a wrong verdict.
+>
+> The *thesis-contribution framing* below (the certificate-and-checker as the contribution, the
+> certifying fraction `f`) is a **proposal you own** — accept, refine, or reject. The library work
+> stands either way.
 
 > **Read the Workflow-1 handback first** ([`HANDBACK.md`](../../HANDBACK.md)) for the base this
 > stacks on, and the brief this discharges ([`m3-b2-handoff.md`](m3-b2-handoff.md)). The discernment
