@@ -3,13 +3,15 @@
 
 > Status: design document (specification-grade). The bridge between the [essays](../essays/README.md) — which argue the vision — and the ratified [`BACKLOG.md`](../../BACKLOG.md), which sequences the build. It specifies the components that do not yet exist in the codebase but are prerequisites for the analyses the vision describes, and it fixes the shapes (`Verdict`, `Certificate`, `Decider`) the rest of the program is written against. Statements about current code are verifiable against the cited file/line references; proposed components are identified as proposed. The Petri-net theory itself is Michael's.
 >
-> The narrative and the argument for these shapes — why the trust boundary is load-bearing, the inversion that puts the certificate before the scalar — live in [latent-architecture.md](../essays/latent-architecture.md). This document specifies; the essay argues. Each component F-number is tagged with the [`BACKLOG.md`](../../BACKLOG.md) epic that schedules it; that backlog is the single authoritative plan.
+> The narrative and the argument for these shapes — why the trust boundary is load-bearing, the inversion that puts the certificate before the scalar — live in [latent-architecture.md](../essays/latent-architecture.md). This document specifies; the essay argues. Each component F-number is tagged with the [`BACKLOG.md`](../../BACKLOG.md) epic that schedules it; that backlog is the proposed engineering plan (the corpus's recommended sequencing, for Michael's ratification).
 
 ---
 
-## 0. The ratified inversion (what this document is built on)
+## 0. The proposed inversion (a reframing for Michael's ratification)
 
-The vision essays once led with a *theorem* — soundness is independent of the selection policy — and a *scalar*, Φ_PN. The ratified plan inverts the emphasis, and this design is written from the inverted position. The argument for the inversion is in [latent-architecture.md](../essays/latent-architecture.md) and [README.md](../essays/README.md); the premises this spec builds on are:
+> This section states a *proposed* reframing of the project's emphasis — authored for Michael, who owns the thesis framing. It is not a decision he has made. The architecture this document specifies (the `Verdict`/`Certificate` contract, the exact-rational core, the decider registry) is useful to the library regardless of which framing he chooses; the framing below is the part for him to accept, refine, or reject.
+
+The vision essays once led with a *theorem* — soundness is independent of the selection policy — and a *scalar*, Φ_PN. The proposed reframing inverts the emphasis, and this design is written from the inverted position. The argument for the inversion is in [latent-architecture.md](../essays/latent-architecture.md) and [README.md](../essays/README.md); the premises this spec is written *against* (proposed, not yet ratified by Michael) are:
 
 - **The certificate-and-checker is the stone** — an interoperable, machine-checkable certificate for every verdict, re-validated by a small external checker that *is* the entire trusted base (Epic C; here F3 + the original-net invariant of §5).
 - **The falsifiable headline is empirical** — a measured coverage number `f_struct`: on the real MCC P/T corpus a polynomial structural certificate decides a large, characterizable fraction of queries without state-space exploration, and abstains honestly elsewhere (Epic G). Not a theorem.
@@ -589,10 +591,10 @@ There are two roots: F1 (exact linear algebra) and F3 (the certificate calculus)
 
 ---
 
-## 11. The authoritative plan
+## 11. The recommended plan
 
-The single authoritative, dependency-sequenced plan with falsifiable gates is [`BACKLOG.md`](../../BACKLOG.md) (epics A–H, X), which now carries the merged plan. This document's F1–F8 components are tagged with their governing epic inline (§§4–8); the backlog governs sequencing and acceptance. Where this spec and the backlog ever appear to diverge, the backlog is authoritative and this text is brought into line.
+The dependency-sequenced plan with falsifiable gates is [`BACKLOG.md`](../../BACKLOG.md) (epics A–H, X), the corpus's recommended sequencing for Michael's ratification. This document's F1–F8 components are tagged with their governing epic inline (§§4–8); the backlog governs sequencing within that recommendation. Where this spec and the backlog ever appear to diverge, the backlog is the more current recommendation and this text is brought into line.
 
 ---
 
-*Methodology: derived from a line-by-line reading of the codebase — the state-space engine, the class-gated cascades, the floating-point LP layer, the siphon/trap closures, and the `literature.rs` citation index — and reconciled to the ratified [`BACKLOG.md`](../../BACKLOG.md). Every statement about current code is checked against a file/line reference; every proposed type is identified as proposed.*
+*Methodology: derived from a line-by-line reading of the codebase — the state-space engine, the class-gated cascades, the floating-point LP layer, the siphon/trap closures, and the `literature.rs` citation index — and reconciled to the proposed [`BACKLOG.md`](../../BACKLOG.md). Every statement about current code is checked against a file/line reference; every proposed type is identified as proposed.*
