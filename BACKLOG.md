@@ -14,7 +14,13 @@ project's trajectory, and surveyed new certifying deciders, a certificate standa
 and the Φ capstone. Where an item cites a vision file, the path is relative to the
 `docs/vision` branch.
 
-### The organizing thesis (as ratified — the *inversion* of the docs' emphasis)
+### The organizing thesis — a *proposed reframing* (awaiting Michael's ratification)
+
+> **This is a proposal authored *for* Michael, not a decision he has made.** It reframes the project
+> around one possible thesis contribution (a proof-carrying, structural-coverage spine). Michael owns
+> the thesis framing — accept, refine, or reject it. The library-facing work this backlog schedules
+> (structural deciders that decide without state-space exploration, exact-arithmetic correctness, the
+> per-class dispatch registry, the bug fixes) stands on its own regardless of which framing he chooses.
 
 - **The certificate-and-checker is the stone.** The signature technical contribution
   is an interoperable, machine-checkable certificate for each property verdict,
@@ -33,15 +39,15 @@ and the Φ capstone. Where an item cites a vision file, the path is relative to 
 - **Learned selection (Epic D ladder) and the Φ residuals (Epic H) are sequels and
   horizons**, not the spine.
 
-### Committed decisions (settled in this pass)
+### Recommended decisions (for Michael's call)
 
-- **MCC ranking is OUT as a thesis goal.** The contest is the *crucible* (honest,
+- **MCC ranking is *recommended* OUT as a thesis goal.** The contest is the *crucible* (honest,
   protocol-correct abstention with an oracle cross-check) and the *labelling source*
   (the certificate is the training label); it is not a leaderboard to climb. The unit
   of evidence is a characterization plus a construction, not a benchmark ranking.
 - **The primary thesis claim is the structural-coverage characterization** (G1),
   carrying the proof-carrying-certificate contribution. The exact wording remains the
-  author's to finalize; the framing is committed.
+  author's to finalize; the framing is *proposed* — Michael's to ratify, refine, or reject.
 
 ### Status of the vision documents
 
@@ -765,7 +771,7 @@ the Nix VM), so most items are promotions to thesis-grade. The headline number i
 family-held-out.
 
 ### G1 — Commit the falsifiable thesis claim (the coverage characterization)
-- **Status:** `RESERVED` (the exact wording is the author's; the framing is committed)
+- **Status:** `RESERVED` (the exact wording is the author's; the framing is *proposed*, his to ratify)
 - **Observation:** The thesis scaffold is the stock template (residue at `thesis.typ:55`–148
   to delete). The committed claim: *on the MCC P/T corpus, a polynomial structural certifying
   tier decides a large, characterizable fraction of queries with an independently checkable

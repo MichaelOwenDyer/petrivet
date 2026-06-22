@@ -2,16 +2,16 @@
 
 This folder is the **vision corpus** for `petrivet` (a Rust Petri-net analyzer and the master's thesis it supports): a set of design essays and research notes that read the codebase, name the structures it already has, and argue toward where it could go. They were produced by Daniel Dyer with Claude, by reading the source, the comments, the tests, and the git history. The core Petri-net theory is Michael's; the proposed extensions are marked as such throughout, and each distinguishes between what is *implemented*, what is *specified but not yet built*, and what is *proposed or speculative*.
 
-## The inversion (read this first)
+## The proposed inversion (read this first)
 
-This is the one canonical statement of the orientation the corpus is reconciled to; every other essay references it rather than restating it. It inverts the emphasis an earlier draft carried:
+This is the corpus's *proposed* orientation — authored *for* Michael, who owns the thesis framing; every other essay references it rather than restating it. It is a proposal to accept, refine, or reject, not a decision. It reframes the emphasis an earlier draft carried:
 
 - **The certificate-and-checker is the stone.** The signature technical contribution is an interoperable, machine-checkable certificate for each verdict, re-validated by a *small external checker that is the entire trusted base*.
-- **The structural-coverage claim is the falsifiable headline.** The empirical, testable claim is `f_struct`: on the real MCC P/T corpus, a polynomial structural certifying tier decides a large, characterizable fraction of *queries decided* without state-space exploration, and where it abstains, it abstains honestly. This is the number the thesis lives or dies by.
+- **The structural-coverage claim is the falsifiable headline.** The empirical, testable claim is `f_struct`: on the real MCC P/T corpus, a polynomial structural certifying tier decides a large, characterizable fraction of *queries decided* without state-space exploration, and where it abstains, it abstains honestly. This is the number such a thesis would live or die by.
 - **The soundness firewall is the enabling property, not the headline.** "Soundness is independent of the selection policy" is, as a theorem, a one-line corollary of certifying algorithms composed with algorithm selection; its real content is a *precondition* the code must first discharge (the two `Some(false)` stubs). The contribution is the firewall **built and measured**, with the certifying fraction `f` as its figure of merit.
 - **Learned selection and the factorization residuals are the sequel and the horizon.** The SATzilla-style learned-selection ladder is the deferred next move, safe to defer precisely because the certificate makes mis-selection cost time and never correctness. The scalar net-level `Φ_PN` is **dissolved** to two honest, computable, per-property residuals, whose *measurement* — not their metaphysics — is the deliverable.
 
-**Status — non-authoritative.** These essays are explicitly **not** the thesis proper and **not** project direction. They are vision and research artifacts, authored *toward* the thesis author, inviting contradiction. The authoritative, engineering-sequenced plan is [`BACKLOG.md`](../../BACKLOG.md); where the backlog and an essay disagree, the backlog's ratified position governs. The code is real and verifiable; the thesis document is at present a template.
+**Status — non-authoritative.** These essays are explicitly **not** the thesis proper and **not** project direction. They are vision and research artifacts, authored *toward* the thesis author, inviting contradiction. The engineering-sequenced plan is [`BACKLOG.md`](../../BACKLOG.md); where the backlog and an essay disagree, the backlog's position is the corpus's current best *recommendation* — Michael's to ratify. The code is real and verifiable; the thesis document is at present a template.
 
 **The IIT fence.** Integrated Information Theory is **not** present in the repository. It is invoked here only in its factorization-residual form — the *shape* of a minimum-over-partitions distance — and is fenced off from any claim about cognition. The residuals are a statement about nets, not minds.
 
@@ -33,6 +33,6 @@ The order below follows the spine: the enabling property, then the signature con
 The corpus hands off from vision into the sequenced build through two documents:
 
 - **[Foundational design](../foundations/foundational-design.md)** — the architecture spec: the components the future codebase requires (the `Verdict`/`Certificate` contract, the checker, the decider registry, the measurement domain).
-- **[`BACKLOG.md`](../../BACKLOG.md)** — the single authoritative, dependency-ordered engineering plan, whose epics realize the spine above: the trust boundary (Epic A/C), the structural generators that widen coverage (Epic B), the measured headline `f_struct`/`f` (Epic G), the learned-selection sequel (Epic D), the certified reductions (Epic F), and the dissolved residuals (Epic H).
+- **[`BACKLOG.md`](../../BACKLOG.md)** — the dependency-ordered engineering plan (the corpus's recommended sequencing, for Michael's ratification), whose epics realize the proposed spine above: the trust boundary (Epic A/C), the structural generators that widen coverage (Epic B), the measured headline `f_struct`/`f` (Epic G), the learned-selection sequel (Epic D), the certified reductions (Epic F), and the dissolved residuals (Epic H).
 
 The companion [self-measurement harness plan](../self-measurement-harness-plan.md) is the experimental rig that produces the headline numbers.
