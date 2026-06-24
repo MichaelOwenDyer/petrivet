@@ -258,6 +258,38 @@ impl Net {
         })
     }
 
+    /// Renders the net structure in Graphviz DOT format: places as circles,
+    /// transitions as boxes, and arcs as directed edges, each labelled with its
+    /// public id (`p<id>` / `t<id>`). Pipe the output to e.g. `dot -Tsvg` to
+    /// visualise. See [`PetriNet::to_dot`](crate::system::PetriNet::to_dot) to
+    /// also show a marking's tokens.
+    #[must_use]
+    pub fn to_dot(&self) -> String {
+        use std::fmt::Write as _;
+
+        let mut out = String::from("digraph net {\n");
+        for p in self.places() {
+            let id = p.0.get();
+            let _ = writeln!(out, "    p{id} [shape=circle, label=\"p{id}\"];");
+        }
+        for t in self.transitions() {
+            let id = t.0.get();
+            let _ = writeln!(out, "    t{id} [shape=box, label=\"t{id}\"];");
+        }
+        for arc in self.arcs() {
+            match arc {
+                Arc::PlaceToTransition(p, t) => {
+                    let _ = writeln!(out, "    p{} -> t{};", p.0.get(), t.0.get());
+                }
+                Arc::TransitionToPlace(t, p) => {
+                    let _ = writeln!(out, "    t{} -> p{};", t.0.get(), p.0.get());
+                }
+            }
+        }
+        out.push_str("}\n");
+        out
+    }
+
     /// Returns whether every place in this net belongs to an S-component.
     #[must_use]
     pub fn is_covered_by_s_components(&self) -> bool {
