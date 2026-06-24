@@ -513,6 +513,73 @@ pub fn covering_invariant_exact(
     CoveringInvariantExact::NotCertified
 }
 
+/// Whether `weights` (length `|P|`, in dense place-index order) is an exact
+/// **positive place sub-invariant** of `net`: every weight is `> 0` and the
+/// weighted token change `Σ_p y[p]·C[p][t] ≤ 0` for every transition `t`. Such a
+/// `y` witnesses *structural boundedness* — no initial marking lets any place grow
+/// without bound. Returns `false` on a length mismatch or an i128 overflow in the
+/// exact dot product, never a fabricated `true`.
+#[must_use]
+pub fn is_positive_place_subinvariant(net: &crate::core::net::DenseNet, weights: &[Rational]) -> bool {
+    place_subinvariant_holds(net, weights, None)
+}
+
+/// Whether `weights` is an exact **semi-positive place sub-invariant** covering
+/// `place`: `y[place] > 0`, every other weight `≥ 0`, and `Σ_p y[p]·C[p][t] ≤ 0`
+/// for every transition. A witness for structural boundedness of `place` alone.
+/// Returns `false` on a length mismatch, an out-of-range `place`, or an i128
+/// overflow — never a fabricated `true`.
+#[must_use]
+pub fn is_semipositive_place_subinvariant(
+    net: &crate::core::net::DenseNet,
+    weights: &[Rational],
+    place: crate::core::net::PlaceIdx,
+) -> bool {
+    place < net.place_count() && place_subinvariant_holds(net, weights, Some(place))
+}
+
+/// Shared check for [`is_positive_place_subinvariant`] /
+/// [`is_semipositive_place_subinvariant`]: the sign constraints (the `required`
+/// place strictly positive and every other weight non-negative; `None` requires
+/// *every* place strictly positive) plus the exact sub-invariant inequality
+/// `yᵀ·C ≤ 0` evaluated columnwise over ℚ.
+fn place_subinvariant_holds(
+    net: &crate::core::net::DenseNet,
+    weights: &[Rational],
+    required: Option<crate::core::net::PlaceIdx>,
+) -> bool {
+    if weights.len() != net.place_count() {
+        return false;
+    }
+    for (p, &y) in weights.iter().enumerate() {
+        let strict = required.is_none_or(|req| p == req);
+        if strict {
+            if y <= Rational::ZERO {
+                return false;
+            }
+        } else if y < Rational::ZERO {
+            return false;
+        }
+    }
+    let incidence = incidence_over_rationals(net);
+    for ti in net.transition_indices() {
+        let mut col = Rational::ZERO;
+        for pi in net.place_indices() {
+            let Ok(summed) = weights[pi]
+                .checked_mul(incidence.get(pi, ti))
+                .and_then(|term| col.checked_add(term))
+            else {
+                return false; // exact overflow: cannot certify, never fabricate
+            };
+            col = summed;
+        }
+        if col > Rational::ZERO {
+            return false;
+        }
+    }
+    true
+}
+
 /// Negate every entry of a rational vector, or `None` on overflow (only at the
 /// unrepresentable `i128::MIN` numerator, which `Rational::new` already refuses).
 fn negate_vector(v: &[Rational]) -> Option<Vec<Rational>> {
@@ -522,7 +589,8 @@ fn negate_vector(v: &[Rational]) -> Option<Vec<Rational>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        incidence_over_rationals, marking_equation_exact, Matrix, MarkingEquationExact,
+        incidence_over_rationals, is_positive_place_subinvariant,
+        is_semipositive_place_subinvariant, marking_equation_exact, Matrix, MarkingEquationExact,
     };
     use crate::core::analysis::rational::Rational;
     use crate::prelude::NetBuilder;
@@ -721,5 +789,67 @@ mod tests {
                 assert!(dot.is_zero());
             }
         }
+    }
+
+    #[test]
+    fn positive_place_subinvariant_accepts_conservation_rejects_source() {
+        // A two-place cycle conserves tokens: y = (1, 1) is a positive place
+        // sub-invariant (yᵀ·C = 0 ≤ 0, y > 0), so the net is structurally bounded.
+        let mut cyc = NetBuilder::new();
+        let [c0, c1] = cyc.add_places();
+        let [u0, u1] = cyc.add_transitions();
+        cyc.add_arcs((c0, u0, c1, u1, c0));
+        let cyc = cyc.build().unwrap();
+        let ones = [Rational::ONE, Rational::ONE];
+        assert!(is_positive_place_subinvariant(&cyc.dense_net, &ones));
+
+        // The same weights with a zero component are not strictly positive.
+        let with_zero = [Rational::ONE, Rational::ZERO];
+        assert!(!is_positive_place_subinvariant(&cyc.dense_net, &with_zero));
+
+        // A net with a pure source transition into p1 (p0 self-loop, t0 also feeds
+        // p1) is structurally unbounded: no positive weighting makes yᵀ·C ≤ 0,
+        // because the p1 column is strictly positive.
+        let mut src = NetBuilder::new();
+        let [s0, s1] = src.add_places();
+        let [v0] = src.add_transitions();
+        src.add_arc((s0, v0));
+        src.add_arc((v0, s0));
+        src.add_arc((v0, s1));
+        let src = src.build().unwrap();
+        for y in [[Rational::ONE, Rational::ONE], [Rational::from_int(3), Rational::ONE]] {
+            assert!(
+                !is_positive_place_subinvariant(&src.dense_net, &y),
+                "no positive sub-invariant exists for a structurally unbounded net"
+            );
+        }
+
+        // A length mismatch is rejected, never fabricated true.
+        assert!(!is_positive_place_subinvariant(&cyc.dense_net, &[Rational::ONE]));
+    }
+
+    #[test]
+    fn semipositive_place_subinvariant_requires_the_witness_place_positive() {
+        // The cycle bounds both places. A semi-positive sub-invariant covering c0
+        // needs y[c0] > 0 and yᵀ·C ≤ 0; (1, 1) works.
+        let mut cyc = NetBuilder::new();
+        let [_c0, _c1] = cyc.add_places();
+        let [u0, u1] = cyc.add_transitions();
+        cyc.add_arcs((_c0, u0, _c1, u1, _c0));
+        let cyc = cyc.build().unwrap();
+        // The conservation weighting (1, 1) covers either place (other weights may
+        // be positive — the cert only requires the witness place strictly positive).
+        let ones = [Rational::ONE, Rational::ONE];
+        assert!(is_semipositive_place_subinvariant(&cyc.dense_net, &ones, 0));
+        assert!(is_semipositive_place_subinvariant(&cyc.dense_net, &ones, 1));
+        // Weight 0 on the witness place fails the strict-positivity requirement.
+        let zero_first = [Rational::ZERO, Rational::ONE];
+        assert!(!is_semipositive_place_subinvariant(&cyc.dense_net, &zero_first, 0));
+        // And (0, 1) is not a sub-invariant of the cycle at all (weighting a single
+        // place of a cycle leaves a strictly positive column), so it fails for the
+        // other witness too — never a fabricated true.
+        assert!(!is_semipositive_place_subinvariant(&cyc.dense_net, &zero_first, 1));
+        // An out-of-range place index is rejected.
+        assert!(!is_semipositive_place_subinvariant(&cyc.dense_net, &ones, 9));
     }
 }
