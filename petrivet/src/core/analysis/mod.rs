@@ -1,3 +1,4 @@
+pub mod cluster;
 pub mod exact_matrix;
 pub mod incidence;
 pub mod rational;
