@@ -15,17 +15,28 @@ use crate::state_space::{ExplorationOrder, ReachabilityExplorer};
 pub type Deadlock = Marking<u32>;
 
 /// An incremental iterator over all reachable deadlock markings in a system.
-pub struct Deadlocks<'a>(Option<ReachabilityExplorer<'a>>);
+pub struct Deadlocks<'a> {
+    explorer: Option<ReachabilityExplorer<'a>>,
+    /// The initial marking iff it is itself a deadlock — yielded first, exactly
+    /// once. The explorer's `search` evaluates the deadlock predicate only on
+    /// newly-discovered *successor* markings, so the (reachable) seed marking
+    /// must be tested separately; otherwise an `m₀`-deadlock is missed and the
+    /// system is falsely reported deadlock-free.
+    initial_deadlock: Option<Deadlock>,
+}
 
 impl Iterator for Deadlocks<'_> {
     type Item = Deadlock;
 
     fn next(&mut self) -> Option<Deadlock> {
-        self.0.as_mut().and_then(|explorer| {
-            explorer.core
-                .search(|m| explorer.core.state_space.net.is_deadlock(m))
-                .map(|m| explorer.mapping.encode(m.clone()))
-        })
+        if let Some(initial) = self.initial_deadlock.take() {
+            return Some(initial);
+        }
+        let explorer = self.explorer.as_mut()?;
+        explorer
+            .core
+            .search(|m| explorer.core.state_space.net.is_deadlock(m))
+            .map(|m| explorer.mapping.encode(m.clone()))
     }
 }
 
@@ -46,9 +57,21 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn deadlocks(&self) -> Deadlocks<'_> {
         if self.is_efficiently_deadlock_free() == Some(true) {
-            Deadlocks(None)
+            // Certified deadlock-free: no reachable marking — including m₀ — is a
+            // deadlock.
+            Deadlocks { explorer: None, initial_deadlock: None }
         } else {
-            Deadlocks(Some(self.explore_reachability(ExplorationOrder::BreadthFirst)))
+            // The seed (initial) marking is reachable and may itself be a
+            // deadlock; capture it here, since the explorer's `search` tests only
+            // successors.
+            let initial_deadlock = self
+                .dense_net
+                .is_deadlock(&self.marking)
+                .then(|| self.mapping.encode(self.marking.clone()));
+            Deadlocks {
+                explorer: Some(self.explore_reachability(ExplorationOrder::BreadthFirst)),
+                initial_deadlock,
+            }
         }
     }
 
@@ -56,5 +79,38 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn is_deadlock_free(&self) -> bool {
         self.deadlocks().next().is_none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Soundness regression. When the INITIAL marking is itself a total deadlock,
+    /// the system is **not** deadlock-free. The state-space explorer's `search`
+    /// evaluates the deadlock predicate only on newly-discovered *successor*
+    /// markings, so the (reachable) seed marking was never tested: `deadlocks()`
+    /// returned nothing and `is_deadlock_free()` fabricated a `true`.
+    /// `deadlocks()` now tests the seed first, exactly once.
+    #[test]
+    fn initial_marking_deadlock_is_detected() {
+        let (net, p0, _t0, _p1, _t1) = crate::api::system::tests::two_place_cycle();
+        // EMPTY initial marking: t0 needs p0, t1 needs p1, both empty — no
+        // transition is enabled, so m₀ is itself a reachable total deadlock.
+        let dead = net.with_initial_marking([]);
+        assert!(
+            !dead.is_deadlock_free(),
+            "an m₀ deadlock must be detected"
+        );
+        assert!(
+            dead.deadlocks().next().is_some(),
+            "deadlocks() must yield the initial deadlock marking"
+        );
+        // Control: the SAME cycle marked is live, hence deadlock-free; m₀ is not a
+        // deadlock and the fix does not over-report.
+        let live = net.with_initial_marking([(p0, 1)]);
+        assert!(live.is_deadlock_free(), "a live marked cycle is deadlock-free");
+        assert!(
+            live.deadlocks().next().is_none(),
+            "a live marked cycle has no deadlock"
+        );
     }
 }
