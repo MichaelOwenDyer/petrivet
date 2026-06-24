@@ -66,6 +66,19 @@ impl<T: TokenOps> IdxMarking<T> {
     }
 }
 
+impl IdxMarking<u32> {
+    /// Returns the total token count accumulated in `u64`, so the sum can neither
+    /// wrap nor panic regardless of the marking magnitude. This is the
+    /// verdict-path token sum: [`sum`](Self::sum) accumulates in `u32` and would
+    /// *wrap* in release on a marking whose total exceeds `u32::MAX`, and a
+    /// silently-wrapped sum is the integer analogue of an unsound `f64` — a wrong
+    /// magnitude is a wrong verdict.
+    #[must_use]
+    pub fn wide_sum(&self) -> u64 {
+        self.iter().map(|&t| u64::from(t)).sum()
+    }
+}
+
 impl<T> IntoIterator for IdxMarking<T> {
     type Item = T;
     type IntoIter = vec::IntoIter<T>;
