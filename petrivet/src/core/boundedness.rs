@@ -77,6 +77,16 @@ impl Boundedness {
     }
 }
 
+impl std::fmt::Display for Boundedness {
+    /// Formats `Bounded(k)` as `bounded (k)` and `Unbounded` as `unbounded`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bounded(k) => write!(f, "bounded ({k})"),
+            Self::Unbounded => write!(f, "unbounded"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Boundedness;
@@ -85,5 +95,11 @@ mod tests {
     fn test_ord() {
         assert!(Boundedness::Bounded(0) < Boundedness::Bounded(1));
         assert!(Boundedness::Bounded(usize::MAX) < Boundedness::Unbounded);
+    }
+
+    #[test]
+    fn display() {
+        assert_eq!(Boundedness::Bounded(3).to_string(), "bounded (3)");
+        assert_eq!(Boundedness::Unbounded.to_string(), "unbounded");
     }
 }
