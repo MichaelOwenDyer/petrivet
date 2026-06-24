@@ -1,4 +1,3 @@
-use crate::class::NetClass;
 use crate::marking::Marking;
 use crate::net::Net;
 use crate::prelude::PetriNet;
@@ -47,12 +46,25 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// If there is an efficient (polynomial-time) procedure for deadlock-freedom
     /// for this Petri net, returns Some(_) with the answer.
     /// Returns None if the answer would not be efficient to compute.
+    ///
+    /// # Abstain rather than fabricate a negative
+    ///
+    /// A `Some(true)` here is certificate-backed: liveness implies
+    /// deadlock-freedom, and the Commoner–Hack criterion (`Ok`) is a sufficient
+    /// structural condition for it. We deliberately do **not** return a structural
+    /// `Some(false)`: a net that is *not* live is not thereby deadlock-*ful* —
+    /// non-liveness only means some transition can die, whereas a deadlock requires
+    /// a reachable marking enabling *no* transition. Concluding "has a deadlock"
+    /// from "not live" would be a fabricated negative with no witness. When the
+    /// structural path cannot certify deadlock-freedom we abstain (`None`) and let
+    /// [`deadlocks`](Self::deadlocks) decide by exploration.
     #[must_use]
     pub fn is_efficiently_deadlock_free(&self) -> Option<bool> {
         match self.is_efficiently_live() {
             Some(true) => Some(true), // liveness implies deadlock-freedom
-            Some(false) if self.class() == NetClass::FreeChoice => Some(false), // same condition, no need to check it again
-            _ => self.commoner_hack_criterion().ok().map(|_| true)
+            // No `Some(false)` arm: non-liveness does not certify a reachable
+            // deadlock, so abstain instead of fabricating a negative.
+            _ => self.commoner_hack_criterion().ok().map(|_| true),
         }
     }
 
@@ -113,6 +125,45 @@ mod tests {
         assert!(
             live.deadlocks().next().is_none(),
             "a live marked cycle has no deadlock"
+        );
+    }
+
+    /// Regression: the structural deadlock-freedom path must never return
+    /// `Some(false)`. Non-liveness (a transition can die) does not certify a
+    /// reachable total deadlock, so a structural "has a deadlock" would be a
+    /// fabricated negative. The former code returned `Some(false)` for non-live
+    /// free-choice nets; it now abstains (`None`) and lets `deadlocks()` decide.
+    #[test]
+    fn efficient_deadlock_free_never_fabricates_false() {
+        use crate::builder::NetBuilder;
+
+        // A free choice at p0 (•t0 = •t1 = {p0}) where the t1 branch drains a token
+        // into the sink p2 — the net can reach a deadlock. The structural path must
+        // still not claim `Some(false)`; the honest answer comes from exploration.
+        let mut fc = NetBuilder::new();
+        let [p0, p1, p2] = fc.add_places();
+        let [t0, t1] = fc.add_transitions();
+        fc.add_arc((p0, t0));
+        fc.add_arc((p0, t1)); // free choice
+        fc.add_arc((t0, p1));
+        fc.add_arc((p1, t0)); // t0 cycles through p1
+        fc.add_arc((t1, p2)); // t1 drains into the sink p2
+        let fc_net = fc.build().expect("valid net");
+        let fc_sys = fc_net.with_initial_marking([(p0, 1)]);
+        assert_ne!(
+            fc_sys.is_efficiently_deadlock_free(),
+            Some(false),
+            "the structural path must never fabricate Some(false)"
+        );
+
+        // An unmarked (dead) cycle is genuinely NOT deadlock-free, but the
+        // structural path must still abstain rather than return a fabricated false.
+        let (dead, _d0, _dt0, _d1, _dt1) = crate::api::system::tests::two_place_cycle();
+        let dead_sys = dead.with_initial_marking([]);
+        assert_ne!(
+            dead_sys.is_efficiently_deadlock_free(),
+            Some(false),
+            "even a genuinely deadlocked net gets no structural false verdict"
         );
     }
 }
