@@ -222,6 +222,27 @@ impl<N: AsRef<Net>> PetriNet<N> {
         Some(t)
     }
 
+    /// Fires each transition of `sequence` in order, mutating the marking.
+    ///
+    /// This is the natural way to replay a firing-sequence witness, such as the
+    /// one returned by reachability analysis, against a system.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(NotEnabled(t))` at the first transition that is not enabled
+    /// when its turn comes (or does not exist in the net). On error the marking is
+    /// left at the last successful firing; transitions after the failure are not
+    /// attempted.
+    pub fn fire_sequence<I>(&mut self, sequence: I) -> Result<(), NotEnabled>
+    where
+        I: IntoIterator<Item = Transition>,
+    {
+        for t in sequence {
+            self.try_fire(t)?;
+        }
+        Ok(())
+    }
+
     /// Fire a transition without checking enablement.
     ///
     /// The caller must guarantee the transition is enabled. Underflow will
@@ -378,6 +399,7 @@ mod pnml {
 
 #[cfg(test)]
 mod tests {
+    use super::NotEnabled;
     use crate::prelude::{Marking, Net, NetBuilder, Place, Transition};
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
@@ -405,6 +427,26 @@ mod tests {
         let (net, p0, _t0, _p1, t1) = two_place_cycle();
         let mut sys = net.with_initial_marking([(p0, 1)]);
         assert!(sys.try_fire(t1).is_err());
+    }
+
+    #[test]
+    fn fire_sequence_replays_and_reports_first_block() {
+        let (net, p0, t0, p1, t1) = two_place_cycle();
+        let mut sys = net.with_initial_marking([(p0, 1)]);
+        // t0 then t1 returns to the start.
+        sys.fire_sequence([t0, t1]).expect("both enabled in turn");
+        assert_eq!(sys.marking(), [(p0, 1)].into());
+
+        // t1 is not enabled at the start; the sequence stops there and the marking
+        // is left untouched (nothing fired).
+        let err = sys.fire_sequence([t1, t0]).expect_err("t1 not enabled first");
+        assert_eq!(err, NotEnabled(t1));
+        assert_eq!(sys.marking(), [(p0, 1)].into());
+
+        // A partial sequence leaves the marking at the last successful firing.
+        let err = sys.fire_sequence([t0, t0]).expect_err("t0 not enabled twice");
+        assert_eq!(err, NotEnabled(t0));
+        assert_eq!(sys.marking(), [(p1, 1)].into());
     }
 
     #[test]
