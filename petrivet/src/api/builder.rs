@@ -478,11 +478,18 @@ impl NetBuilder {
         let graph = {
             let node_count = ordered_places.len() + ordered_transitions.len();
             let mut graph = petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
-            let p_indices: Vec<NodeIndex> = place_to_index.values()
-                .map(|&p| graph.add_node(IdxNode::Place(p)))
+            // The node-index arrays are addressed below by dense index
+            // (`p_indices[p_idx]`, `t_indices[t_idx]`), so they must be built in
+            // dense-index order. `ordered_places` / `ordered_transitions` are
+            // exactly that order (position == dense index). Iterating
+            // `place_to_index.values()` instead visits hash-map order, which
+            // scrambles the place/transition -> NodeIndex correspondence and wires
+            // the petgraph edges between the wrong nodes.
+            let p_indices: Vec<NodeIndex> = (0..ordered_places.len())
+                .map(|p_idx| graph.add_node(IdxNode::Place(p_idx)))
                 .collect();
-            let t_indices: Vec<NodeIndex> = transition_to_index.values()
-                .map(|&t| graph.add_node(IdxNode::Transition(t)))
+            let t_indices: Vec<NodeIndex> = (0..ordered_transitions.len())
+                .map(|t_idx| graph.add_node(IdxNode::Transition(t_idx)))
                 .collect();
             (0..)
                 .zip(preset_t.iter().zip(postset_t.iter()))
