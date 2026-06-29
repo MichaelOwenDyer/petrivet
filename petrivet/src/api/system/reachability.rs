@@ -96,6 +96,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns None if the answer would not be efficient to compute.
     #[must_use]
     pub fn is_efficiently_reachable(&self, target: &Marking<u32>) -> Option<bool> {
+        // todo: efficient check necessary for reachability: maximal unmarked trap in target must be unmarked in M0
         match self.class() {
             NetClass::Circuit => Some(self.marking.sum() == target.total_tokens()),
             NetClass::StateMachine if self.is_live() => Some(self.marking.sum() == target.total_tokens()),

@@ -402,10 +402,3 @@
 //!
 //! Used in: [`CoverabilityGraph::is_coverable`](crate::CoverabilityGraph::cover),
 //! [`System::analyze_coverability`](crate::PetriNet::analyze_coverability).
-
-// These imports exist only to make intra-doc links shorter/readable.
-// They are compiled only under rustdoc.
-#[cfg(doc)]
-use crate::model::{CommonerHackCriterionResult, SNetLivenessEvidence, TNetLivenessEvidence};
-#[cfg(doc)]
-use crate::core::analysis::semi_decision;

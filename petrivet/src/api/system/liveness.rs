@@ -59,6 +59,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns None if the answer would not be efficient to compute.
     #[must_use]
     pub fn is_efficiently_live(&self) -> Option<bool> {
+        // todo: cheap condition necessary for liveness: no unmarked proper siphon in M0
         match self.class() {
             NetClass::Circuit => Some(self.marking.sum() > 0),
             NetClass::StateMachine => Some(self.is_strongly_connected() && self.marking.sum() > 0),

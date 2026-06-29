@@ -7,3 +7,4 @@ pub mod mapping;
 pub mod class;
 pub mod liveness;
 pub mod boundedness;
+pub mod coverability;

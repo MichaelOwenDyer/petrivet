@@ -15,8 +15,8 @@ use crate::core::net::{DenseNet, PlaceIdx, TransitionIdx};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncidenceMatrix {
     data: Box<[i32]>,
-    rows: usize,
-    cols: usize,
+    places: usize,
+    transitions: usize,
 }
 
 impl IncidenceMatrix {
@@ -36,14 +36,22 @@ impl IncidenceMatrix {
         }
         IncidenceMatrix {
             data,
-            rows,
-            cols,
+            places: rows,
+            transitions: cols,
         }
     }
 
     /// Entry at (row, col) = N\[place\]\[transition\].
     #[must_use]
-    pub fn get(&self, row: PlaceIdx, col: TransitionIdx) -> i32 {
-        self.data[row * self.cols + col]
+    pub fn get(&self, place: PlaceIdx, transition: TransitionIdx) -> i32 {
+        self.data[place * self.transitions + transition]
+    }
+
+    pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
+        0..self.places as PlaceIdx
+    }
+
+    pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
+        0..self.transitions as TransitionIdx
     }
 }

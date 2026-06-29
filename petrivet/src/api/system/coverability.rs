@@ -1,4 +1,4 @@
-use crate::core::analysis::semi_decision;
+use crate::core::coverability::find_candidate_covering_parikh_vector;
 use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::marking::Marking;
 use crate::net::{Net, Transition};
@@ -116,22 +116,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }.into();
         }
 
-        if semi_decision::find_covering_equation_rational_solution(
-            &self.dense_net,
+        // todo: use potentially coverable marking as hint for state space exploration
+        let Some(_potentially_reachable_cover) = find_candidate_covering_parikh_vector(
+            &self.net.as_ref().dense_net,
             &self.marking,
-            &target_idx_marking
-        ).is_none() {
-            return NonCoverabilityProof::MarkingEquationNoRationalSolution.into();
-        }
-
-        // todo: only test ILP if the rational solution is not already an integer solution
-        if semi_decision::find_covering_equation_integer_solution(
-            &self.dense_net,
-            &self.marking,
-            &target_idx_marking
-        ).is_none() {
-            return NonCoverabilityProof::MarkingEquationNoIntegerSolution.into();
-        }
+            &target_idx_marking,
+        ) else {
+            return CoverabilityResult::Uncoverable(NonCoverabilityProof::ExhaustiveSearch);
+        };
 
         // todo: backwards coverability
         let mut explorer = self.explore_coverability(ExplorationOrder::BreadthFirst);
