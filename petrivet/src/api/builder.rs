@@ -27,15 +27,14 @@
 
 use crate::core::mapping::DenseMapping;
 use crate::core::net::{DenseNet, IdxNode, PlaceIdx, TransitionIdx};
-use crate::core::unique_sorted_slice::UniqueSortedSlice;
 use crate::prelude::{Arc, Net, NetClass, Node, Place, Transition};
 use ahash::{HashMap, HashMapExt, HashSet, HashSetExt};
+use petgraph::graph::NodeIndex;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::hash::Hash;
 use std::num::NonZeroU32;
 use std::{fmt, iter};
-use petgraph::graph::NodeIndex;
 
 /// Builder for an ordinary Petri net.
 #[derive(Debug, Clone)]
@@ -543,7 +542,7 @@ fn map_neighbors<N, M, Idx>(
     ordered_nodes: &[N],
     sparse_adjacency: &HashMap<N, HashSet<M>>,
     dense_index_map: &HashMap<M, Idx>,
-) -> Box<[UniqueSortedSlice<Idx>]>
+) -> Box<[Box<[Idx]>]>
 where
     N: Eq + Hash,
     M: Eq + Hash,
@@ -552,7 +551,7 @@ where
     ordered_nodes
         .iter()
         .map(|node| {
-            sparse_adjacency
+            let mut neighbors = sparse_adjacency
                 .get(node)
                 .expect("Node key must exist in sparse adjacency map")
                 .iter()
@@ -561,8 +560,10 @@ where
                         .get(neighbor)
                         .expect("Neighbor key must exist in dense index map")
                 })
-                .collect::<Vec<_>>()
-                .into()
+                .collect::<Vec<_>>();
+            neighbors.sort_unstable();
+            neighbors.dedup();
+            neighbors.into_boxed_slice()
         })
         .collect()
 }

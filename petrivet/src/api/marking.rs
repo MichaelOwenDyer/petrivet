@@ -5,7 +5,6 @@
 //! unbounded symbol ω, and [`OmegaMarking`] is a type alias for `Marking<Omega>`.
 
 use crate::core::state_space::TokenOps;
-use crate::core::unique_sorted_slice::UniqueSortedSlice;
 use crate::net::Place;
 
 /// A mapping from [`Place`] to tokens of type `T`.
@@ -38,27 +37,18 @@ use crate::net::Place;
 /// let marking: Marking<u32> = marking.into_iter().collect();
 /// let petri_net = net.with_initial_marking(marking);
 /// ```
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Default, Eq, PartialEq, Hash)]
 pub struct Marking<T> {
     /// The support of the marking.
     ///
     /// Only places with non-zero token counts are stored here,
     /// and a token count of zero is implicitly assigned to all other places.
-    pub(crate) support: UniqueSortedSlice<(Place, T)>,
+    pub(crate) support: Vec<(Place, T)>,
 }
 
 impl<T> Marking<T> {
     pub fn support(&self) -> impl Iterator<Item = Place> + '_ {
         self.support.iter().map(|(place, _)| *place)
-    }
-}
-
-impl<T> Default for Marking<T> {
-    /// Creates an empty marking with zero tokens on all places.
-    fn default() -> Self {
-        Marking {
-            support: UniqueSortedSlice::default(),
-        }
     }
 }
 
@@ -69,8 +59,7 @@ impl<T: TokenOps> FromIterator<(Place, T)> for Marking<T> {
             .collect();
         vec.sort_unstable_by_key(|elem| elem.0.0);
         vec.dedup_by_key(|elem| elem.0.0);
-        let support = UniqueSortedSlice(vec);
-        Marking { support }
+        Marking { support: vec }
     }
 }
 

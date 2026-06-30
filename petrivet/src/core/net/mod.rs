@@ -2,7 +2,6 @@ use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::analysis::semi_decision;
 use crate::core::class::NetClass;
 use crate::core::marking::IdxMarking;
-use crate::core::unique_sorted_slice::UniqueSortedSlice;
 
 pub mod path;
 
@@ -43,13 +42,13 @@ pub struct DenseNet {
     /// so we compute it at build time.
     pub is_strongly_connected: bool,
     /// Transition presets: for each transition t, the set of places in `•t`.
-    pub preset_t: Box<[UniqueSortedSlice<PlaceIdx>]>,
+    pub preset_t: Box<[Box<[PlaceIdx]>]>,
     /// Transition postsets: for each transition t, the set of places in `t•`.
-    pub postset_t: Box<[UniqueSortedSlice<PlaceIdx>]>,
+    pub postset_t: Box<[Box<[PlaceIdx]>]>,
     /// Place presets: for each place p, the set of transitions in `•p`.
-    pub preset_p: Box<[UniqueSortedSlice<TransitionIdx>]>,
+    pub preset_p: Box<[Box<[TransitionIdx]>]>,
     /// Place postsets: for each place p, the set of transitions in `p•`.
-    pub postset_p: Box<[UniqueSortedSlice<TransitionIdx>]>,
+    pub postset_p: Box<[Box<[TransitionIdx]>]>,
 }
 
 impl DenseNet {

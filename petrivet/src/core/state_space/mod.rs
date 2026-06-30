@@ -3,7 +3,6 @@ pub mod coverability;
 
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
-use crate::core::unique_sorted_slice::UniqueSortedSlice;
 use ahash::{HashMap, HashMapExt};
 use petgraph::graph::NodeIndex;
 use std::collections::VecDeque;
@@ -113,7 +112,7 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     /// which allows us to avoid iterating over all transitions.
     fn potentially_enabled_transitions(
         marking: &IdxMarking<T>,
-        postset_p: &[UniqueSortedSlice<TransitionIdx>],
+        postset_p: &[Box<[TransitionIdx]>],
         source_transitions: &[TransitionIdx],
     ) -> Vec<TransitionIdx> {
         let mut transitions = marking
