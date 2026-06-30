@@ -45,7 +45,7 @@ impl CoverabilityResult {
 #[non_exhaustive]
 pub struct CoverabilityProof {
     /// A transition firing sequence from `M₀` to a marking `M` which covers the target.
-    pub firing_sequence: Box<[Transition]>,
+    pub firing_sequence: Vec<Transition>,
     /// The node marking M″ with M″ ≥ target (may contain ω).
     pub covering_marking: OmegaMarking,
 }
@@ -111,7 +111,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
         if self.marking >= target_idx_marking {
             return CoverabilityProof {
-                firing_sequence: Box::new([]),
+                firing_sequence: Vec::new(),
                 covering_marking: self.mapping.marking(IdxOmegaMarking::from(self.marking.clone())),
             }.into();
         }

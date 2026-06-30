@@ -99,7 +99,7 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     /// Returns a firing sequence from the initial marking to `target`,
     /// among states discovered so far in the exploration, if one exists.
     #[must_use]
-    pub fn find_path_from_initial(&self, target: Marking<T>) -> Option<Box<[Transition]>> {
+    pub fn find_path_from_initial(&self, target: Marking<T>) -> Option<Vec<Transition>> {
         let target = self.mapping.idx_marking(target);
         self.core.path_from_initial_to(&target).map(|path| {
             path.into_iter()
@@ -293,7 +293,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
         let mut markings = self.state_space.markings();
         let first = markings.next().expect("initial marking is always present");
         // Per-place flag: is the count still equal to its first-observed value?
-        let mut still_stable: Box<[bool]> = vec![true; self.mapping.place_count() as usize].into_boxed_slice();
+        let mut still_stable = vec![true; self.mapping.place_count() as usize];
         for marking in markings {
             for (p_idx, token_count) in marking.iter().copied().enumerate() {
                 if still_stable[p_idx] && token_count != first[p_idx] {
@@ -309,7 +309,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     /// If the graph was explored with a breadth-first order,
     /// this is guaranteed to be a shortest path.
     #[must_use]
-    pub fn firing_sequence_from_initial_to(&self, target: Marking<T>) -> Option<Box<[Transition]>> {
+    pub fn firing_sequence_from_initial_to(&self, target: Marking<T>) -> Option<Vec<Transition>> {
         let target = self.mapping.idx_marking(target);
         self.state_space.path_from_initial_to(&target).map(|path| {
             path.into_iter()

@@ -349,7 +349,7 @@ fn bench_coverability_graph(c: &mut Criterion) {
             BenchmarkId::new(fixture.label, size_label),
             |b| {
                 let sys = (fixture.build)(size);
-                b.iter(|| std::hint::black_box(sys.explore_coverability(ExplorationOrder::BreadthFirst).explore_iter().take(100_000).count()));
+                b.iter(|| std::hint::black_box(sys.explore_coverability(ExplorationOrder::BreadthFirst).explore_iter().take(10_000).count()));
             },
         );
     };

@@ -1,12 +1,6 @@
 use std::hash::Hash;
 
-/// A deduplicated, sorted boxed slice.
-///
-/// Constructed once from an iterator of `T` values,
-/// which are collected into a `HashSet` to enforce uniqueness,
-/// then stored in a `Box<[T]>` sorted in ascending order.
-/// There is no mutable access to the inner data,
-/// so uniqueness and sortedness are guaranteed by construction.
+/// A deduplicated, sorted Vec.
 ///
 /// `Deref<Target = [T]>` provides transparent access to all slice methods.
 /// Set-relational operations (`is_subset_of`, `intersects`, etc.) exploit
@@ -19,11 +13,11 @@ use std::hash::Hash;
 /// net.preset_t(t).contains(&p)                         // p ∈ •t
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct UniqueSortedSlice<T>(Box<[T]>);
+pub struct UniqueSortedSlice<T>(pub(crate) Vec<T>);
 
 impl<T> Default for UniqueSortedSlice<T> {
     fn default() -> Self {
-        Self(Box::new([]))
+        Self(Vec::new())
     }
 }
 
@@ -31,15 +25,7 @@ impl<T: PartialEq + Ord> From<Vec<T>> for UniqueSortedSlice<T> {
     fn from(mut v: Vec<T>) -> Self {
         v.sort_unstable();
         v.dedup(); // removes all duplicates since the vector is sorted
-        Self(v.into_boxed_slice())
-    }
-}
-
-impl<T> UniqueSortedSlice<T> {
-    /// Creates a new `UniqueSortedSlice`
-    /// from a boxed slice that is already guaranteed to be sorted and unique.
-    pub(crate) fn from_sorted_unique(data: Vec<T>) -> Self {
-        Self(data.into_boxed_slice())
+        Self(v)
     }
 }
 
@@ -118,5 +104,4 @@ mod tests {
         let s: UniqueSortedSlice<_> = vec![3, 1, 2, 2].into();
         assert_eq!(&*s, &[1, 2, 3]);
     }
-
 }

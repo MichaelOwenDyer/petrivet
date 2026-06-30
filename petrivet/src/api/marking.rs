@@ -69,7 +69,7 @@ impl<T: TokenOps> FromIterator<(Place, T)> for Marking<T> {
             .collect();
         vec.sort_unstable_by_key(|elem| elem.0.0);
         vec.dedup_by_key(|elem| elem.0.0);
-        let support = UniqueSortedSlice::from_sorted_unique(vec);
+        let support = UniqueSortedSlice(vec);
         Marking { support }
     }
 }

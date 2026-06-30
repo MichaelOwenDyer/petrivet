@@ -8,7 +8,7 @@ use std::{iter, vec};
 ///
 /// The default token type is `u32`.
 #[derive(Debug, Clone, Eq, Hash)]
-pub struct IdxMarking<T>(pub(crate) Box<[T]>);
+pub struct IdxMarking<T>(pub(crate) Vec<T>);
 
 /// A marking can be viewed as a simple slice of T values, indexed by place index.
 impl<T> AsRef<[T]> for IdxMarking<T> {
@@ -52,7 +52,7 @@ impl<T: TokenOps> IdxMarking<T> {
     /// Creates a marking with `n_places` places, all initialized to zero tokens.
     #[must_use]
     pub fn zeros(n_places: u32) -> Self {
-        Self(vec![T::ZERO; n_places as usize].into_boxed_slice())
+        Self(vec![T::ZERO; n_places as usize])
     }
 
     /// Returns the componentwise maximum of `self` and `other`.
@@ -105,15 +105,15 @@ impl<T> IndexMut<PlaceIdx> for IdxMarking<T> {
     }
 }
 
-impl<T> From<Vec<T>> for IdxMarking<T> {
-    fn from(v: Vec<T>) -> Self {
-        Self(v.into_boxed_slice())
-    }
-}
+// impl<T> From<Vec<T>> for IdxMarking<T> {
+//     fn from(v: Vec<T>) -> Self {
+//         Self(v)
+//     }
+// }
 
 impl<T, const N: usize> From<[T; N]> for IdxMarking<T> {
     fn from(a: [T; N]) -> Self {
-        Self(Box::new(a))
+        Self(Vec::from(a))
     }
 }
 
@@ -148,7 +148,7 @@ impl<T: Ord> PartialOrd for IdxMarking<T> {
 /// Merges two orderings in the context of element-wise comparison of markings.
 /// If either is `Equal`, returns the other. If both are `Less` or both are `Greater`, returns that.
 /// Otherwise, returns `None` (incomparable).
-pub(crate) const fn merge_ordering(acc: Ordering, next: Ordering) -> Option<Ordering> {
+pub const fn merge_ordering(acc: Ordering, next: Ordering) -> Option<Ordering> {
     match (acc, next) {
         (Ordering::Equal, o) | (o, Ordering::Equal) => Some(o),
         (Ordering::Less, Ordering::Less) => Some(Ordering::Less),

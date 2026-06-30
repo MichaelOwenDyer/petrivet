@@ -10,7 +10,7 @@ fn main() {
 
     let system = PetriNet::from_pnml(&champagne).unwrap();
     println!("{:?}", system.marking());
-    let enabled = system.enabled_transitions().collect::<Box<_>>();
+    let enabled = system.enabled_transitions().collect::<Vec<_>>();
     println!("{enabled:?}");
 
     let rg = system.build_reachability_graph();

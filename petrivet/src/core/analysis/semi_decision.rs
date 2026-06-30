@@ -114,7 +114,7 @@ fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
     extract: F,
 ) -> Option<Box<[T]>> {
     let mut variables = ProblemVariables::new();
-    let firing_counts: Box<[Variable]> = net
+    let firing_counts: Vec<_> = net
         .transition_indices()
         .map(|_| variables.add(variable_def.clone()))
         .collect();
@@ -140,101 +140,6 @@ fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
         .ok()
         .map(|solution| {
             firing_counts
-                .into_iter()
-                .map(|v| solution.value(v))
-                .map(extract)
-                .collect()
-        })
-}
-
-/// Checks a *covering* variant of the marking equation: is there a
-/// reachable marking m' such that m'\[p\] >= threshold\[p\] for each place?
-///
-/// Unlike [`find_marking_equation_rational_solution`], this uses inequality constraints
-/// (`>=`) rather than equality, so it asks whether *any* marking at least
-/// as large as `threshold` is reachable.
-///
-/// This is useful for checking whether a transition can ever be enabled:
-/// set `threshold[p] = 1` for each input place and `0` elsewhere.
-///
-/// Still a necessary condition only (LP relaxation of the marking equation).
-#[must_use]
-pub fn find_covering_equation_rational_solution(
-    net: &DenseNet,
-    initial: &IdxMarking<u32>,
-    threshold: &IdxMarking<u32>,
-) -> Option<Box<[f64]>> {
-    find_covering_equation_solution(
-        net,
-        initial,
-        threshold,
-        &variable().min(0.0),
-        |v| v,
-    )
-}
-
-/// Finds a non-negative integer solution to the covering equation:
-/// does there exist x ∈ ℕ^{|T|} such that `m₀ + N · x >= threshold`?
-///
-/// This is a broader necessary condition than [`find_covering_equation_rational_solution`].
-/// If no integer solution exists, the target is definitely not coverable.
-///
-/// References:
-/// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation) (state equation is a necessary condition)
-/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (firing count vector must be integer)
-#[must_use]
-pub fn find_covering_equation_integer_solution(
-    net: &DenseNet,
-    initial_marking: &IdxMarking<u32>,
-    target: &IdxMarking<u32>,
-) -> Option<Box<[u32]>> {
-    // Safe because we are using integer variables
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    find_covering_equation_solution(
-        net,
-        initial_marking,
-        target,
-        &variable().integer().min(0),
-        |v| v.round() as u32,
-    )
-}
-
-#[must_use]
-fn find_covering_equation_solution<T, F: Fn(f64) -> T>(
-    net: &DenseNet,
-    initial: &IdxMarking<u32>,
-    threshold: &IdxMarking<u32>,
-    variable_def: &VariableDefinition,
-    extract: F,
-) -> Option<Box<[T]>> {
-    let mut variables = ProblemVariables::new();
-    let parikh_vector: Box<[Variable]> = net
-        .transition_indices()
-        .map(|_| variables.add(variable_def.clone()))
-        .collect();
-
-    let incidence = net.incidence_matrix();
-    let constraints = net
-        .place_indices()
-        .map(|p| {
-            let change: Expression = net
-                .transition_indices()
-                .map(|t| f64::from(incidence.get(p, t)) * parikh_vector[t])
-                .sum();
-            let m0_p = f64::from(initial[p]);
-            let thresh = f64::from(threshold[p]);
-            constraint!(change >= thresh - m0_p)
-        });
-
-    let objective: Expression = parikh_vector.iter().copied().sum();
-    variables
-        .minimise(objective)
-        .using(good_lp::microlp)
-        .with_all(constraints)
-        .solve()
-        .ok()
-        .map(|solution| {
-            parikh_vector
                 .into_iter()
                 .map(|v| solution.value(v))
                 .map(extract)

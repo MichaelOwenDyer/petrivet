@@ -133,7 +133,7 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
 
     /// Returns a firing sequence from the initial marking to `target`,
     /// among states discovered so far in the exploration, if one exists.
-    pub fn path_from_initial_to(&self, target: &IdxMarking<T>) -> Option<Box<[TransitionIdx]>> {
+    pub fn path_from_initial_to(&self, target: &IdxMarking<T>) -> Option<Vec<TransitionIdx>> {
         self.state_space.path_from_initial_to(target)
     }
 
@@ -332,11 +332,11 @@ impl<T: TokenOps> DenseStateGraph<'_, T> {
 
     /// Returns a firing sequence from the initial marking to `target`,
     /// if one exists.
-    pub fn path_from_initial_to(&self, target: &IdxMarking<T>) -> Option<Box<[TransitionIdx]>> {
+    pub fn path_from_initial_to(&self, target: &IdxMarking<T>) -> Option<Vec<TransitionIdx>> {
         let target = *self.seen.get(target)?;
 
         if target == self.initial_idx {
-            return Some(Box::new([]));
+            return Some(Vec::new());
         }
 
         let (_len, node_path) = petgraph::algo::astar(

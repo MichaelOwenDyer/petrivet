@@ -479,10 +479,10 @@ impl NetBuilder {
         let graph = {
             let node_count = ordered_places.len() + ordered_transitions.len();
             let mut graph = petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
-            let p_indices: Box<[NodeIndex]> = place_to_index.values()
+            let p_indices: Vec<NodeIndex> = place_to_index.values()
                 .map(|&p| graph.add_node(IdxNode::Place(p)))
                 .collect();
-            let t_indices: Box<[NodeIndex]> = transition_to_index.values()
+            let t_indices: Vec<NodeIndex> = transition_to_index.values()
                 .map(|&t| graph.add_node(IdxNode::Transition(t)))
                 .collect();
             (0..)

@@ -250,7 +250,7 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
 
     loop {
         let mut vars = ProblemVariables::new();
-        let x: Box<[Variable]> = net
+        let x: Vec<_> = net
             .place_indices()
             .map(|_| vars.add(variable().binary()))
             .collect();
