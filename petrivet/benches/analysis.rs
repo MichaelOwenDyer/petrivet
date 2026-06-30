@@ -1,5 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use petrivet::prelude::*;
+use petrivet::state_space::ExplorationOrder;
 
 type NetSize = usize;
 
@@ -320,15 +321,15 @@ fn bench_deadlock(c: &mut Criterion) {
     group.finish();
 }
 
-/// sys.build_reachability_graph() — full BFS reachability graph (bounded nets only).
-fn bench_reachability(c: &mut Criterion) {
-    let mut group = c.benchmark_group("reachability");
+/// sys.explore_reachability() — reachability graph exploration.
+fn bench_reachability_graph(c: &mut Criterion) {
+    let mut group = c.benchmark_group("reachability_graph");
     let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {
         group.bench_function(
             BenchmarkId::new(fixture.label, size_label),
             |b| {
                 let sys = (fixture.build)(size);
-                b.iter(|| std::hint::black_box(sys.build_reachability_graph()));
+                b.iter(|| std::hint::black_box(sys.explore_reachability(ExplorationOrder::BreadthFirst).explore_iter().take(100_000).count()));
             },
         );
     };
@@ -340,36 +341,15 @@ fn bench_reachability(c: &mut Criterion) {
     group.finish();
 }
 
-/// sys.try_build_reachability_graph() — optimistic reachability with per-step
-/// ω-domination check. Delta vs. bench_reachability isolates ω-check overhead.
-fn bench_try_reachability(c: &mut Criterion) {
-    let mut group = c.benchmark_group("try_reachability");
+/// sys.explore_coverability() — BFS exploration of the coverability graph.
+fn bench_coverability_graph(c: &mut Criterion) {
+    let mut group = c.benchmark_group("coverability_graph");
     let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {
         group.bench_function(
             BenchmarkId::new(fixture.label, size_label),
             |b| {
                 let sys = (fixture.build)(size);
-                b.iter(|| std::hint::black_box(sys.try_build_reachability_graph()));
-            },
-        );
-    };
-    for fixture in GENERATORS {
-        for &size in &[SMALL, MEDIUM] {
-            run(fixture, size);
-        }
-    }
-    group.finish();
-}
-
-/// sys.build_coverability_graph() — full Karp-Miller coverability tree.
-fn bench_coverability(c: &mut Criterion) {
-    let mut group = c.benchmark_group("coverability");
-    let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {
-        group.bench_function(
-            BenchmarkId::new(fixture.label, size_label),
-            |b| {
-                let sys = (fixture.build)(size);
-                b.iter(|| std::hint::black_box(sys.build_coverability_graph()));
+                b.iter(|| std::hint::black_box(sys.explore_coverability(ExplorationOrder::BreadthFirst).explore_iter().take(100_000).count()));
             },
         );
     };
@@ -388,8 +368,7 @@ criterion_group!(
     bench_liveness,
     bench_boundedness,
     bench_deadlock,
-    bench_reachability,
-    bench_try_reachability,
-    bench_coverability,
+    bench_reachability_graph,
+    bench_coverability_graph,
 );
 criterion_main!(benches);
