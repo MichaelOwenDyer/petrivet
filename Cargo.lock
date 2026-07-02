@@ -877,8 +877,7 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 [[package]]
 name = "oxiz"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18e9614cf58b321d373823902ff0821fa0a716bff7659272a8602f3161deb8c5"
+source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=fix%2Fdistinct-and-neq#596a7f6cd5543456924aae0a10b624173a665f56"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -892,8 +891,7 @@ dependencies = [
 [[package]]
 name = "oxiz-core"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0ef366f13ea66245a800d4b9c2b45bdea9467d3c4ab3e3da1cbe2eae5b50ead"
+source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=fix%2Fdistinct-and-neq#596a7f6cd5543456924aae0a10b624173a665f56"
 dependencies = [
  "bumpalo",
  "hashbrown 0.17.1",
@@ -920,8 +918,7 @@ dependencies = [
 [[package]]
 name = "oxiz-math"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f2fea76980bacead5bd162b40369a1ce537a640c9f4f98ba895102d9444d2f8"
+source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=fix%2Fdistinct-and-neq#596a7f6cd5543456924aae0a10b624173a665f56"
 dependencies = [
  "hashbrown 0.17.1",
  "num-bigint",
@@ -937,8 +934,7 @@ dependencies = [
 [[package]]
 name = "oxiz-nlsat"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a1859f683a6ae49301961a1d4680a85a2cca695e12ae3b5c2b136cac2a901c6"
+source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=fix%2Fdistinct-and-neq#596a7f6cd5543456924aae0a10b624173a665f56"
 dependencies = [
  "num-bigint",
  "num-rational",
@@ -956,8 +952,7 @@ dependencies = [
 [[package]]
 name = "oxiz-proof"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f47d7cf8a5724427753bb7a1af6bc0ef1b89e8487e9304c5d959ac59434309e"
+source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=fix%2Fdistinct-and-neq#596a7f6cd5543456924aae0a10b624173a665f56"
 dependencies = [
  "num-bigint",
  "num-rational",
@@ -973,8 +968,7 @@ dependencies = [
 [[package]]
 name = "oxiz-sat"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "432b7a8320070ef162b2e603ab28e7802fdfd6385fdcbd322add3bc4facdffa5"
+source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=fix%2Fdistinct-and-neq#596a7f6cd5543456924aae0a10b624173a665f56"
 dependencies = [
  "hashbrown 0.17.1",
  "libm",
@@ -989,8 +983,7 @@ dependencies = [
 [[package]]
 name = "oxiz-solver"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b9807cf76a4e8ffd9d7f9a03e2d508fbec492e3f232c604d79e4f67478025dd"
+source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=fix%2Fdistinct-and-neq#596a7f6cd5543456924aae0a10b624173a665f56"
 dependencies = [
  "hashbrown 0.17.1",
  "num-bigint",
@@ -1010,8 +1003,7 @@ dependencies = [
 [[package]]
 name = "oxiz-theories"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e93f9f8d38102d1db2e9289e2cd9a19d73a103b00746cb85e3f9310f2404e79a"
+source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=fix%2Fdistinct-and-neq#596a7f6cd5543456924aae0a10b624173a665f56"
 dependencies = [
  "egg",
  "hashbrown 0.17.1",

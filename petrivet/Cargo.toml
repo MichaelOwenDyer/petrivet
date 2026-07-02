@@ -14,7 +14,7 @@ graph-cycles = "0.3.0"
 quick-xml = { version = "0.40.1", features = ["serialize"], optional = true }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 tap = "1.0.1"
-oxiz = "0.2.3"
+oxiz = { git = "https://github.com/MichaelOwenDyer/oxiz.git", branch = "fix/distinct-and-neq" }
 
 [features]
 default = ["pnml"]

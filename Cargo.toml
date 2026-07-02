@@ -3,14 +3,6 @@ members = ["petrivet", "petrivet-wasm", "mcc-2026/petrivet-mcc", "mcc-2026/mcc-o
 default-members = ["petrivet"]
 resolver = "2"
 
-#[patch.crates-io]
-#oxiz = { path = "../oxiz/oxiz" }
-#oxiz-core = { path = "../oxiz/oxiz-core" }
-#oxiz-math = { path = "../oxiz/oxiz-math" }
-#oxiz-sat = { path = "../oxiz/oxiz-sat" }
-#oxiz-theories = { path = "../oxiz/oxiz-theories" }
-#oxiz-solver = { path = "../oxiz/oxiz-solver" }
-
 [profile.release]
 opt-level = "s"
 lto = true

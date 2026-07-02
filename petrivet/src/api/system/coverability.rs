@@ -80,11 +80,9 @@ impl From<NonCoverabilityProof> for CoverabilityResult {
 }
 
 impl<N: AsRef<Net>> PetriNet<N> {
-    /// Whether `target` is coverable from the initial marking.
-    ///
-    /// Delegates to [`analyze_coverability`](Self::analyze_coverability).
-    pub fn is_coverable(&self, target: Marking<u32>) -> bool {
-        self.analyze_coverability(target).is_coverable()
+    /// Returns whether `target` is coverable from the initial marking.
+    pub fn is_coverable(&self, target: impl Into<Marking<u32>>) -> bool {
+        self.analyze_coverability(target.into()).is_coverable()
     }
 
     /// Analyzes coverability of a target marking with structured evidence.
