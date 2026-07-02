@@ -11,7 +11,7 @@ use petrivet::prelude::{NetBuilder, PetriNet};
 ///             p1: m1 := true
 ///             p2: hold := 1
 ///             p3: await(¬m2 ∨ hold=2)
-///                 (critical section)
+///             -- critical section --
 ///             p4: m1 := false
 ///         end loop
 ///     end process 1
@@ -20,7 +20,7 @@ use petrivet::prelude::{NetBuilder, PetriNet};
 ///             q1: m2 := true
 ///             q2: hold := 2
 ///             q3: await(¬m1 ∨ hold=1)
-///                 (critical section)
+///             -- critical section --
 ///             q4: m2 := false
 ///         end loop
 ///     end process 2
