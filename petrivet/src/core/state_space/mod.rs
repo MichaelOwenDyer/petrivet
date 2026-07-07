@@ -66,6 +66,105 @@ pub struct DenseStateGraphExplorer<'a, T: TokenOps> {
     source_transitions: Box<[TransitionIdx]>,
 }
 
+mod stubborn_set {
+    use fixedbitset::FixedBitSet;
+    use crate::core::marking::IdxMarking;
+    use crate::core::net::{DenseNet, TransitionIdx};
+    use crate::core::state_space::TokenOps;
+
+    /// A static dependency graph of transitions, used for stubborn set computation.
+    struct StaticDependencyGraph {
+        /// For each transition, the set of transitions which share at least one input place.
+        conflicts: Vec<Vec<TransitionIdx>>,
+        /// For every place, the set of transitions which produce tokens into that place.
+        producers: Vec<Vec<TransitionIdx>>,
+    }
+
+    impl StaticDependencyGraph {
+        fn new(net: &DenseNet) -> Self {
+            let conflicts = net.transition_indices()
+                .map(|t_idx| {
+                    net.preset_t[t_idx]
+                        .iter()
+                        .flat_map(|&p| &net.postset_p[p])
+                        .copied()
+                        .filter(|&neighbor| neighbor != t_idx)
+                        .collect()
+                })
+                .collect();
+            let producers = net.place_indices()
+                .map(|p| net.preset_p[p].iter().copied().collect())
+                .collect();
+            Self { conflicts, producers }
+        }
+    }
+
+    /// Reusable context for computing stubborn sets, to avoid repeated allocations.
+    struct StubbornSetQueryContext<'a> {
+        net: &'a DenseNet,
+        dependency_graph: StaticDependencyGraph,
+        // Reusable, zero-allocation buffers for the dynamic query
+        visited: FixedBitSet,
+        stack: Vec<TransitionIdx>,
+        stubborn_set: Vec<TransitionIdx>,
+    }
+
+    impl<'a> StubbornSetQueryContext<'a> {
+        pub fn new(net: &'a DenseNet) -> Self {
+            let num_transitions = net.transition_count();
+            Self {
+                net,
+                dependency_graph: StaticDependencyGraph::new(net),
+                visited: FixedBitSet::with_capacity(num_transitions),
+                stack: Vec::with_capacity(num_transitions),
+                stubborn_set: Vec::with_capacity(num_transitions),
+            }
+        }
+
+        pub fn compute<T: TokenOps + PartialOrd<u32>>(
+            &mut self,
+            marking: &IdxMarking<T>,
+            seed_transition: TransitionIdx,
+        ) -> &[TransitionIdx] {
+            self.visited.clear();
+            self.visited.insert(seed_transition);
+
+            self.stack.clear();
+            self.stack.push(seed_transition);
+
+            self.stubborn_set.clear();
+
+            // 3. The zero-allocation graph traversal
+            while let Some(t_idx) = self.stack.pop() {
+                if self.net.is_enabled_in(t_idx, marking) {
+                    // Add to final output if it's enabled
+                    self.stubborn_set.push(t_idx);
+
+                    // Traverse conflict edges
+                    for &neighbor in &self.dependency_graph.conflicts[t_idx] {
+                        if !self.visited.contains(neighbor) {
+                            self.visited.insert(neighbor);
+                            self.stack.push(neighbor);
+                        }
+                    }
+                } else {
+                    // Find causality edges (only requires finding ONE empty input place) why?
+                    if let Some(&empty_place) = self.net.preset_t[t_idx].iter().find(|&&p| marking[p] == T::ZERO) {
+                        for &producer in &self.dependency_graph.producers[empty_place] {
+                            if !self.visited.contains(producer) {
+                                self.visited.insert(producer);
+                                self.stack.push(producer);
+                            }
+                        }
+                    }
+                }
+            }
+
+            &self.stubborn_set
+        }
+    }
+}
+
 impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     /// Create a new explorer from a net reference and initial marking.
     ///

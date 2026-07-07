@@ -102,7 +102,7 @@ impl DenseNet {
 
     /// Returns true if the provided transition is enabled at the given marking,
     /// i.e. if all places in its preset have at least one token in the marking.
-    pub fn is_enabled_in(&self, t: TransitionIdx, marking: &IdxMarking<u32>) -> bool {
+    pub fn is_enabled_in<T: PartialOrd<u32>>(&self, t: TransitionIdx, marking: &IdxMarking<T>) -> bool {
         self.preset_t[t].iter().all(|&p| marking[p] >= 1)
     }
 
