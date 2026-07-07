@@ -15,6 +15,7 @@ quick-xml = { version = "0.40.1", features = ["serialize"], optional = true }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 tap = "1.0.1"
 oxiz = { git = "https://github.com/MichaelOwenDyer/oxiz.git", branch = "fix/distinct-and-neq" }
+fixedbitset = "0.5.7"
 
 [features]
 default = ["pnml"]

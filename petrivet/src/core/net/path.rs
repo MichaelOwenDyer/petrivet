@@ -3,6 +3,7 @@ use crate::net::Net;
 use crate::system::PetriNet;
 use graph_cycles::Cycles;
 use std::ops::Deref;
+use fixedbitset::FixedBitSet;
 use tap::TryConv;
 
 /// A path through the directed bipartite graph of a Petri net.
@@ -135,22 +136,25 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ///
     /// Efficiency: runs a DFS in `O(n + m)`.
     pub fn has_unmarked_circuit(&self) -> bool {
-        let n = self.dense_net.place_count();
-        let is_zero: Vec<bool> = self.dense_net
-            .place_indices()
-            .map(|p| self.marking[p] == 0)
-            .collect();
+        let place_count = self.dense_net.place_count();
+        let unmarked_places = {
+            let mut is_zero = FixedBitSet::with_capacity(place_count);
+            for p in self.dense_net.place_indices() {
+                is_zero.set(p, self.marking[p] == 0);
+            }
+            is_zero
+        };
 
-        if is_zero.iter().all(|&z| !z) {
+        if unmarked_places.is_clear() {
             return false;
         }
 
-        let mut visited = vec![false; n];
-        let mut in_stack = vec![false; n];
+        let mut visited = FixedBitSet::with_capacity(place_count);
+        let mut in_stack = FixedBitSet::with_capacity(place_count);
 
         for start in self.dense_net.place_indices() {
-            if is_zero[start] && !visited[start]
-                && dfs_zero_circuit(start, &is_zero, &self.dense_net, &mut visited, &mut in_stack)
+            if unmarked_places[start] && !visited[start]
+                && dfs_zero_circuit(start, &unmarked_places, &self.dense_net, &mut visited, &mut in_stack)
             {
                 return true;
             }
@@ -164,15 +168,15 @@ impl<N: AsRef<Net>> PetriNet<N> {
 /// indicating which places have zero tokens. `visited` and `in_stack` are used to
 /// track the DFS state and detect cycles.
 fn dfs_zero_circuit(
-    p: usize,
-    is_zero: &[bool],
+    p_idx: PlaceIdx,
+    is_zero: &FixedBitSet,
     dense_net: &DenseNet,
-    visited: &mut Vec<bool>,
-    in_circuit: &mut Vec<bool>,
+    visited: &mut FixedBitSet,
+    in_circuit: &mut FixedBitSet,
 ) -> bool {
-    visited[p] = true;
-    in_circuit[p] = true;
-    for &t in &dense_net.postset_p[p] {
+    visited.insert(p_idx);
+    in_circuit.insert(p_idx);
+    for &t in &dense_net.postset_p[p_idx] {
         for &next_p in &dense_net.postset_t[t] {
             if !is_zero[next_p] { continue; }
             if in_circuit[next_p] { return true; }
@@ -183,6 +187,6 @@ fn dfs_zero_circuit(
             }
         }
     }
-    in_circuit[p] = false;
+    in_circuit.remove(p_idx);
     false
 }
