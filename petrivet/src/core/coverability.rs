@@ -1,3 +1,4 @@
+use fixedbitset::FixedBitSet;
 use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, PlaceIdx};
@@ -211,24 +212,25 @@ fn find_violated_initially_marked_trap(
     m0: &IdxMarking<u32>,
     candidate: &IdxMarking<u32>,
 ) -> Option<Vec<PlaceIdx>> {
-    let mut in_trap: Vec<bool> = (0..net.place_count())
-        .map(|p| candidate[p] == 0)
-        .collect();
+    let mut in_trap: FixedBitSet = FixedBitSet::with_capacity(net.place_count());
+    for p_idx in net.place_indices() {
+        in_trap.set(p_idx, candidate[p_idx] == 0);
+    }
 
-    let mut worklist: Vec<PlaceIdx> = (0..net.place_count())
+    let mut worklist: Vec<PlaceIdx> = net.place_indices()
         .filter(|&p| in_trap[p])
         .collect();
 
-    while let Some(p) = worklist.pop() {
-        if !in_trap[p] {
+    while let Some(p_idx) = worklist.pop() {
+        if !in_trap[p_idx] {
             continue;
         }
-        let violates = net.postset_p[p]
+        let violates = net.postset_p[p_idx]
             .iter()
             .any(|&t| net.postset_t[t].iter().all(|&q| !in_trap[q]));
         if violates {
-            in_trap[p] = false;
-            for &t in &net.preset_p[p] {
+            in_trap.remove(p_idx);
+            for &t in &net.preset_p[p_idx] {
                 for &q in &net.preset_t[t] {
                     if in_trap[q] {
                         worklist.push(q);

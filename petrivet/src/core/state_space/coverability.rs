@@ -2,7 +2,7 @@ use crate::core::marking;
 use crate::core::marking::IdxMarking;
 use crate::core::net::TransitionIdx;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
-use ahash::{HashSet, HashSetExt};
+use fixedbitset::FixedBitSet;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use std::cmp::Ordering;
@@ -191,11 +191,12 @@ impl ExploreNext<Omega> for DenseStateGraphExplorer<'_, Omega> {
             new_marking: &mut IdxOmegaMarking, src: NodeIndex
         ) {
             let mut stack = vec![src];
-            let mut visited: HashSet<NodeIndex> = HashSet::new();
+            let mut visited = FixedBitSet::with_capacity(state_space.graph.node_count());
             while let Some(predecessor_node) = stack.pop() {
-                if !visited.insert(predecessor_node) {
+                if visited[predecessor_node.index()] {
                     continue;
                 }
+                visited.insert(predecessor_node.index());
                 let ancestor_marking = state_space.marking_at(predecessor_node);
                 if ancestor_marking < new_marking {
                     for (component, prev) in new_marking.iter_mut().zip(ancestor_marking.iter()) {

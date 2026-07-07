@@ -1071,6 +1071,7 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "criterion",
+ "fixedbitset",
  "good_lp",
  "graph-cycles",
  "oxiz",

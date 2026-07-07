@@ -2,6 +2,7 @@ use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, PlaceIdx};
 use good_lp::Variable;
 use std::collections::HashSet;
+use fixedbitset::FixedBitSet;
 
 /// Computes the maximal siphon contained in a given set of places.
 ///
@@ -12,30 +13,28 @@ use std::collections::HashSet;
 /// iteratively remove any place p where some transition t ∈ •p has no
 /// input place in the current set. Runs in O(|S|² · |T|²).
 #[must_use]
-pub fn maximal_siphon_in<S: std::hash::BuildHasher>(
+pub fn maximal_siphon_in(
     net: &DenseNet,
-    mut subset: HashSet<PlaceIdx, S>,
-) -> HashSet<PlaceIdx, S> {
+    mut places: FixedBitSet,
+) -> FixedBitSet {
     loop {
-        let mut removed = false;
-        let to_remove: Vec<PlaceIdx> = subset.iter().copied().filter(|&p| {
+        let to_remove: Vec<PlaceIdx> = places.ones().filter(|&p| {
             // Check if some t ∈ •p has no input place in D.
-            net.preset_p[p].iter().any(|&t| {
+            net.preset_p[p].iter().any(|&t_idx| {
                 // t ∈ •p. For the siphon property, we need t ∈ D•,
                 // i.e. t consumes from some place in D.
                 // If it doesn't, then p cannot be in the siphon.
-                net.preset_t[t].iter().all(|q| !subset.contains(q))
+                net.preset_t[t_idx].iter().all(|&p_idx| !places.contains(p_idx))
             })
         }).collect();
-        for p in to_remove {
-            subset.remove(&p);
-            removed = true;
-        }
-        if !removed {
+        if to_remove.is_empty() {
             break;
         }
+        for p_idx in to_remove {
+            places.remove(p_idx);
+        }
     }
-    subset
+    places
 }
 
 /// Computes the maximal trap contained in a given set of places.
@@ -46,65 +45,64 @@ pub fn maximal_siphon_in<S: std::hash::BuildHasher>(
 /// Uses the dual of the shrinking algorithm: iteratively remove any place p
 /// where some transition t ∈ p• has no output place in the current set.
 #[must_use]
-pub fn maximal_trap_in<S: std::hash::BuildHasher>(
+pub fn maximal_trap_in(
     net: &DenseNet,
-    mut maximal_trap: HashSet<PlaceIdx, S>
-) -> HashSet<PlaceIdx, S> {
+    mut places: FixedBitSet
+) -> FixedBitSet {
     loop {
-        let mut removed = false;
-        let to_remove: Vec<PlaceIdx> = maximal_trap
-            .iter()
-            .filter(|&&p| {
+        let to_remove: Vec<PlaceIdx> = places.ones()
+            .filter(|&p_idx| {
                 // Check if some t ∈ p• has no output place in Q.
                 // p• = transitions that consume from p = postset_p(p)
-                net.postset_p[p].iter().any(|&t| {
+                net.postset_p[p_idx].iter().any(|&t| {
                     // t ∈ p•. For the trap property, we need t ∈ •Q,
                     // i.e. t produces into some place in Q.
                     // t• = postset_t(t) = output places of t.
-                    !net.postset_t[t].iter().any(|r| maximal_trap.contains(r))
+                    !net.postset_t[t].iter().any(|&p_idx| places.contains(p_idx))
                 })
             })
-            .copied()
             .collect();
-        for p in to_remove {
-            maximal_trap.remove(&p);
-            removed = true;
-        }
-        if !removed {
+        if to_remove.is_empty() {
             break;
         }
+        for p_idx in to_remove {
+            places.remove(p_idx);
+        }
     }
-    maximal_trap
+    places
 }
 
 /// Finds all minimal siphons of a net as sets of [`PlaceIdx`].
 #[must_use]
-pub fn minimal_siphons(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
-    let mut results: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
-    let mut stack: Vec<ahash::HashSet<PlaceIdx>> = vec![net.place_indices().collect()];
-    let mut visited: ahash::HashSet<Vec<PlaceIdx>> = HashSet::default();
+pub fn minimal_siphons(net: &DenseNet) -> Box<[FixedBitSet]> {
+    let mut results: Vec<FixedBitSet> = Vec::new();
+    let mut stack: Vec<FixedBitSet> = vec![{
+        let mut set = FixedBitSet::with_capacity(net.place_count());
+        set.insert_range(..);
+        set
+    }];
+    let mut visited: ahash::HashSet<FixedBitSet> = HashSet::default();
 
     while let Some(candidate_set) = stack.pop() {
         let siphon = maximal_siphon_in(net, candidate_set);
-        if siphon.is_empty() {
+        if siphon.is_clear() {
             continue;
         }
-        let mut key: Vec<PlaceIdx> = siphon.iter().copied().collect();
-        key.sort_unstable();
-        if !visited.insert(key) {
+
+        if !visited.insert(siphon.clone()) {
             continue;
         }
 
         // Try excluding each place to find potentially smaller siphons.
         let mut is_minimal = true;
-        for &p in &siphon {
+        for p_idx in siphon.ones() {
             let mut reduced = siphon.clone();
-            reduced.remove(&p);
-            if reduced.is_empty() {
+            reduced.remove(p_idx);
+            if reduced.is_clear() {
                 continue;
             }
             let smaller_siphon = maximal_siphon_in(net, reduced);
-            if !smaller_siphon.is_empty() {
+            if !smaller_siphon.is_clear() {
                 is_minimal = false;
                 stack.push(smaller_siphon);
             }
@@ -129,35 +127,36 @@ pub fn minimal_siphons(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
 /// in a trap, the trap can never become unmarked again.
 #[must_use]
 #[expect(unused)]
-pub fn minimal_traps(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
-    let all_places: ahash::HashSet<PlaceIdx> = net.place_indices().collect();
-    let mut results: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
-    let mut stack: Vec<ahash::HashSet<PlaceIdx>> = vec![all_places];
-    let mut visited: ahash::HashSet<Vec<PlaceIdx>> = HashSet::default();
+pub fn minimal_traps(net: &DenseNet) -> Box<[FixedBitSet]> {
+    let mut results: Vec<FixedBitSet> = Vec::new();
+    let mut stack: Vec<FixedBitSet> = {
+        let mut set = FixedBitSet::with_capacity(net.place_count());
+        set.insert_range(..);
+        vec![set]
+    };
+    let mut visited: ahash::HashSet<FixedBitSet> = HashSet::default();
 
     while let Some(candidate_set) = stack.pop() {
         let trap = maximal_trap_in(net, candidate_set);
-        if trap.is_empty() {
+        if trap.is_clear() {
             continue;
         }
 
-        let mut key: Vec<PlaceIdx> = trap.iter().copied().collect();
-        key.sort_unstable();
-        if !visited.insert(key) {
+        if !visited.insert(trap.clone()) {
             continue;
         }
 
         let mut is_minimal = true;
-        for &p in &trap {
+        for p_idx in trap.ones() {
             let mut reduced = trap.clone();
-            reduced.remove(&p);
-            if reduced.is_empty() {
+            reduced.remove(p_idx);
+            if reduced.is_clear() {
                 continue;
             }
-            let sub = maximal_trap_in(net, reduced);
-            if !sub.is_empty() {
+            let smaller_trap = maximal_trap_in(net, reduced);
+            if !smaller_trap.is_clear() {
                 is_minimal = false;
-                stack.push(sub);
+                stack.push(smaller_trap);
             }
         }
 
@@ -181,10 +180,10 @@ pub fn minimal_traps(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
 /// approach for small nets but more systematic.
 #[must_use]
 #[expect(unused)]
-pub fn minimal_siphons_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
+pub fn minimal_siphons_ilp(net: &DenseNet) -> Box<[FixedBitSet]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
-    let mut results: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
+    let mut results: Vec<FixedBitSet> = Vec::new();
 
     let mut vars = ProblemVariables::new();
     let place_selectors: Box<[Variable]> = net
@@ -216,12 +215,15 @@ pub fn minimal_siphons_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
         .with_all(constraints.clone())
         .solve() {
 
-        let siphon: ahash::HashSet<PlaceIdx> = net
-            .place_indices()
-            .filter(|&p| solution.value(place_selectors[p]) > 0.5)
-            .collect();
+        let siphon: FixedBitSet = {
+            let mut siphon = FixedBitSet::with_capacity(net.place_count());
+            for p_idx in net.place_indices() {
+                siphon.set(p_idx, solution.value(place_selectors[p_idx]) > 0.5);
+            }
+            siphon
+        };
 
-        if siphon.is_empty() {
+        if siphon.is_clear() {
             break;
         }
 
@@ -231,9 +233,9 @@ pub fn minimal_siphons_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
             results.push(siphon.clone());
         }
 
-        let prev_sum: Expression = siphon.iter().map(|&p| place_selectors[p]).sum();
+        let prev_sum: Expression = siphon.ones().map(|p| place_selectors[p]).sum();
         #[allow(clippy::cast_precision_loss)]
-        constraints.push(constraint!(prev_sum <= siphon.len() as f64 - 1.0));
+        constraints.push(constraint!(prev_sum <= siphon.count_ones(..) as f64 - 1.0));
     }
 
     results.into_boxed_slice()
@@ -242,11 +244,11 @@ pub fn minimal_siphons_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
 /// Finds all minimal traps using ILP enumeration.
 #[must_use]
 #[expect(unused)]
-pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
+pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[FixedBitSet]> {
     use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
 
-    let mut results: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
-    let mut no_good_sets: Vec<ahash::HashSet<PlaceIdx>> = Vec::new();
+    let mut results: Vec<FixedBitSet> = Vec::new();
+    let mut no_good_sets: Vec<FixedBitSet> = Vec::new();
 
     loop {
         let mut vars = ProblemVariables::new();
@@ -272,9 +274,9 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
         }
 
         for prev in &no_good_sets {
-            let prev_sum: Expression = prev.iter().map(|&p| x[p]).sum();
+            let prev_sum: Expression = prev.ones().map(|p| x[p]).sum();
             #[allow(clippy::cast_precision_loss)]
-            constraints.push(constraint!(prev_sum <= prev.len() as f64 - 1.0));
+            constraints.push(constraint!(prev_sum <= prev.count_ones(..) as f64 - 1.0));
         }
 
         let Ok(solution) = vars
@@ -283,12 +285,15 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
             .with_all(constraints)
             .solve() else { break };
 
-        let trap: ahash::HashSet<PlaceIdx> = net
-            .place_indices()
-            .filter(|&p| solution.value(x[p]) > 0.5)
-            .collect();
+        let trap: FixedBitSet = {
+            let mut trap = FixedBitSet::with_capacity(net.place_count());
+            for p_idx in net.place_indices() {
+                trap.set(p_idx, solution.value(x[p_idx]) > 0.5);
+            }
+            trap
+        };
 
-        if trap.is_empty() {
+        if trap.is_clear() {
             break;
         }
 
@@ -308,13 +313,13 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[ahash::HashSet<PlaceIdx>]> {
 /// In other words, every transition that produces to D also consumes from D.
 /// This is significant because it means once a siphon is unmarked,
 /// it can never be marked again (all transitions which could mark it are dead).
-pub type Siphon = ahash::HashSet<PlaceIdx>;
+pub type Siphon = FixedBitSet;
 
 /// A trap is a set of places Q such that Q• ⊆ •Q.
 ///
 /// In other words, every transition that consumes from Q also produces to Q.
 /// This is significant because it means once a trap is marked, it can never be unmarked again.
-pub type Trap = ahash::HashSet<PlaceIdx>;
+pub type Trap = FixedBitSet;
 
 /// A minimal siphon and the maximal trap found within it,
 /// and whether that trap is marked.
@@ -376,7 +381,7 @@ pub fn commoner_hack_criterion(
         .try_fold(Vec::new(),
             |mut acc, siphon| {
             let trap = maximal_trap_in(net, siphon.clone());
-            let trap_is_marked = !trap.is_empty() && trap.iter().any(|&p| marking[p] > 0);
+            let trap_is_marked = !trap.is_clear() && trap.ones().any(|p_idx| marking[p_idx] > 0);
             if trap_is_marked {
                 acc.push(SiphonTrapPair {
                     siphon,

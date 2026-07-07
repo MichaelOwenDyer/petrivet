@@ -47,8 +47,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn commoner_hack_criterion(&self) -> CommonerHackCriterionResult {
         fn to_api(mapping: &DenseMapping, pair: siphon_trap::SiphonTrapPair) -> SiphonTrapPair {
             SiphonTrapPair {
-                siphon: pair.siphon.into_iter().map(|p_idx| mapping.place(p_idx)).collect(),
-                trap: pair.trap.into_iter().map(|p_idx| mapping.place(p_idx)).collect(),
+                siphon: pair.siphon.into_ones().map(|p_idx| mapping.place(p_idx)).collect(),
+                trap: pair.trap.into_ones().map(|p_idx| mapping.place(p_idx)).collect(),
             }
         }
 
