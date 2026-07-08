@@ -16,6 +16,7 @@ serde = { version = "1.0.228", features = ["derive"], optional = true }
 tap = "1.0.1"
 oxiz = { git = "https://github.com/MichaelOwenDyer/oxiz.git", branch = "fix/distinct-and-neq" }
 fixedbitset = "0.5.7"
+oxidd = "0.11.0"
 
 [features]
 default = ["pnml"]
@@ -23,6 +24,7 @@ pnml = ["serde", "quick-xml"]
 
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["html_reports"] }
+oxidd-dump = { version = "0.6", default-features = false, features = ["dot", "visualize"] }
 
 [[bench]]
 name = "analysis"
