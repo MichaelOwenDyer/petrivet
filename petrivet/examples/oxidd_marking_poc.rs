@@ -73,7 +73,7 @@ impl MarkingMap {
 
     /// Lateral growth: add manager variables so that `place` can represent
     /// `value`, if it can't already.
-    fn ensure_bits(&mut self, place: usize, value: u32) {
+    fn ensure_bits(&mut self, place: usize, value: u32) -> AllocResult<()> {
         let needed = bits_for(value);
         let have = self.place_bits[place].len();
         if have < needed {
@@ -84,8 +84,31 @@ impl MarkingMap {
             println!(
                 "  place {place}: grew from {have} to {needed} bits (value {value})"
             );
+            for &var in &new_vars {
+                self.narrow_new_bit(var)?;
+            }
             self.place_bits[place].extend(new_vars);
         }
+        Ok(())
+    }
+
+    /// Force a newly allocated bit's "1" branch to mean "not present".
+    ///
+    /// Without this, every marking already recorded before this bit existed
+    /// would silently keep matching *both* values of the new bit once it's
+    /// added -- its original cube was built over the variables that existed
+    /// at the time, which never included this one, so it's still an
+    /// unconstrained don't-care over it. That aliases points that were never
+    /// actually inserted onto whichever old marking happens to match on
+    /// every bit that did exist back then.
+    fn narrow_new_bit(&mut self, var: u32) -> AllocResult<()> {
+        let old_seen = self.seen.clone();
+        self.seen = self.manager_ref.with_manager_shared(|m| {
+            let v = MTBDDFunction::var(m, var)?;
+            let zero = MTBDDFunction::constant(m, I64::Num(0))?;
+            v.ite(&zero, &old_seen)
+        })?;
+        Ok(())
     }
 
     /// The arithmetic cube: 1 at exactly `marking`, 0 everywhere else.
@@ -105,23 +128,27 @@ impl MarkingMap {
         })
     }
 
-    /// `seen = seen * (1 - indicator) + value * indicator`.
+    /// `seen[marking] = value`, everywhere else untouched: a single-pass
+    /// recursive `ite`, not the 4-op arithmetic fallback.
     fn overwrite(&self, indicator: &MTBDDFunction<I64>, value: i64) -> AllocResult<MTBDDFunction<I64>> {
-        let one = self.manager_ref.with_manager_shared(|m| MTBDDFunction::constant(m, I64::Num(1)))?;
         let value = self.manager_ref.with_manager_shared(|m| MTBDDFunction::constant(m, I64::Num(value)))?;
-        let keep_old = one.sub(indicator)?;
-        self.seen.mul(&keep_old)?.add(&indicator.mul(&value)?)
+        indicator.ite(&value, &self.seen)
+    }
+
+    /// Bit allocation (and the narrowing it requires), cube construction,
+    /// and the overwrite itself, as one fallible unit: if any step runs out
+    /// of nodes, `insert` rebuilds bigger and replays everything instead of
+    /// retrying this one call directly.
+    fn try_insert(&mut self, marking: &[u32; PLACES], value: i64) -> AllocResult<MTBDDFunction<I64>> {
+        for place in 0..PLACES {
+            self.ensure_bits(place, marking[place])?;
+        }
+        self.overwrite(&self.indicator(marking)?, value)
     }
 
     fn insert(&mut self, marking: [u32; PLACES], value: i64) -> AllocResult<()> {
-        for place in 0..PLACES {
-            self.ensure_bits(place, marking[place]);
-        }
         self.known.push((marking, value));
-        // Both cube construction and the arithmetic overwrite can run out of
-        // nodes -- either failure means "rebuild bigger and replay
-        // everything", `known` (this call included).
-        match self.indicator(&marking).and_then(|ind| self.overwrite(&ind, value)) {
+        match self.try_insert(&marking, value) {
             Ok(new_seen) => {
                 self.seen = new_seen;
                 Ok(())
@@ -192,6 +219,15 @@ fn main() -> AllocResult<()> {
     let never_seen = [100, 0]; // needs more bits than place 0 has ever used
     assert_eq!(map.lookup(&never_seen), None);
     println!("{never_seen:?} correctly reports as not present");
+
+    // [0, 1]: both values fit comfortably within bit widths allocated for
+    // OTHER markings, but this exact pair was never inserted -- the
+    // adversarial case `MarkingDecisionDiagram::narrow_new_bit` exists for
+    // (without it, `[0, 1]` would alias onto whichever marking was inserted
+    // before place 1 ever grew a bit to represent 1).
+    let never_seen_in_range = [0, 1];
+    assert_eq!(map.lookup(&never_seen_in_range), None);
+    println!("{never_seen_in_range:?} correctly reports as not present (in-range but never inserted)");
 
     let bit_widths: Vec<usize> = map.place_bits.iter().map(Vec::len).collect();
     println!("final per-place bit widths: {bit_widths:?}");

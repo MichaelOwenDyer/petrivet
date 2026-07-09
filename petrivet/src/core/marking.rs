@@ -24,6 +24,10 @@ impl<T> IdxMarking<T> {
         self.0.len()
     }
 
+    pub fn enumerate(&self) -> impl Iterator<Item = (PlaceIdx, &T)> {
+        self.0.iter().enumerate()
+    }
+
     /// Iterator over token counts in place-index order.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.0.iter()

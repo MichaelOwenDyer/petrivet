@@ -1,5 +1,6 @@
 pub mod reachability;
 pub mod coverability;
+mod seen;
 
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
