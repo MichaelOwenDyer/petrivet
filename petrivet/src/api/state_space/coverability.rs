@@ -53,7 +53,7 @@ impl OmegaMarking {
     /// Returns true if any token count in this marking is unbounded (ω).
     #[must_use]
     pub fn has_omega(&self) -> bool {
-        self.support.iter().any(|(_, tokens)| tokens.is_omega())
+        self.support.iter().any(|(_, tokens)| tokens.is_unbounded())
     }
 
     /// Returns true if all token counts in this marking are finite (no ω).

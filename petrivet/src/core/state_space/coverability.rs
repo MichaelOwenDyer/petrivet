@@ -31,7 +31,7 @@ impl Omega {
 
     /// Returns `true` if this value is unbounded (ω).
     #[must_use]
-    pub const fn is_omega(self) -> bool {
+    pub const fn is_unbounded(self) -> bool {
         matches!(self, Omega::Unbounded)
     }
 
@@ -138,7 +138,7 @@ impl IdxMarking<Omega> {
     /// Returns `true` if any marking component is unbounded (ω).
     #[must_use]
     pub fn has_omega(&self) -> bool {
-        self.iter().any(|o| o.is_omega())
+        self.iter().any(|o| o.is_unbounded())
     }
 }
 
