@@ -1,11 +1,13 @@
 pub mod reachability;
 pub mod coverability;
-mod seen;
+mod bitpack;
+pub mod seen;
 
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
 use ahash::{HashMap, HashMapExt};
 use petgraph::graph::NodeIndex;
+use seen::MarkingMap;
 use std::collections::VecDeque;
 use std::hash::Hash;
 use std::iter::Sum;
@@ -50,11 +52,14 @@ pub trait ExploreNext<T: TokenOps> {
 ///
 /// Borrows the [`Net`] for its lifetime - the graph cannot outlive the net
 /// it explores.
+///
+/// Generic over the dedup/lookup strategy `S` (see [`MarkingMap`])
+/// used for `seen`.
 #[derive(Debug, Clone)]
-pub struct DenseStateGraphExplorer<'a, T: TokenOps> {
+pub struct DenseStateGraphExplorer<'a, T: TokenOps, S: MarkingMap<T> = HashMap<IdxMarking<T>, NodeIndex>> {
     /// The state space being explored.
     /// Can be extracted once exploration is complete.
-    pub state_space: DenseStateGraph<'a, T>,
+    pub state_space: DenseStateGraph<'a, T, S>,
     /// The exploration order: breadth-first or depth-first.
     /// Corresponds to queue vs stack behavior of the frontier.
     pub order: ExplorationOrder,
@@ -67,16 +72,32 @@ pub struct DenseStateGraphExplorer<'a, T: TokenOps> {
     source_transitions: Box<[TransitionIdx]>,
 }
 
-impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
-    /// Create a new explorer from a net reference and initial marking.
+impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T, HashMap<IdxMarking<T>, NodeIndex>> {
+    /// Create a new explorer, backed by a plain [`HashMap`] `seen` set, from
+    /// a net reference and initial marking.
+    ///
+    /// See [`Self::with_marking_map`] to plug in a different dedup/lookup
+    /// strategy instead.
+    pub fn new(net: &'a DenseNet, initial_marking: IdxMarking<T>, order: ExplorationOrder) -> Self {
+        Self::with_marking_map(net, initial_marking, order, HashMap::new())
+    }
+}
+
+impl<'a, T: TokenOps, S: MarkingMap<T>> DenseStateGraphExplorer<'a, T, S> {
+    /// Create a new explorer from a net reference, initial marking, and an
+    /// already-constructed (typically empty) `seen` map -- the caller
+    /// chooses the dedup/lookup strategy `S`, since some strategies (e.g.
+    /// [`MarkingDecisionDiagram`](seen::MarkingDecisionDiagram)) need
+    /// construction parameters a blanket `Default` bound couldn't supply.
     ///
     /// Seeds the frontier with source transitions (empty preset, always
     /// enabled) plus transitions whose presets overlap with the support
     /// of the initial marking.
-    pub fn new(
+    pub fn with_marking_map(
         net: &'a DenseNet,
         initial_marking: IdxMarking<T>,
-        order: ExplorationOrder
+        order: ExplorationOrder,
+        mut seen: S,
     ) -> Self {
         let mut graph = petgraph::Graph::new();
         let initial_idx = graph.add_node(initial_marking.clone());
@@ -96,7 +117,6 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
             .map(|t_idx| (initial_idx, t_idx))
             .collect();
 
-        let mut seen = HashMap::new();
         seen.insert(initial_marking, initial_idx);
 
         let state_space = DenseStateGraph { net, initial_idx, graph, seen };
@@ -177,7 +197,7 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         marking: IdxMarking<T>,
     ) -> (bool, NodeIndex) {
         // if we have seen this marking before, just add an edge from the source to the existing node
-        if let Some(&idx) = self.state_space.seen.get(&marking) {
+        if let Some(idx) = self.state_space.seen.get(&marking) {
             self.state_space.graph.add_edge(from, idx, over);
             return (false, idx);
         }
@@ -208,15 +228,13 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         &self,
         mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
     ) -> Option<&IdxMarking<T>> {
-        self.state_space.seen.values()
-            .map(|&node| self.state_space.marking_at(node))
-            .find(|marking| predicate(marking))
+        self.state_space.graph.node_weights().find(|marking| predicate(marking))
     }
 }
 
-impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T>
+impl<'a, T: TokenOps, S: MarkingMap<T>> DenseStateGraphExplorer<'a, T, S>
 where
-    DenseStateGraphExplorer<'a, T>: ExploreNext<T>,
+    DenseStateGraphExplorer<'a, T, S>: ExploreNext<T>,
 {
     /// Check all currently discovered markings for one satisfying `predicate`,
     /// and return it if found.
@@ -231,10 +249,10 @@ where
         mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
     ) -> Option<&IdxMarking<T>> {
         // todo: possible to call .any_matched() here instead?
-        for &node in self.state_space.seen.values() {
-            if predicate(self.state_space.marking_at(node)) {
-                return Some(self.state_space.marking_at(node));
-            }
+        let found = self.state_space.graph.node_indices()
+            .find(|&idx| predicate(self.state_space.marking_at(idx)));
+        if let Some(idx) = found {
+            return Some(self.state_space.marking_at(idx));
         }
         self.search(predicate)
     }
@@ -273,20 +291,22 @@ where
 }
 
 /// A fully explored state space graph of a Petri net.
+///
+/// Generic over the `seen` dedup/lookup strategy `S`
+/// (see [`DenseStateGraphExplorer`]).
 #[derive(Debug, Clone)]
-pub struct DenseStateGraph<'a, T: TokenOps> {
+pub struct DenseStateGraph<'a, T: TokenOps, S: MarkingMap<T> = HashMap<IdxMarking<T>, NodeIndex>> {
     /// Reference to the net.
     pub net: &'a DenseNet,
     /// Reference to the graph's initial node, for pathfinding.
     pub initial_idx: NodeIndex,
     /// The underlying graph structure. Nodes are markings, edges are transitions.
     pub graph: petgraph::Graph<IdxMarking<T>, TransitionIdx>,
-    /// A hash table of seen markings to their node indices in the graph,
-    /// for O(1) lookup.
-    pub seen: HashMap<IdxMarking<T>, NodeIndex>,
+    /// Dedup/lookup index from a marking to the graph node that stores it.
+    pub seen: S,
 }
 
-impl<T: TokenOps> DenseStateGraph<'_, T> {
+impl<T: TokenOps, S: MarkingMap<T>> DenseStateGraph<'_, T, S> {
     /// Number of distinct markings discovered so far.
     pub fn marking_count(&self) -> usize {
         self.graph.node_count()
@@ -333,7 +353,7 @@ impl<T: TokenOps> DenseStateGraph<'_, T> {
     /// Returns a firing sequence from the initial marking to `target`,
     /// if one exists.
     pub fn path_from_initial_to(&self, target: &IdxMarking<T>) -> Option<Vec<TransitionIdx>> {
-        let target = *self.seen.get(target)?;
+        let target = self.seen.get(target)?;
 
         if target == self.initial_idx {
             return Some(Vec::new());
@@ -355,5 +375,69 @@ impl<T: TokenOps> DenseStateGraph<'_, T> {
             .map(|edge_idx| self.graph[edge_idx])
             .collect();
         Some(firing_sequence)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::state_space::seen::MarkingDecisionDiagram;
+    use crate::prelude::{NetBuilder, PetriNet};
+
+    /// Two-place cycle: p0 -> t0 -> p1 -> t1 -> p0 (bounded, 2 reachable markings).
+    fn two_place_cycle() -> PetriNet {
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arcs((p0, t0, p1, t1, p0));
+        let net = b.build().expect("valid net");
+        PetriNet::new(net, [(p0, 1)])
+    }
+
+    /// The whole point of genericizing `DenseStateGraphExplorer` over `S`:
+    /// a decision-diagram-backed exploration of a real net must discover
+    /// exactly the same markings, transitions, and deadlocks as the
+    /// `HashMap`-backed one.
+    #[test]
+    fn mtbdd_backed_exploration_matches_hash_map_backed() {
+        let sys = two_place_cycle();
+        let initial_marking = sys.marking.clone();
+
+        let mut hash_map_explorer =
+            DenseStateGraphExplorer::new(
+                &sys.dense_net,
+                initial_marking.clone(),
+                ExplorationOrder::BreadthFirst
+            );
+        while hash_map_explorer.explore_next().is_some() {}
+
+        let mut mtbdd_explorer =
+            DenseStateGraphExplorer::with_marking_map(
+                &sys.dense_net,
+                initial_marking,
+                ExplorationOrder::BreadthFirst,
+                MarkingDecisionDiagram::new(1024, None),
+            );
+        while mtbdd_explorer.explore_next().is_some() {}
+
+        assert_eq!(mtbdd_explorer.state_space.marking_count(), hash_map_explorer.state_space.marking_count());
+        assert_eq!(mtbdd_explorer.state_space.transition_count(), hash_map_explorer.state_space.transition_count());
+
+        // `IdxMarking` only has a partial (covering) order, not a total one,
+        // so sort by the underlying `Vec<u32>` instead for a stable
+        // set-equality comparison.
+        let mut hash_map_markings: Vec<Vec<u32>> = hash_map_explorer.state_space.markings()
+            .map(|m| m.iter().copied().collect())
+            .collect();
+        let mut mtbdd_markings: Vec<Vec<u32>> = mtbdd_explorer.state_space.markings()
+            .map(|m| m.iter().copied().collect())
+            .collect();
+        hash_map_markings.sort();
+        mtbdd_markings.sort();
+        assert_eq!(mtbdd_markings, hash_map_markings);
+
+        for marking in hash_map_explorer.state_space.markings() {
+            assert!(mtbdd_explorer.state_space.contains_marking(marking));
+        }
     }
 }

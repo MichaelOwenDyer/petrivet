@@ -6,17 +6,26 @@ pub use reachability::*;
 
 use crate::core::mapping::DenseMapping;
 use crate::core::marking::IdxMarking;
+pub use crate::core::state_space::seen::{MarkingDecisionDiagram, MarkingMap, MtbddEncode};
 pub use crate::core::state_space::ExplorationOrder;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
 use crate::prelude::{Marking, Net, PetriNet, Place, Transition};
+use ahash::HashMap;
+use petgraph::graph::NodeIndex;
 use std::iter::Sum;
 
 /// An in-progress exploration of the state graph of a Petri net.
 ///
 /// Edges are [`Transitions`](Transition), and nodes are [`Markings`](Marking) of token type `T`.
+///
+/// Generic over the `seen` dedup/lookup strategy `S` (see
+/// [`MarkingMap`](crate::core::state_space::seen::MarkingMap)), defaulting
+/// to a plain hash map so every existing caller of [`Self::new`] is
+/// unaffected. Construct with a different `S` (e.g. a decision-diagram-backed
+/// one) via [`Self::with_marking_map`].
 #[derive(Clone)]
-pub struct StateGraphExplorer<'a, T: TokenOps> {
-    pub(super) core: DenseStateGraphExplorer<'a, T>,
+pub struct StateGraphExplorer<'a, T: TokenOps, S: MarkingMap<T> = HashMap<IdxMarking<T>, NodeIndex>> {
+    pub(super) core: DenseStateGraphExplorer<'a, T, S>,
     pub(super) mapping: &'a DenseMapping,
 }
 
@@ -31,8 +40,15 @@ pub struct ExplorationStep<T: TokenOps> {
     pub is_new: bool,
 }
 
-impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
-    /// Create a new [`StateGraphExplorer`] for a Petri net with the provided exploration order.
+// `ahash::HashMap` is this crate's one deliberate hash map choice throughout,
+// not something meant to be generic over the hasher.
+#[allow(clippy::implicit_hasher)]
+impl<'a, T: TokenOps> StateGraphExplorer<'a, T, HashMap<IdxMarking<T>, NodeIndex>> {
+    /// Create a new [`StateGraphExplorer`] for a Petri net with the provided
+    /// exploration order, backed by a plain hash map `seen` set.
+    ///
+    /// See [`Self::with_marking_map`] to plug in a different dedup/lookup
+    /// strategy instead.
     #[must_use]
     pub fn new<N: AsRef<Net>>(sys: &'a PetriNet<N>, order: ExplorationOrder) -> Self
     where
@@ -41,6 +57,24 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
         let initial_marking = IdxMarking::from(sys.marking.clone());
         Self {
             core: DenseStateGraphExplorer::new(&sys.dense_net, initial_marking, order),
+            mapping: &sys.mapping,
+        }
+    }
+}
+
+impl<'a, T: TokenOps, S: MarkingMap<T>> StateGraphExplorer<'a, T, S> {
+    /// Create a new [`StateGraphExplorer`] for a Petri net, backed by an
+    /// already-constructed (typically empty) `seen` map -- the caller
+    /// chooses the dedup/lookup strategy `S`, since some strategies need
+    /// construction parameters a blanket `Default` bound couldn't supply.
+    #[must_use]
+    pub fn with_marking_map<N: AsRef<Net>>(sys: &'a PetriNet<N>, order: ExplorationOrder, seen: S) -> Self
+    where
+        IdxMarking<T>: From<IdxMarking<u32>>
+    {
+        let initial_marking = IdxMarking::from(sys.marking.clone());
+        Self {
+            core: DenseStateGraphExplorer::with_marking_map(&sys.dense_net, initial_marking, order, seen),
             mapping: &sys.mapping,
         }
     }
@@ -109,9 +143,9 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     }
 }
 
-impl<'a, T: TokenOps> StateGraphExplorer<'a, T>
+impl<'a, T: TokenOps, S: MarkingMap<T>> StateGraphExplorer<'a, T, S>
 where
-    DenseStateGraphExplorer<'a, T>: ExploreNext<T>
+    DenseStateGraphExplorer<'a, T, S>: ExploreNext<T>
 {
     /// Explore the next item in the frontier: fire a transition from a marking
     /// and record the new edge (and possibly new marking) in the state graph.
@@ -154,7 +188,7 @@ where
     /// If the state space is infinite, this will not terminate and will eventually exhaust all available memory.
     /// Use with caution, and consider incremental exploration via `explore_next` or `explore_iter` instead.
     #[must_use]
-    pub fn build_graph(mut self) -> StateGraph<'a, T> {
+    pub fn build_graph(mut self) -> StateGraph<'a, T, S> {
         while self.core.explore_next().is_some() {}
         StateGraph {
             state_space: self.core.state_space,
@@ -166,13 +200,17 @@ where
 /// A fully explored state graph of a Petri net.
 ///
 /// Edges are [`Transitions`](Transition), and nodes are [`Markings`](Marking) of token type `T`.
+///
+/// Generic over the `seen` dedup/lookup strategy `S` -- see
+/// [`StateGraphExplorer`]'s docs for why, and how to pick one other than the
+/// default hash map.
 #[derive(Debug, Clone)]
-pub struct StateGraph<'a, T: TokenOps> {
-    pub(crate) state_space: DenseStateGraph<'a, T>,
+pub struct StateGraph<'a, T: TokenOps, S: MarkingMap<T> = HashMap<IdxMarking<T>, NodeIndex>> {
+    pub(crate) state_space: DenseStateGraph<'a, T, S>,
     mapping: &'a DenseMapping,
 }
 
-impl<T: TokenOps> StateGraph<'_, T> {
+impl<T: TokenOps, S: MarkingMap<T>> StateGraph<'_, T, S> {
     /// Number of distinct markings in the coverability graph.
     #[must_use]
     pub fn marking_count(&self) -> usize {

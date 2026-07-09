@@ -1,6 +1,7 @@
 use crate::core::marking;
 use crate::core::marking::IdxMarking;
 use crate::core::net::TransitionIdx;
+use crate::core::state_space::seen::MarkingMap;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
 use fixedbitset::FixedBitSet;
 use petgraph::graph::NodeIndex;
@@ -178,16 +179,17 @@ impl PartialOrd<IdxMarking<u32>> for IdxMarking<Omega> {
     }
 }
 
-/// Karp-Miller coverability graph exploration.
-impl ExploreNext<Omega> for DenseStateGraphExplorer<'_, Omega> {
+/// Karp-Miller coverability graph exploration, generic over the `seen`
+/// dedup/lookup strategy `S`.
+impl<S: MarkingMap<Omega>> ExploreNext<Omega> for DenseStateGraphExplorer<'_, Omega, S> {
     fn explore_next(&mut self) -> Option<(TransitionIdx, NodeIndex, bool)> {
         /// Karp–Miller acceleration: if any ancestor of `src` (including `src`
         /// itself) carries a marking strictly smaller than `new_marking`,
         /// promote each strictly-greater component of `new_marking` to ω.
         ///
         /// TODO: Find a more efficient algorithm for this if possible
-        fn omega_accelerate(
-            state_space: &DenseStateGraph<'_, Omega>,
+        fn omega_accelerate<S: MarkingMap<Omega>>(
+            state_space: &DenseStateGraph<'_, Omega, S>,
             new_marking: &mut IdxOmegaMarking, src: NodeIndex
         ) {
             let mut stack = vec![src];

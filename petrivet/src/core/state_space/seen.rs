@@ -53,6 +53,9 @@ pub trait MarkingMap<T: TokenOps> {
 }
 
 /// [`MarkingMap<T>`] backed by a [`HashMap`].
+// `ahash::HashMap` is this crate's one deliberate hash map choice throughout,
+// not something meant to be generic over the hasher.
+#[allow(clippy::implicit_hasher)]
 impl<T: TokenOps> MarkingMap<T> for HashMap<IdxMarking<T>, NodeIndex> {
     fn get(&self, marking: &IdxMarking<T>) -> Option<NodeIndex> {
         HashMap::get(self, marking).copied()
@@ -238,11 +241,9 @@ impl<T: MtbddEncode> MarkingDecisionDiagram<T> {
         })
     }
 
-    /// `seen[marking] = terminal_value`, everywhere else untouched: a
-    /// single-pass recursive `ite`, not the 4-op arithmetic fallback.
-    fn overwrite(&self, indicator: &MTBDDFunction<I64>, terminal_value: usize) -> AllocResult<MTBDDFunction<I64>> {
-        let terminal_value = i64::try_from(terminal_value)
-            .expect("sorry, that's too many nodes for an MTBDD terminal");
+    /// Returns a new [`MTBDDFunction`] where the given `indicator` points to `terminal_value`,
+    /// and all other paths are unchanged.
+    fn overlay(&self, indicator: &MTBDDFunction<I64>, terminal_value: i64) -> AllocResult<MTBDDFunction<I64>> {
         let terminal_value = self.manager_ref.with_manager_shared(|manager| {
             MTBDDFunction::constant(manager, I64::Num(terminal_value))
         })?;
@@ -258,8 +259,9 @@ impl<T: MtbddEncode> MarkingDecisionDiagram<T> {
             self.ensure_bits(place, count)?;
         }
         let indicator = &self.indicator(marking)?;
-        let terminal_value = idx.index() + 1;
-        self.overwrite(indicator, terminal_value).map(|new_seen| self.seen = new_seen)
+        let terminal_value = i64::try_from(idx.index() + 1)
+            .expect("sorry, that's too many nodes for an MTBDD terminal");
+        self.overlay(indicator, terminal_value).map(|new_seen| self.seen = new_seen)
     }
 
     /// Rebuilds `seen` in a bigger manager, and replays into it every

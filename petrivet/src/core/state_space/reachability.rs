@@ -1,4 +1,5 @@
 use crate::core::net::TransitionIdx;
+use crate::core::state_space::seen::MarkingMap;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
 use crate::liveness::LivenessLevel;
 use petgraph::graph::NodeIndex;
@@ -12,8 +13,9 @@ impl TokenOps for u32 {
 }
 
 /// The core reachability graph exploration algorithm,
-/// implemented for the case of markings with `u32` tokens.
-impl ExploreNext<u32> for DenseStateGraphExplorer<'_, u32> {
+/// implemented for the case of markings with `u32` tokens, generic over the
+/// `seen` dedup/lookup strategy `S`.
+impl<S: MarkingMap<u32>> ExploreNext<u32> for DenseStateGraphExplorer<'_, u32, S> {
     fn explore_next(&mut self) -> Option<(TransitionIdx, NodeIndex, bool)> {
         loop {
             let (src_marking_idx, t_idx) = self.pop_frontier()?;
@@ -27,7 +29,7 @@ impl ExploreNext<u32> for DenseStateGraphExplorer<'_, u32> {
     }
 }
 
-impl DenseStateGraph<'_, u32> {
+impl<S: MarkingMap<u32>> DenseStateGraph<'_, u32, S> {
     /// Computes liveness levels for all transitions in a single pass.
     ///
     /// SCC-based decision procedure for bounded nets ([Murata 1989 §V-C](crate::literature#v-c--liveness-via-reachability-graph-sccs)):
