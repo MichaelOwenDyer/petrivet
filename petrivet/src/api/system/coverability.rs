@@ -105,12 +105,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// - [Esparza Lecture Notes, Theorem 3.2.8](crate::literature#theorem-328--coverability-characterization) (correctness, supplementary)
     #[must_use]
     pub fn analyze_coverability(&self, target: Marking<u32>) -> CoverabilityResult {
-        let target_idx_marking = self.mapping.idx_marking(target.clone());
+        let target_idx_marking = self.mapping.decode(target.clone());
 
         if self.marking >= target_idx_marking {
             return CoverabilityProof {
                 firing_sequence: Vec::new(),
-                covering_marking: self.mapping.marking(IdxOmegaMarking::from(self.marking.clone())),
+                covering_marking: self.mapping.encode(IdxOmegaMarking::from(self.marking.clone())),
             }.into();
         }
 

@@ -24,7 +24,7 @@ impl Iterator for Deadlocks<'_> {
         self.0.as_mut().and_then(|explorer| {
             explorer.core
                 .search(|m| explorer.core.state_space.net.is_deadlock(m))
-                .map(|m| explorer.mapping.marking(m.clone()))
+                .map(|m| explorer.mapping.encode(m.clone()))
         })
     }
 }

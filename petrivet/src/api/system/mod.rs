@@ -123,7 +123,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Creates a new Petri net from a net and initial marking.
     #[must_use]
     pub fn new(net: N, initial_marking: impl Into<Marking<u32>>) -> Self {
-        let initial_marking = net.as_ref().mapping.idx_marking(initial_marking.into());
+        let initial_marking = net.as_ref().mapping.decode(initial_marking.into());
         let reset_marking = initial_marking.clone();
         Self { net, marking: initial_marking, reset_marking }
     }
@@ -132,8 +132,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
         let PetriNet { net, marking, reset_marking: reset } = self;
-        let marking = net.as_ref().mapping.marking(marking);
-        let reset = net.as_ref().mapping.marking(reset);
+        let marking = net.as_ref().mapping.encode(marking);
+        let reset = net.as_ref().mapping.encode(reset);
         (net, marking, reset)
     }
 
@@ -141,7 +141,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn marking(&self) -> Marking<u32> {
         let current_marking = self.marking.clone();
-        self.mapping.marking(current_marking)
+        self.mapping.encode(current_marking)
     }
 
     /// Returns the token count at a place identified by its [`Place`].
@@ -160,7 +160,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             &mut self.marking,
             self.reset_marking.clone()
         );
-        self.mapping.marking(previous)
+        self.mapping.encode(previous)
     }
 
     /// Whether a transition is enabled under the current marking.

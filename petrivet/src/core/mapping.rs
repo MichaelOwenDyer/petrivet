@@ -1,5 +1,14 @@
-//! Bidirectional mapping between public [`Place`] / [`Transition`] handles
-//! and dense indices (`0 .. n`) for a single built [`Net`].
+//! Public <=> Internal mapping at the API boundary.
+//!
+//! In order to efficiently store and manipulate markings and other data associated with places and
+//! transitions, petrivet internally assigns places and transitions dense 0-based indices.
+//! This enables the use of compact, cache friendly data structures such as `Vec` and `Box<[T]>`
+//! for storing data associated with places and transitions, advantageous for performance and memory usage.
+//!
+//! This decoupling allows [`NetBuilder`](crate::net::NetBuilder) to offer a flexible API with
+//! arbitrary insertion and removal, while optimizing the internal representation for analysis algorithms.
+//!
+//! This module provides a bidirectional mapping between the public handles and the internal dense indices.
 
 use crate::core::marking::IdxMarking;
 use crate::core::net::{PlaceIdx, TransitionIdx};
@@ -93,7 +102,7 @@ impl DenseMapping {
     }
 
     /// Convert an internal index marking to a public marking.
-    pub fn marking<T: TokenOps>(&self, idx_marking: IdxMarking<T>) -> Marking<T> {
+    pub fn encode<T: TokenOps>(&self, idx_marking: IdxMarking<T>) -> Marking<T> {
         self.places().zip(idx_marking).collect()
     }
 
@@ -103,7 +112,7 @@ impl DenseMapping {
     /// 
     /// todo: accept any IntoIterator<Item=(Place, T)> instead of a Marking<T> to avoid unnecessary
     ///  intermediate allocations when the caller already has an iterator over the marking's support.
-    pub fn idx_marking<T: TokenOps>(&self, marking: Marking<T>) -> IdxMarking<T> {
+    pub fn decode<T: TokenOps>(&self, marking: Marking<T>) -> IdxMarking<T> {
         let mut idx_marking = IdxMarking::zeros(self.place_count());
         marking.into_iter().for_each(|(place, count)| {
             if let Some(dense) = self.place_idx(place) {

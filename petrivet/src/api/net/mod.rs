@@ -268,7 +268,7 @@ impl Net {
     /// Returns true if the given marking enables no transitions in this net
     #[must_use]
     pub fn is_deadlock(&self, marking: Marking<u32>) -> bool {
-        let idx_marking = self.mapping.idx_marking(marking);
+        let idx_marking = self.mapping.decode(marking);
         self.dense_net.is_deadlock(&idx_marking)
     }
 }

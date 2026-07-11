@@ -8,7 +8,9 @@
     clippy::use_self,
 )]
 
-//! Petrivet: a Rust library for modeling, simulating, and analyzing Petri nets.
+//! `petrivet`: a Rust library for modeling, simulating, and analyzing Petri nets.
+//!
+//! 
 //!
 //! # Quick Start
 //!

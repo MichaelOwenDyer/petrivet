@@ -132,7 +132,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// `Inconclusive` rather than attempting infinite exploration.
     #[must_use]
     pub fn analyze_reachability(&self, target: &Marking<u32>) -> ReachabilityResult {
-        let target = self.mapping.idx_marking(target.clone());
+        let target = self.mapping.decode(target.clone());
 
         if self.marking == target {
             return ReachabilityProof::FiringSequence(Box::new([])).into();
