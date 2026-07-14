@@ -13,3 +13,4 @@ mcc-2026/mcc-orchestrator/cache
 mcc-tests/oracle/models/*
 mcc-tests/oracle/oracle.tar.gz
 typst/reference
+typst/masters/
