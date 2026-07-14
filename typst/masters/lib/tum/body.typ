@@ -22,7 +22,11 @@
   )
   show math.equation: set text(font: body-font, weight: 400)
 
-  show bibliography: set heading(outlined: true, bookmarked: true, numbering: none)
+  show bibliography: set heading(
+    outlined: true,
+    bookmarked: true,
+    numbering: none,
+  )
 
   apply-heading-styles()
   apply-figure-styles()

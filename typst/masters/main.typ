@@ -2,7 +2,7 @@
 #import "thesis.typ": thesis
 
 #set document(
-    title: meta.title,
-    author: meta.author,
+  title: meta.title,
+  author: meta.author,
 )
 #thesis()

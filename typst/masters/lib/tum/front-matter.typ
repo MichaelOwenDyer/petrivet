@@ -78,8 +78,7 @@
     #grid(
       columns: (1fr, auto),
       align: (left, right),
-      [#meta.hood, #meta.at("submission-date")],
-      [#meta.author],
+      [#meta.hood, #meta.at("submission-date")], [#meta.author],
     )
   ]
 }

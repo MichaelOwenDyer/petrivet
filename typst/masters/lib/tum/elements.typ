@@ -15,9 +15,20 @@
   ]
 }
 
-#let definition(title: none, body) = theorem(title: if title != none { "Definition (" + title + ")" } else { "Definition" }, body)
-#let lemma(title: none, body) = theorem(title: if title != none { "Lemma (" + title + ")" } else { "Lemma" }, body)
-#let corollary(title: none, body) = theorem(title: if title != none { "Corollary (" + title + ")" } else { "Corollary" }, body)
+#let definition(title: none, body) = theorem(
+  title: if title != none { "Definition (" + title + ")" } else {
+    "Definition"
+  },
+  body,
+)
+#let lemma(title: none, body) = theorem(
+  title: if title != none { "Lemma (" + title + ")" } else { "Lemma" },
+  body,
+)
+#let corollary(title: none, body) = theorem(
+  title: if title != none { "Corollary (" + title + ")" } else { "Corollary" },
+  body,
+)
 
 #let attributed-quote(body, attribution) = {
   pad(left: 1.5em)[
