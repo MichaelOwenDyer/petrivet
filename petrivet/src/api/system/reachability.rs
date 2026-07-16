@@ -251,6 +251,11 @@ mod tests {
         b.add_arcs((p0, t1, p2));
         b.add_arcs((p1, t2, p0));
         b.add_arcs((p2, t2, p0));
+        // p1 also feeds t1, so •t1 = {p0, p1} overlaps •t2 = {p1, p2} with neither
+        // contained in the other — the net is genuinely General (not
+        // asymmetric-choice or free-choice), which is what this reachability
+        // fallback test intends to exercise.
+        b.add_arc((p1, t1));
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::General);
         let sys = net.with_initial_marking([(p0, 1)]);

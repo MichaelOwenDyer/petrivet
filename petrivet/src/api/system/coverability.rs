@@ -168,8 +168,12 @@ mod tests {
     }
 
     #[test]
-    fn coverability_uncoverable_detected_by_lp() {
-        // Two-place cycle with one token: cannot cover (1,1).
+    fn coverability_uncoverable_two_place_cycle() {
+        // Two-place cycle with one token: cannot cover (1,1). The conservative
+        // cycle holds exactly one token, so no reachable marking covers (1,1).
+        // Detection is via the exhaustive SMT search: the marking-equation LP
+        // pre-check that used to mint `MarkingEquationNoRationalSolution` was
+        // removed upstream, so the current proof is `ExhaustiveSearch`.
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
@@ -181,7 +185,7 @@ mod tests {
         assert!(res.is_uncoverable());
         assert!(matches!(
             res,
-            CoverabilityResult::Uncoverable(NonCoverabilityProof::MarkingEquationNoRationalSolution)
+            CoverabilityResult::Uncoverable(NonCoverabilityProof::ExhaustiveSearch)
         ));
     }
 
