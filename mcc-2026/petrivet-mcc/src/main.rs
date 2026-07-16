@@ -25,10 +25,13 @@ const DEFAULT_TECHNIQUES: &[Technique] = &[
     Technique::Topological,
 ];
 
+// The Commoner-Hack liveness shortcut is a structural *decision* that exploits
+// the net's topology (its free-choice class); it explores no state space (hence
+// no `Explicit`) and performs no net reduction (hence no `StructuralReduction`).
+// Report only the techniques that actually run.
 const STRUCTURAL_TECHNIQUES: &[Technique] = &[
     Technique::SequentialProcessing,
     Technique::Topological,
-    Technique::StructuralReduction,
 ];
 
 fn main() -> Result<(), String> {
