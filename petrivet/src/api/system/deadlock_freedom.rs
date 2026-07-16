@@ -38,7 +38,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
         match self.is_efficiently_live() {
             Some(true) => Some(true), // liveness implies deadlock-freedom
             Some(false) if self.class() == NetClass::FreeChoice => Some(false), // same condition, no need to check it again
-            _ => self.commoner_hack_criterion().ok().map(|_| true)
+            // Only a completed Ok proves deadlock-freedom here; Err and an
+            // inconclusive (None) enumeration both leave the answer unknown.
+            _ => self.commoner_hack_criterion().and_then(Result::ok).map(|_| true)
         }
     }
 

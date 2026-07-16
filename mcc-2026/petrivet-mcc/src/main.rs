@@ -144,7 +144,10 @@ fn run_liveness(input_dir: &Path) -> Result<(), ParticipationError> {
     let system = load_system(input_dir)?;
     let name = Examination::Liveness.as_str();
 
-    if system.class().is_free_choice() && system.commoner_hack_criterion().is_ok() {
+    // `commoner_hack_criterion` is `Some(Ok(_))` only when the (bounded) siphon
+    // enumeration completed and the criterion held; `None`/`Some(Err(_))` fall through
+    // to the reachability-graph decision below.
+    if system.class().is_free_choice() && matches!(system.commoner_hack_criterion(), Some(Ok(_))) {
         print_boolean_result(name, true, STRUCTURAL_TECHNIQUES);
         return Ok(());
     }

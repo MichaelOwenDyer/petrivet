@@ -64,8 +64,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
             NetClass::Circuit => Some(self.marking.sum() > 0),
             NetClass::StateMachine => Some(self.is_strongly_connected() && self.marking.sum() > 0),
             NetClass::MarkedGraph => Some(!self.has_unmarked_circuit()),
-            NetClass::FreeChoice => Some(self.commoner_hack_criterion().is_ok()),
-            NetClass::AsymmetricChoice => self.commoner_hack_criterion().ok().map(|_| true),
+            // Some(Ok) → live; Some(Err) → not live; None (bounded out) → inconclusive.
+            NetClass::FreeChoice => self.commoner_hack_criterion().map(|chc| chc.is_ok()),
+            // CHC is sufficient but not necessary here, so only a completed Ok concludes;
+            // Err and an inconclusive (None) enumeration both leave the answer unknown.
+            NetClass::AsymmetricChoice => {
+                self.commoner_hack_criterion().and_then(Result::ok).map(|_| true)
+            }
             NetClass::General => None,
         }
     }
@@ -94,7 +99,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 Some(self.liveness_via_marked_graph_unmarked_circuits())
             },
             NetClass::FreeChoice => {
-                self.commoner_hack_criterion().ok().map(|_| {
+                self.commoner_hack_criterion().and_then(Result::ok).map(|_| {
                     self.transitions().map(|t| (t, LivenessLevel::L4)).collect()
                 })
             },
