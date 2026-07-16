@@ -586,10 +586,126 @@ fn negate_vector(v: &[Rational]) -> Option<Vec<Rational>> {
     v.iter().map(|x| x.checked_neg().ok()).collect()
 }
 
+/// Exact ℚ verification that `weights` (dense place-index order) certifies `place`
+/// **implicit** in `net` at initial marking `initial`, under the Silva–Colom
+/// implicit-place criterion. All arcs in this net model have weight 1, so
+/// `Pre[p][t] = 1 ⇔ p ∈ •t`. The weight *on `place` itself is ignored* — the
+/// certificate combines only the **other** places — and every other weight must be
+/// `≥ 0`.
+///
+/// Writing `y` for `weights` restricted to `q ≠ place`, the two conditions checked
+/// exactly over ℚ (columnwise, no `f64`) are:
+///
+/// - **(C1) flow domination** — for every transition `t`:
+///   `N[place][t] ≥ Σ_{q ≠ place} y_q · N[q][t]`.
+///   Equivalently, `g(M) := M[place] − Σ_{q≠place} y_q·M[q]` is *non-decreasing*
+///   under every firing (`Δg on firing t = N[place][t] − Σ y_q N[q][t] ≥ 0`).
+/// - **(C2) enabling domination** — for every `t ∈ place•` (i.e. `place ∈ •t`):
+///   `M₀[place] − Σ_{q≠place} y_q·M₀[q] + Σ_{q ∈ •t, q ≠ place} y_q ≥ 1`.
+///
+/// # Soundness — what a `true` proves
+///
+/// If both hold, `place` is implicit for `(net, initial)`: for every reachable
+/// marking `M` and every `t ∈ place•`, whenever the *other* input places of `t` are
+/// marked (`M[q] ≥ 1` for `q ∈ •t∖{place}`) then `place` is too (`M[place] ≥ 1`).
+/// Hence `place` is never the sole place disabling one of its output transitions, so
+/// deleting `place` and its arcs leaves the set of fireable sequences — and the
+/// reachable markings projected onto the remaining places — unchanged.
+///
+/// *Proof.* (C1) makes `g` non-decreasing, so `g(M) ≥ g(M₀)` for every reachable
+/// `M`. Fix `t ∈ place•` with `M[q] ≥ 1` for all `q ∈ •t∖{place}`. Then, using
+/// `y ≥ 0` and `M ≥ 0` to drop the `q ∉ •t` terms and `M[q] ≥ 1` on the rest,
+/// `M[place] = g(M) + Σ_{q≠place} y_q·M[q] ≥ g(M₀) + Σ_{q ∈ •t∖{place}} y_q
+/// = M₀[place] − Σ_{q≠place} y_q·M₀[q] + Σ_{q ∈ •t∖{place}} y_q ≥ 1` by (C2). So
+/// `M[place] ≥ 1 = Pre[place][t]`: `place` does not disable `t`. ∎
+///
+/// # What a `false` (abstention) does NOT prove
+///
+/// `false` means *this* `weights` vector is not a valid certificate; it does **not**
+/// prove `place` is essential (the criterion is sufficient, not necessary — a
+/// separating non-negative combination this vector missed may still exist). The
+/// verdict is **relative to `initial`**: a place implicit for one initial marking
+/// may not be for another. It certifies removing `place` *alone*; it says nothing
+/// about removing several places jointly (removing one implicit place can make
+/// another essential). Any i128 overflow, length mismatch, out-of-range `place`, or
+/// negative other-weight yields `false` — never a fabricated `true`.
+#[must_use]
+pub fn is_implicit_place_certificate(
+    net: &crate::core::net::DenseNet,
+    place: crate::core::net::PlaceIdx,
+    initial: &crate::core::marking::IdxMarking<u32>,
+    weights: &[Rational],
+) -> bool {
+    let p_count = net.place_count();
+    if weights.len() != p_count || place >= p_count || initial.as_ref().len() != p_count {
+        return false;
+    }
+    // Every weight on a place *other* than `place` must be non-negative (the
+    // combination is non-negative; `place`'s own weight is unused).
+    for (q, &w) in weights.iter().enumerate() {
+        if q != place && w < Rational::ZERO {
+            return false;
+        }
+    }
+    let incidence = incidence_over_rationals(net);
+
+    // (C1) flow domination: N[place][t] ≥ Σ_{q≠place} y_q·N[q][t] for every t.
+    for t in net.transition_indices() {
+        let mut combo = Rational::ZERO; // Σ_{q≠place} y_q·N[q][t]
+        for q in net.place_indices() {
+            if q == place {
+                continue;
+            }
+            let Ok(updated) = weights[q]
+                .checked_mul(incidence.get(q, t))
+                .and_then(|term| combo.checked_add(term))
+            else {
+                return false; // exact overflow: cannot certify, never fabricate
+            };
+            combo = updated;
+        }
+        if incidence.get(place, t) < combo {
+            return false; // N[place][t] < Σ y_q N[q][t] violates (C1)
+        }
+    }
+
+    // (C2) enabling domination for every t ∈ place• (place ∈ •t).
+    // base = M₀[place] − Σ_{q≠place} y_q·M₀[q].
+    let mut base = Rational::from_int(i128::from(initial[place]));
+    for q in net.place_indices() {
+        if q == place {
+            continue;
+        }
+        let m0_q = Rational::from_int(i128::from(initial[q]));
+        let Ok(updated) = weights[q].checked_mul(m0_q).and_then(|term| base.checked_sub(term))
+        else {
+            return false;
+        };
+        base = updated;
+    }
+    for &t in &net.postset_p[place] {
+        // val = base + Σ_{q ∈ •t, q≠place} y_q; require val ≥ 1.
+        let mut val = base;
+        for &q in &net.preset_t[t] {
+            if q == place {
+                continue;
+            }
+            let Ok(updated) = val.checked_add(weights[q]) else {
+                return false;
+            };
+            val = updated;
+        }
+        if val < Rational::ONE {
+            return false; // (C2) violated: place can be the sole disabler of t
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        incidence_over_rationals, is_positive_place_subinvariant,
+        incidence_over_rationals, is_implicit_place_certificate, is_positive_place_subinvariant,
         is_semipositive_place_subinvariant, marking_equation_exact, Matrix, MarkingEquationExact,
     };
     use crate::core::analysis::rational::Rational;
@@ -851,5 +967,67 @@ mod tests {
         assert!(!is_semipositive_place_subinvariant(&cyc.dense_net, &zero_first, 1));
         // An out-of-range place index is rejected.
         assert!(!is_semipositive_place_subinvariant(&cyc.dense_net, &ones, 9));
+    }
+
+    /// The exact implicit-place certificate check, exercised directly on the
+    /// "parallel place" net (`r` duplicates `a`) with hand-chosen ℚ weights — no LP
+    /// suggester involved, so this isolates the soundness of the ℚ checker itself.
+    ///
+    /// Net: `t: {a,r} → b`, `u: {b} → {a,r}`; initial marking `{a:1, r:1}`. Places
+    /// `a` and `r` have identical incidence, so `M[a] = M[r]` always: each is
+    /// implicit (the other witnesses it), while the middle place `b` is essential.
+    #[test]
+    fn implicit_place_certificate_accepts_parallel_place_rejects_essential() {
+        let mut nb = NetBuilder::new();
+        let [a, b_place, r] = nb.add_places();
+        let [t, u] = nb.add_transitions();
+        // t consumes a and r, produces b.
+        nb.add_arc((a, t));
+        nb.add_arc((r, t));
+        nb.add_arc((t, b_place));
+        // u consumes b, produces a and r.
+        nb.add_arc((b_place, u));
+        nb.add_arc((u, a));
+        nb.add_arc((u, r));
+        let net = nb.build().unwrap();
+        let m0 = net.mapping.decode([(a, 1), (r, 1)].into());
+
+        let ai = net.mapping.place_idx(a).unwrap();
+        let bi = net.mapping.place_idx(b_place).unwrap();
+        let ri = net.mapping.place_idx(r).unwrap();
+
+        // y = indicator(a): weight 1 on a, 0 elsewhere — certifies r implicit.
+        let mut y_a = vec![Rational::ZERO; 3];
+        y_a[ai] = Rational::ONE;
+        assert!(
+            is_implicit_place_certificate(&net.dense_net, ri, &m0, &y_a),
+            "the all-ones-on-a combination must certify r implicit (M[r] = M[a] always)"
+        );
+        // Symmetrically, y = indicator(r) certifies a implicit.
+        let mut y_r = vec![Rational::ZERO; 3];
+        y_r[ri] = Rational::ONE;
+        assert!(is_implicit_place_certificate(&net.dense_net, ai, &m0, &y_r));
+
+        // Falsifiability — the zero combination certifies NOTHING that is genuinely
+        // constraining: r is not implicit under the empty combination (it fails
+        // (C1): N[r][t] = −1 < 0), and the middle place b is essential under *any*
+        // non-negative combination, so the zero vector is rejected for it too.
+        let zero = vec![Rational::ZERO; 3];
+        assert!(
+            !is_implicit_place_certificate(&net.dense_net, ri, &m0, &zero),
+            "the zero combination must NOT certify r (it fails flow domination)"
+        );
+        assert!(
+            !is_implicit_place_certificate(&net.dense_net, bi, &m0, &zero),
+            "the essential middle place b must never be certified implicit"
+        );
+        // Using a's own indicator for a's certificate is malformed (a certificate
+        // combines *other* places; the weight on the subject is ignored, so this
+        // reduces to the zero combination and is rejected).
+        assert!(!is_implicit_place_certificate(&net.dense_net, ai, &m0, &y_a));
+
+        // Guard rails: length mismatch and out-of-range place are rejected.
+        assert!(!is_implicit_place_certificate(&net.dense_net, ri, &m0, &[Rational::ONE]));
+        assert!(!is_implicit_place_certificate(&net.dense_net, 9, &m0, &y_a));
     }
 }
