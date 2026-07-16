@@ -42,8 +42,12 @@ impl ReachabilityResult {
 pub enum ReachabilityProof {
     /// Valid for S-Systems (State Machines) that are strongly connected and M0(S) > 0.
     /// Proof relies on strict token conservation (Theorem 5.1.5).
+    ///
+    /// `marking_sum` is accumulated in `u64`: a token-conserving marking may hold
+    /// more than `u32::MAX` tokens in total even when every place count fits in
+    /// `u32`, so the conserved sum does not fit in `u32`.
     LiveStateMachineTokenConservation {
-        marking_sum: u32,
+        marking_sum: u64,
     },
 
     /// Valid for T-Systems (Marked Graphs) that are live (all circuits marked).
@@ -97,9 +101,17 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn is_efficiently_reachable(&self, target: &Marking<u32>) -> Option<bool> {
         // todo: efficient check necessary for reachability: maximal unmarked trap in target must be unmarked in M0
+        // Token conservation compares total token counts, accumulated in u64.
+        // Summing in u32 overflows once a marking's total exceeds u32::MAX (even
+        // when every place count individually fits in u32): a panic in debug, or
+        // a silent wrap in release that could mint a false `reachable` verdict.
+        let conserves_tokens = || {
+            token_total(self.marking.iter())
+                == token_total(target.support.iter().map(|(_, tokens)| tokens))
+        };
         match self.class() {
-            NetClass::Circuit => Some(self.marking.sum() == target.total_tokens()),
-            NetClass::StateMachine if self.is_live() => Some(self.marking.sum() == target.total_tokens()),
+            NetClass::Circuit => Some(conserves_tokens()),
+            NetClass::StateMachine if self.is_live() => Some(conserves_tokens()),
             // NetClass::MarkedGraph if self.is_live() => Some(self.marking() ~ target) // todo: ~ relation
             // NetClass::FreeChoice if self.is_live() && self.is_bounded() => None, // todo: requires ILP + trap check
             _ => None,
@@ -142,8 +154,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
         // so M₀(S) = M(S) for all reachable M. A different token sum proves unreachability
         // without requiring strong connectivity or liveness.
         if self.class().is_state_machine() {
-            let initial_sum = self.marking.iter().sum::<u32>();
-            let target_sum = target.iter().sum::<u32>();
+            // Accumulate in u64: a u32 fold overflows once a marking's total
+            // exceeds u32::MAX (each place count still fits in u32) — panicking in
+            // debug or wrapping in release, where a wrap could make differing
+            // totals compare equal and slip past this conservation check.
+            let initial_sum = token_total(self.marking.iter());
+            let target_sum = token_total(target.iter());
             if initial_sum != target_sum {
                 return UnreachabilityProof::StateMachineTokenConservation.into();
             }
@@ -209,6 +225,21 @@ impl<N: AsRef<Net>> PetriNet<N> {
     }
 }
 
+/// Total token count of a `u32` marking, accumulated in `u64`.
+///
+/// Token-conservation reachability compares total token counts. The generic
+/// `IdxMarking::sum` / `Marking::total_tokens` helpers fold in `u32`, which
+/// overflows once a marking's *total* exceeds `u32::MAX` — even when every
+/// individual place count fits in `u32`. That panics in a debug build and, worse,
+/// silently wraps in a release build, so a non-conserving target could compare
+/// equal to M₀ and be minted a false `reachable` verdict. A marking has at most
+/// `2^32` places, each holding at most `u32::MAX < 2^32` tokens, so the true
+/// total is always `< 2^64`: a `u64` accumulator is overflow-free for every
+/// representable marking.
+fn token_total<'a>(counts: impl IntoIterator<Item = &'a u32>) -> u64 {
+    counts.into_iter().map(|&tokens| u64::from(tokens)).sum()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::builder::NetBuilder;
@@ -240,6 +271,31 @@ mod tests {
         assert!(sys.is_reachable(&[(p2, 1)].into()));
         assert!(sys.is_reachable(&[(p0, 1), (p1, 1)].into()));
         assert!(!sys.is_reachable(&[(p1, 1)].into()));
+    }
+
+    /// A target whose *total* token count exceeds `u32::MAX` — while each place
+    /// count individually fits in `u32` — must never be minted `reachable` on a
+    /// token-conserving circuit, and must not panic. Summing the comparison in
+    /// `u32` overflows: a panic in debug, or a wrap in release that makes a
+    /// differing total compare equal to M₀ (an unsound false positive). Both the
+    /// efficient path (`is_reachable`) and the `analyze_reachability`
+    /// conservation path are exercised.
+    #[test]
+    fn reach_token_sum_overflow_no_false_positive() {
+        let (net, p0, _t0, p1, _t1) = crate::api::system::tests::two_place_cycle();
+        // M₀ total = 1. A circuit conserves tokens, so every reachable marking
+        // has total 1.
+        let sys = net.with_initial_marking([(p0, 1)]);
+
+        // Target total = 3e9 + 2e9 = 5e9 > u32::MAX; each count is a valid u32.
+        // A conserving circuit at total 1 can never reach total 5e9.
+        let overflowing_target: crate::marking::Marking<u32> =
+            [(p0, 3_000_000_000_u32), (p1, 2_000_000_000_u32)].into();
+
+        // No false positive and no panic on the efficient dispatch path...
+        assert!(!sys.is_reachable(&overflowing_target));
+        // ...nor on the analyze_reachability token-conservation path.
+        assert!(sys.analyze_reachability(&overflowing_target).is_unreachable());
     }
 
     #[test]
