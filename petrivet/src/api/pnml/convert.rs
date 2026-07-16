@@ -37,7 +37,7 @@
 //! are not yet implemented. This is intentional: silently ignoring high-level
 //! inscriptions or color declarations would produce structurally wrong nets.
 
-use super::{net, net_type, nupn::NupnMetadata, PageObject, PnmlDocument};
+use super::{net, net_type, nupn::NupnMetadata, ArcType, PageObject, PnmlDocument};
 use crate::pnml::graphics::PnmlGraphics;
 use crate::pnml::labels::NetLabels;
 use crate::prelude::{Arc, Marking, Net, NetBuilder, NetError, PetriNet, Place, Transition};
@@ -90,6 +90,20 @@ pub enum PnmlConversionError {
         weight: u64,
     },
 
+    /// An arc carries a special `<arctype>` (inhibitor, read, or reset) from the
+    /// special-arcs extension. petrivet's native model represents only normal
+    /// P/T flow arcs; a special arc changes the firing semantics — an inhibitor
+    /// arc in particular *inverts* the enabling condition — so silently
+    /// importing it as a normal arc produces a structurally different net than
+    /// the input. Rejected rather than silently misimported, consistent with
+    /// the non-unit-weight refusal.
+    UnsupportedArcType {
+        /// The PNML `id` of the offending arc.
+        arc_id: String,
+        /// The special arc type found in the file (anything but `Normal`).
+        arc_type: ArcType,
+    },
+
     /// The topology could not form a valid net (empty or disconnected).
     InvalidTopology(NetError),
 }
@@ -109,6 +123,8 @@ impl std::fmt::Display for PnmlConversionError {
                 write!(f, "place '{place_id}': initial marking {value} exceeds the u32 token ceiling ({})", u32::MAX),
             Self::NonUnitWeightArc { arc_id, weight } =>
                 write!(f, "arc '{arc_id}': non-unit weight {weight} is not representable (only unit-weight P/T arcs are supported)"),
+            Self::UnsupportedArcType { arc_id, arc_type } =>
+                write!(f, "arc '{arc_id}': unsupported arc type {arc_type:?} (only normal P/T flow arcs are representable; inhibitor/read/reset arcs change the firing semantics)"),
             Self::InvalidTopology(build_err) =>
                 write!(f, "invalid net topology: {build_err}"),
         }
@@ -280,6 +296,21 @@ fn convert_pt_net(
                 endpoint_id: pnml_arc.target.clone(),
             }
         })?;
+
+        // petrivet's native model represents only normal P/T flow arcs. A
+        // special `<arctype>` (inhibitor/read/reset) changes the firing
+        // semantics — an inhibitor arc inverts the enabling condition — so
+        // importing it as a normal arc would produce a structurally different
+        // net. Refuse rather than silently misimport; an absent or normal type
+        // continues as an ordinary flow arc.
+        if let Some(arc_type) = pnml_arc.arc_type.as_ref()
+            && *arc_type != ArcType::Normal
+        {
+            return Err(PnmlConversionError::UnsupportedArcType {
+                arc_id: pnml_arc.id.clone(),
+                arc_type: arc_type.clone(),
+            });
+        }
 
         // petrivet's native model represents only unit-weight arcs. An
         // absent `<inscription>` means weight 1; any present weight other than 1
@@ -522,7 +553,7 @@ impl PnmlDocument {
 #[cfg(test)]
 mod tests {
     use super::PnmlConversionError;
-    use crate::pnml::PnmlDocument;
+    use crate::pnml::{ArcType, PnmlDocument};
 
     /// Build a minimal valid P/T net document around the given place/arc body.
     /// The wrapper supplies a 2-place / 1-transition connected topology.
@@ -558,6 +589,45 @@ mod tests {
             err,
             PnmlConversionError::NonUnitWeightArc { arc_id: "a0".to_string(), weight: 3 },
         );
+    }
+
+    /// Regression: an arc carrying a special `<arctype>` (here inhibitor) must
+    /// be REJECTED, not silently imported as a normal flow arc. An inhibitor
+    /// arc inverts the enabling condition, so importing it as a normal arc
+    /// yields a semantically different net. Before the fix the arc type was
+    /// parsed but ignored during conversion — the same silent-misimport class
+    /// as the dropped arc weight (issue #46).
+    #[test]
+    fn inhibitor_arc_type_is_rejected() {
+        let body = r#"
+            <place id="p0"><initialMarking><text>1</text></initialMarking></place>
+            <place id="p1"/>
+            <transition id="t0"/>
+            <arc id="a0" source="p0" target="t0"><arctype>inhibitor</arctype></arc>
+            <arc id="a1" source="t0" target="p1"/>
+        "#;
+        let err = convert(body).expect_err("inhibitor arc must be rejected");
+        assert_eq!(
+            err,
+            PnmlConversionError::UnsupportedArcType {
+                arc_id: "a0".to_string(),
+                arc_type: ArcType::Inhibitor,
+            },
+        );
+    }
+
+    /// An explicit `<arctype>normal</arctype>` is an ordinary flow arc and must
+    /// be accepted — only inhibitor/read/reset are refused.
+    #[test]
+    fn explicit_normal_arc_type_is_accepted() {
+        let body = r#"
+            <place id="p0"><initialMarking><text>1</text></initialMarking></place>
+            <place id="p1"/>
+            <transition id="t0"/>
+            <arc id="a0" source="p0" target="t0"><arctype>normal</arctype></arc>
+            <arc id="a1" source="t0" target="p1"/>
+        "#;
+        assert!(convert(body).is_ok(), "explicit normal arc type must be accepted");
     }
 
     /// A unit-weight arc (explicit `<inscription><text>1</text></inscription>`)
