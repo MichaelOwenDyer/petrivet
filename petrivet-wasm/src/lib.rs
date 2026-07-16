@@ -17,17 +17,23 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use petrivet::model::{
-    BoundednessAnalysisMethod, CoverabilityResult, DeadlockAnalysisMethod, LivenessMethod,
-    NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof,
-};
+// Michael reorganised petrivet: the `model` module is gone and the analysis
+// result/proof types now live under `system::*`. Boundedness and liveness no
+// longer expose a public "analysis" struct or a proof-method enum, and the
+// reachability/coverability proof enums were reshaped (see the analysis impls
+// below for how the current API is adapted onto the stable Wasm* result types).
+use petrivet::system::coverability::{CoverabilityResult, NonCoverabilityProof};
+use petrivet::system::reachability::{ReachabilityProof, ReachabilityResult, UnreachabilityProof};
 use petrivet::pnml::graphics::PnmlGraphics;
 use petrivet::pnml::labels::NetLabels;
 use petrivet::pnml::PnmlDocument;
 use petrivet::state_space::Omega;
-use petrivet::NetBuilder;
-use petrivet::NetClass;
-use petrivet::{Marking, Net, PetriNet, Place, Transition};
+// `PetriArc` was renamed to `petrivet::net::Arc`; alias it back to keep the
+// call sites (and to avoid confusion with `std::rc::Rc`/`std::sync::Arc`).
+use petrivet::net::Arc as PetriArc;
+use petrivet::prelude::{
+    Boundedness, LivenessLevel, Marking, Net, NetBuilder, NetClass, PetriNet, Place, Transition,
+};
 use wasm_bindgen::prelude::*;
 
 mod types;
@@ -74,17 +80,26 @@ impl WasmSystem {
             .find_map(|net| net.to_pt_system().ok())
             .ok_or_else(|| JsError::new("no P/T net found in PNML document"))?;
 
-        let initial_marking = system.marking().clone();
+        let initial_marking = system.marking();
         let place_keys: Vec<Place> = system.places().collect();
         let transition_keys: Vec<Transition> = system.transitions().collect();
         let (net, current_marking, _initial_marking) = system.into_parts();
+
+        // `to_pt_system` no longer returns a `(System, NetLabels, PnmlGraphics)`
+        // triple. Instead the conversion embeds the labels and graphics into the
+        // `Net` itself (via `set_labels`/`set_graphics`), exposed as the public
+        // `Net::labels` / `Net::graphics` fields. Lift them back out here so the
+        // rest of the wasm surface can keep treating them as standalone values.
+        let labels = net.labels.as_deref().cloned();
+        let graphics = net.graphics.as_deref().cloned();
+
         let system = PetriNet::new(Rc::new(net), current_marking);
 
         Ok(WasmSystem {
             system,
             initial_marking,
-            labels: Some(labels),
-            graphics: Some(graphics),
+            labels,
+            graphics,
             place_keys,
             transition_keys,
         })
@@ -102,6 +117,18 @@ impl WasmSystem {
         let transition_keys: Vec<Transition> = system.transitions().collect();
         Self { system, initial_marking, labels, graphics, place_keys, transition_keys }
     }
+
+    /// Convert a dense per-place token vector (indexed like the place indices in
+    /// [`net_structure`](Self::net_structure)) into a sparse [`Marking<u32>`]
+    /// keyed by the net's [`Place`] handles.
+    ///
+    /// `Marking<u32>` no longer implements `From<Vec<u32>>`, so callers must map
+    /// each dense index back to its `Place` handle. `tokens[i]` corresponds to
+    /// `self.place_keys[i]`; extra entries are ignored and missing entries default
+    /// to zero (the sparse-marking convention).
+    fn dense_marking(&self, tokens: Vec<u32>) -> Marking<u32> {
+        self.place_keys.iter().copied().zip(tokens).collect()
+    }
 }
 
 #[wasm_bindgen]
@@ -113,7 +140,8 @@ impl WasmSystem {
     /// get a new `WasmSystem` with the updated topology.
     #[wasm_bindgen(js_name = toBuilder)]
     pub fn to_builder(&self) -> WasmNetBuilder {
-        let builder = NetBuilder::from(self.system.net);
+        // `From<Net>` (not `From<Rc<Net>>`); clone the shared net out of the `Rc`.
+        let builder = NetBuilder::from(self.system.net.as_ref().clone());
 
         let mut place_names: HashMap<u32, String> = HashMap::new();
         let mut transition_names: HashMap<u32, String> = HashMap::new();
@@ -136,23 +164,29 @@ impl WasmSystem {
             }
         }
         if let Some(g) = &self.graphics {
-            for i in 0..n_places as usize {
-                if let Some(pos) = g.place_position(i) {
+            // Graphics are keyed by the net's `Place`/`Transition` handles, so map
+            // each dense index `i` back through `place_keys`/`transition_keys`.
+            for (i, &pk) in self.place_keys.iter().enumerate().take(n_places as usize) {
+                if let Some(pos) = g.place_position(&pk) {
                     place_positions.insert(i as u32, (pos.x, pos.y));
                 }
             }
-            for i in 0..n_transitions as usize {
-                if let Some(pos) = g.transition_position(i) {
+            for (i, &tk) in self.transition_keys.iter().enumerate().take(n_transitions as usize) {
+                if let Some(pos) = g.transition_position(&tk) {
                     transition_positions.insert(i as u32, (pos.x, pos.y));
                 }
             }
         }
 
-        let initial_tokens: HashMap<u32, u32> = self.initial_marking
-            .support()
+        // `Marking::support()` now yields only `Place` handles, so read each
+        // place's token count by handle. Dense index `i` maps to `place_keys[i]`.
+        let initial_tokens: HashMap<u32, u32> = self.place_keys
+            .iter()
             .enumerate()
-            .filter(|(_, (_, t))| **t > 0)
-            .map(|(i, t)| (i as u32, *t))
+            .filter_map(|(i, &pk)| {
+                let tokens = self.initial_marking.get(pk);
+                (tokens > 0).then_some((i as u32, tokens))
+            })
             .collect();
 
         // Build the handle maps: `From<Net>` preserves the net's handles; new ids continue after the
@@ -198,7 +232,7 @@ impl WasmSystem {
     /// these values change during simulation.
     #[wasm_bindgen(js_name = netStructure)]
     pub fn net_structure(&self) -> WasmNetStructure {
-        let net = self.system.net().as_ref();
+        let net = self.system.net.as_ref();
         let n_places = net.place_count();
         let n_transitions = net.transition_count();
 
@@ -236,20 +270,22 @@ impl WasmSystem {
             })
             .collect();
 
-        let place_positions = (0..n_places as usize)
-            .map(|i| {
+        let place_positions = self.place_keys
+            .iter()
+            .map(|&pk| {
                 self.graphics
                     .as_ref()
-                    .and_then(|g| g.place_position(i))
+                    .and_then(|g| g.place_position(&pk))
                     .map(|pos| WasmPosition { x: pos.x, y: pos.y })
             })
             .collect();
 
-        let transition_positions = (0..n_transitions as usize)
-            .map(|i| {
+        let transition_positions = self.transition_keys
+            .iter()
+            .map(|&tk| {
                 self.graphics
                     .as_ref()
-                    .and_then(|g| g.transition_position(i))
+                    .and_then(|g| g.transition_position(&tk))
                     .map(|pos| WasmPosition { x: pos.x, y: pos.y })
             })
             .collect();
@@ -307,7 +343,12 @@ impl WasmSystem {
     /// The current token counts, one entry per place (indexed by place index).
     #[wasm_bindgen(js_name = currentMarking)]
     pub fn current_marking(&self) -> Vec<u32> {
-        self.system.current_marking().support().copied().collect()
+        // `Marking<u32>` is sparse (only non-zero places), so build the dense
+        // per-place vector directly from the system's token counts.
+        self.place_keys
+            .iter()
+            .map(|&pk| self.system.tokens_in(pk))
+            .collect()
     }
 
     /// Indices of transitions that are currently enabled.
@@ -320,7 +361,7 @@ impl WasmSystem {
             .collect();
         self.system
             .enabled_transitions()
-            .map(|tk| tk_to_dense[tk])
+            .map(|tk| tk_to_dense[&tk])
             .collect()
     }
 
@@ -343,7 +384,7 @@ impl WasmSystem {
     /// Reset the marking to the initial marking the system was constructed with.
     #[wasm_bindgen]
     pub fn reset(&mut self) {
-        let net = Rc::clone(self.system.net());
+        let net = Rc::clone(&self.system.net);
         self.system = PetriNet::new(net, self.initial_marking.clone());
     }
 }
@@ -371,86 +412,92 @@ impl WasmSystem {
 
 #[wasm_bindgen]
 impl WasmSystem {
-    /// Full boundedness analysis with per-place bounds and proof method.
+    /// Full boundedness analysis with per-place bounds.
+    ///
+    /// petrivet no longer exposes a `BoundednessAnalysis` struct with a dense
+    /// bounds vector and a proof-method field; the public surface is
+    /// `is_bounded()` and `place_boundedness(place) -> Boundedness`. The dense
+    /// `place_bounds` vector is rebuilt by querying each place handle, and
+    /// `method` is derived from the net's structural class (S/T/circuit nets have
+    /// an efficient structural bound; other classes fall back to the coverability
+    /// graph) since the exact method used is no longer reported.
     #[wasm_bindgen(js_name = analyzeBoundedness)]
     pub fn analyze_boundedness(&self) -> WasmBoundednessAnalysis {
-        let boundedness = self.system.analyze_boundedness();
+        let is_bounded = self.system.is_bounded();
 
-        let is_bounded = boundedness.system_bound().is_finite();
-
-        let place_bounds = boundedness
-            .place_bounds_dense()
-            .into_iter()
-            .map(omega_to_wasm)
+        let place_bounds = self.place_keys
+            .iter()
+            .map(|&pk| boundedness_to_wasm(self.system.place_boundedness(pk)))
             .collect();
 
-        let method = match boundedness.method {
-            BoundednessAnalysisMethod::PositivePlaceSubvariant(..) => {
+        let method = match self.system.class() {
+            NetClass::Circuit | NetClass::StateMachine | NetClass::MarkedGraph => {
                 WasmBoundednessMethod::PositivePlaceSubvariant
             }
-            BoundednessAnalysisMethod::CoverabilityGraph => WasmBoundednessMethod::CoverabilityGraph,
             _ => WasmBoundednessMethod::CoverabilityGraph,
         };
 
         WasmBoundednessAnalysis { is_bounded, place_bounds, method }
     }
 
-    /// Full liveness analysis with per-transition levels and proof method.
+    /// Full liveness analysis with per-transition levels.
+    ///
+    /// petrivet's `LivenessAnalysis` no longer carries a dense levels vector or a
+    /// proof-method enum (`LivenessMethod` was removed). Levels are rebuilt by
+    /// querying each transition handle via `level(t)`, and `method` is derived
+    /// from the net's structural class — which is exactly what petrivet dispatches
+    /// its liveness procedure on: S-nets (incl. circuits) use the state-machine
+    /// procedure, marked graphs the T-net procedure, free-choice nets Commoner's
+    /// theorem, and every other class falls back to reachability-graph SCC analysis.
     #[wasm_bindgen(js_name = analyzeLiveness)]
     pub fn analyze_liveness(&self) -> WasmLivenessAnalysis {
-        let result = self.system.analyze_liveness();
+        let result = self.system.liveness();
 
-        let net_level = liveness_level_to_wasm(result.net_level());
+        let net_level = liveness_level_to_wasm(result.global_level());
 
-        let levels = result
-            .levels_dense()
-            .into_iter()
-            .map(liveness_level_to_wasm)
+        let levels = self.transition_keys
+            .iter()
+            .map(|&tk| liveness_level_to_wasm(result.level(tk)))
             .collect();
 
-        let method = match result.method {
-            LivenessMethod::SNet(_) => WasmLivenessMethod::SNet,
-            LivenessMethod::TNet(_) => WasmLivenessMethod::TNet,
-            LivenessMethod::FreeChoice(_) => WasmLivenessMethod::FreeChoice,
-            LivenessMethod::ReachabilityGraph => WasmLivenessMethod::ReachabilityGraphSCC,
-            LivenessMethod::Inconclusive => WasmLivenessMethod::Inconclusive,
-            _ => WasmLivenessMethod::Inconclusive,
+        let method = match self.system.class() {
+            NetClass::Circuit | NetClass::StateMachine => WasmLivenessMethod::SNet,
+            NetClass::MarkedGraph => WasmLivenessMethod::TNet,
+            NetClass::FreeChoice => WasmLivenessMethod::FreeChoice,
+            NetClass::AsymmetricChoice | NetClass::General => {
+                WasmLivenessMethod::ReachabilityGraphSCC
+            }
         };
 
         WasmLivenessAnalysis { net_level, levels, method }
     }
 
     /// Full deadlock-freedom analysis with reachable deadlock witnesses.
+    ///
+    /// petrivet no longer returns a `DeadlockAnalysis` struct. The public surface
+    /// is `is_deadlock_free()` plus a `deadlocks()` iterator yielding reachable
+    /// deadlock *markings* only — it no longer attaches a firing sequence to each
+    /// deadlock, nor a proof-method enum (`DeadlockAnalysisMethod` was removed).
+    /// Each `firing_sequence` is therefore left empty, and `method` is derived
+    /// from whether petrivet has an efficient (structural, Commoner/Hack)
+    /// procedure for this net vs. falling back to state-space exploration.
     #[wasm_bindgen(js_name = analyzeDeadlockFreedom)]
     pub fn analyze_deadlock_freedom(&self) -> WasmDeadlockAnalysis {
-        let result = self.system.analyze_deadlock_freedom();
+        let is_deadlock_free = self.system.is_deadlock_free();
 
-        let is_deadlock_free = result.is_deadlock_free();
-
-        // Build Transition → dense index map for firing sequence conversion.
-        let tk_to_idx: HashMap<Transition, u32> = self.transition_keys
-            .iter()
-            .enumerate()
-            .map(|(i, &tk)| (tk, i as u32))
-            .collect();
-
-        let deadlocks = result
-            .deadlocks
-            .into_iter()
-            .map(|d| WasmDeadlock {
-                marking: d.marking.iter().copied().collect(),
-                firing_sequence: d.firing_sequence
-                    .iter()
-                    .map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX))
-                    .collect(),
+        let deadlocks = self.system
+            .deadlocks()
+            .map(|marking| WasmDeadlock {
+                marking: self.place_keys.iter().map(|&pk| marking.get(pk)).collect(),
+                // Per-deadlock firing sequences are no longer provided by petrivet.
+                firing_sequence: Vec::new(),
             })
             .collect();
 
-        let method = match result.evidence {
-            DeadlockAnalysisMethod::CommonerTheorem(_) => WasmDeadlockMethod::CommonerTheorem,
-            DeadlockAnalysisMethod::Exploration => WasmDeadlockMethod::Exploration,
-            DeadlockAnalysisMethod::Inconclusive => WasmDeadlockMethod::Inconclusive,
-            _ => WasmDeadlockMethod::Inconclusive,
+        let method = if self.system.is_efficiently_deadlock_free().is_some() {
+            WasmDeadlockMethod::CommonerTheorem
+        } else {
+            WasmDeadlockMethod::Exploration
         };
 
         WasmDeadlockAnalysis { is_deadlock_free, deadlocks, method }
@@ -463,7 +510,7 @@ impl WasmSystem {
     /// passing the wrong length will panic.
     #[wasm_bindgen(js_name = analyzeReachability)]
     pub fn analyze_reachability(&self, target: Vec<u32>) -> WasmReachabilityResult {
-        let target = Marking::from(target);
+        let target = self.dense_marking(target);
         // Build Transition → dense index map for firing sequence conversion.
         let tk_to_idx: HashMap<Transition, u32> = self.transition_keys
             .iter()
@@ -475,34 +522,37 @@ impl WasmSystem {
         };
         match self.system.analyze_reachability(&target) {
             ReachabilityResult::Reachable(proof) => {
-                let firing_sequence = proof.firing_sequence()
-                    .map(keys_to_indices)
-                    .unwrap_or_default();
-                let wasm_proof = match &proof {
-                    ReachabilityProof::FiringSequence(..) => {
-                        WasmReachabilityProof::FiringSequence
+                // The reachability proof variants were reshaped upstream. Only the
+                // explicit-path `FiringSequence` variant carries a witness path; the
+                // structural proofs (token conservation / marking equation) do not,
+                // so those report an empty firing sequence. Both the marked-graph and
+                // free-choice marking-equation proofs map onto the nearest existing
+                // Wasm variant (`TNetMarkingEquation`).
+                let (firing_sequence, wasm_proof) = match &proof {
+                    ReachabilityProof::FiringSequence(seq) => {
+                        (keys_to_indices(seq), WasmReachabilityProof::FiringSequence)
                     }
-                    ReachabilityProof::StronglyConnectedStateMachine {
-                        marking_sum,
-                    } => WasmReachabilityProof::SNetTokenConservation { marking_sum: *marking_sum },
-                    ReachabilityProof::StateMachineMarkingEquationRationalSolution(..) => {
-                        WasmReachabilityProof::SNetMarkingEquation
-                    }
-                    ReachabilityProof::MarkedGraphMarkingEquationIntegerSolution(..) => {
-                        WasmReachabilityProof::TNetMarkingEquation
+                    ReachabilityProof::LiveStateMachineTokenConservation { marking_sum } => (
+                        Vec::new(),
+                        WasmReachabilityProof::SNetTokenConservation { marking_sum: *marking_sum },
+                    ),
+                    ReachabilityProof::LiveMarkedGraphMarkingEquationIntegerSolution(_)
+                    | ReachabilityProof::LiveBoundedFreeChoiceMarkingEquationWithTrapCheck(_) => {
+                        (Vec::new(), WasmReachabilityProof::TNetMarkingEquation)
                     }
                 };
                 WasmReachabilityResult::Reachable { firing_sequence, proof: wasm_proof }
             }
             ReachabilityResult::Unreachable(proof) => {
                 let wasm_proof = match proof {
-                    UnreachabilityProof::StateMachineTokenConservation {
-                        initial_marking_sum,
-                        target_marking_sum,
-                    } => WasmUnreachabilityProof::SNetTokenConservationViolation {
-                        initial_marking_sum,
-                        target_marking_sum,
-                    },
+                    // The upstream variant no longer carries the two token sums, so
+                    // recompute them from the analysed initial marking and target.
+                    UnreachabilityProof::StateMachineTokenConservation => {
+                        WasmUnreachabilityProof::SNetTokenConservationViolation {
+                            initial_marking_sum: self.system.marking().total_tokens(),
+                            target_marking_sum: target.total_tokens(),
+                        }
+                    }
                     UnreachabilityProof::MarkingEquationNoRationalSolution => {
                         WasmUnreachabilityProof::MarkingEquationNoRationalSolution
                     }
@@ -526,21 +576,26 @@ impl WasmSystem {
     /// `target` must have the same length as the number of places in the net.
     #[wasm_bindgen(js_name = analyzeCoverability)]
     pub fn analyze_coverability(&self, target: Vec<u32>) -> WasmCoverabilityResult {
-        let target = Marking::from(target);
+        let target = self.dense_marking(target);
         // Build Transition → dense index map for firing sequence conversion.
         let tk_to_idx: HashMap<Transition, u32> = self.transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i as u32))
             .collect();
-        match self.system.analyze_coverability(&target) {
+        // `analyze_coverability` now takes the target marking by value.
+        match self.system.analyze_coverability(target) {
             CoverabilityResult::Coverable(proof) => {
                 let firing_sequence: Vec<u32> = proof.firing_sequence
                     .iter()
                     .map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX))
                     .collect();
-                let covering_marking =
-                    proof.covering_marking.support().copied().map(omega_to_wasm).collect();
+                // `covering_marking` is a sparse `Marking<Omega>`; read each place's
+                // value by handle to produce the dense per-place vector.
+                let covering_marking = self.place_keys
+                    .iter()
+                    .map(|&pk| omega_to_wasm(proof.covering_marking.get(pk)))
+                    .collect();
                 WasmCoverabilityResult::Coverable { firing_sequence, covering_marking }
             }
             CoverabilityResult::Uncoverable(proof) => {
@@ -571,7 +626,7 @@ impl WasmSystem {
     /// Labels from the PNML document are used when available.
     #[wasm_bindgen(js_name = toDot)]
     pub fn to_dot(&self) -> String {
-        let net = self.system.net().as_ref();
+        let net = self.system.net.as_ref();
         let mut out = String::new();
         let name = self
             .labels
@@ -905,13 +960,13 @@ impl WasmNetBuilder {
         let mut tp_arcs: Vec<WasmBuilderArc> = Vec::new();
         for arc in self.builder.arcs() {
             match arc {
-                BuilderArc::PlaceToTransition(p, t) => {
+                PetriArc::PlaceToTransition(p, t) => {
                     pt_arcs.push(WasmBuilderArc {
                         source_id: pk_to_js[&p],
                         target_id: tk_to_js[&t],
                     });
                 }
-                BuilderArc::TransitionToPlace(t, p) => {
+                PetriArc::TransitionToPlace(t, p) => {
                     tp_arcs.push(WasmBuilderArc {
                         source_id: tk_to_js[&t],
                         target_id: pk_to_js[&p],
@@ -984,12 +1039,19 @@ impl WasmNetBuilder {
             labels.set_net_name(name);
         }
 
-        // PnmlGraphics is not constructible from external crates (fields use
-        // pub(crate) types). Skip graphics for builder-created systems.
+        // Builder-created systems carry no PNML layout, so there is no
+        // PnmlGraphics to attach.
         let graphics = None;
 
-        let initial_marking = Marking::from(marking_vec.clone());
-        let system = PetriNet::new(Rc::new(net), marking_vec);
+        // `Marking<u32>` has no dense `From<Vec<u32>>`; it is a sparse map keyed
+        // by `Place` handles. Zip the dense token vector with the corresponding
+        // place handles (`marking_vec[i]` belongs to `sorted_place_ids[i]`).
+        let initial_marking: Marking<u32> = sorted_place_ids
+            .iter()
+            .copied()
+            .zip(marking_vec)
+            .collect();
+        let system = PetriNet::new(Rc::new(net), initial_marking.clone());
 
         Ok(WasmSystem::from_parts(system, initial_marking, Some(labels), graphics))
     }
@@ -1009,10 +1071,16 @@ fn omega_to_wasm(omega: Omega) -> WasmOmega {
     }
 }
 
-fn liveness_level_to_wasm(
-    level: petrivet::model::LivenessLevel,
-) -> WasmLivenessLevel {
-    use petrivet::model::LivenessLevel;
+/// Map petrivet's `Boundedness` (the per-place bound type) onto the `WasmOmega`
+/// finite/unbounded shape used by the JS boundedness result.
+fn boundedness_to_wasm(bound: Boundedness) -> WasmOmega {
+    match bound {
+        Boundedness::Bounded(k) => WasmOmega::Finite(k as u32),
+        Boundedness::Unbounded => WasmOmega::Unbounded,
+    }
+}
+
+fn liveness_level_to_wasm(level: LivenessLevel) -> WasmLivenessLevel {
     match level {
         LivenessLevel::L0 => WasmLivenessLevel::L0,
         LivenessLevel::L1 => WasmLivenessLevel::L1,
