@@ -1,3 +1,4 @@
+use crate::core::analysis::rackoff;
 use crate::core::coverability::find_candidate_covering_parikh_vector;
 use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::marking::Marking;
@@ -140,6 +141,36 @@ impl<N: AsRef<Net>> PetriNet<N> {
     }
 }
 
+// Rackoff depth bound.
+impl<N: AsRef<Net>> PetriNet<N> {
+    /// Returns Rackoff's a priori upper bound on the length of a shortest
+    /// covering firing sequence for `target`, or `None` if the bound does
+    /// not fit in `u128`.
+    ///
+    /// If `target` is coverable — from *any* initial marking, in particular
+    /// the current one — then it is coverable by a firing sequence of length
+    /// at most this bound. Searching for a cover deeper than the bound is
+    /// therefore provably useless. The bound is doubly exponential in the
+    /// number of places, so `None` (overflow) is the common case on all but
+    /// the smallest nets; `None` means "not representable in `u128`", never
+    /// "no bound exists".
+    ///
+    /// This method only computes the bound; it does not decide coverability
+    /// (use [`analyze_coverability`](Self::analyze_coverability) for that).
+    /// In particular, concluding uncoverability from a depth-limited search
+    /// is sound only if the search exhaustively enumerates every distinct
+    /// marking reachable within the bound.
+    ///
+    /// References:
+    /// - [Esparza Lecture Notes, Theorem 3.2.9](crate::literature#theorem-329--rackoff-coverability-depth-bound) (the bound; original result Rackoff 1978)
+    /// - [Esparza Lecture Notes, Lemma 3.2.12](crate::literature#lemma-3212--length-of-shortest-i-covering-sequences) (the recurrence computed here)
+    #[must_use]
+    pub fn rackoff_coverability_depth_bound(&self, target: impl Into<Marking<u32>>) -> Option<u128> {
+        let target_idx_marking = self.mapping.decode(target.into());
+        rackoff::coverability_depth_bound(&self.net.as_ref().dense_net, &target_idx_marking)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::builder::NetBuilder;
@@ -207,5 +238,61 @@ mod tests {
             }
             _ => panic!("expected coverability-graph proof"),
         }
+    }
+
+    #[test]
+    fn rackoff_bound_two_place_cycle() {
+        // k = 2, target (1,1): n = 3; f(1) = 4; f(2) = (3·4)^2 + 4 = 148.
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arcs((p0, t0, p1, t1, p0));
+        let net = b.build().unwrap();
+        let sys = PetriNet::new(net, [(p0, 1)]);
+
+        assert_eq!(sys.rackoff_coverability_depth_bound([(p0, 1), (p1, 1)]), Some(148));
+    }
+
+    #[test]
+    fn rackoff_bound_caps_witness_length() {
+        // Falsifiable check of the bound's claim on a tiny bounded net:
+        // any covering firing sequence found by exact analysis must fit
+        // within the a priori bound.
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arcs((p0, t0, p1, t1, p0));
+        let net = b.build().unwrap();
+        let sys = PetriNet::new(net, [(p0, 1)]);
+
+        // k = 2, target (0,1): n = 2; f(2) = (2·3)^2 + 3 = 39.
+        let bound = sys.rackoff_coverability_depth_bound([(p1, 1)]).unwrap();
+        assert_eq!(bound, 39);
+
+        match sys.analyze_coverability([(p1, 1)].into()) {
+            CoverabilityResult::Coverable(CoverabilityProof { firing_sequence, .. }) => {
+                // The shortest cover fires t0 once; it must respect the bound.
+                assert!(u128::try_from(firing_sequence.len()).unwrap() <= bound);
+            }
+            CoverabilityResult::Uncoverable(_) => panic!("(0,1) is coverable from (1,0)"),
+        }
+    }
+
+    #[test]
+    fn rackoff_bound_overflows_to_none_on_five_places() {
+        // The bound is doubly exponential: five places with a unit target
+        // already exceed u128, and the function must abstain with `None`
+        // rather than saturate.
+        let mut b = NetBuilder::new();
+        let ps: Vec<_> = (0..5).map(|_| b.add_place()).collect();
+        for window in ps.windows(2) {
+            let t = b.add_transition();
+            b.add_arc((window[0], t));
+            b.add_arc((t, window[1]));
+        }
+        let net = b.build().unwrap();
+        let sys = PetriNet::new(net, [(ps[0], 1)]);
+
+        assert_eq!(sys.rackoff_coverability_depth_bound([(ps[4], 1)]), None);
     }
 }

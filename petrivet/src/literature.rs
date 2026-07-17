@@ -402,3 +402,49 @@
 //!
 //! Used in: [`CoverabilityGraph::is_coverable`](crate::CoverabilityGraph::cover),
 //! [`System::analyze_coverability`](crate::PetriNet::analyze_coverability).
+//!
+//! ## Theorem 3.2.9 — Rackoff coverability depth bound
+//!
+//! > Let N be a net, let M be a marking of N, let k be the number of places
+//! > of N, and let n = 1 + Σᵢ M(i). For every marking M₀ of N: if M₀ →σ M′
+//! > with M′ ≥ M for some M′, then M₀ →σ′ M″ with M″ ≥ M for some M″ and
+//! > some σ′ of length at most (2n)^((k+1)!).
+//!
+//! Original result: C. Rackoff, "The covering and boundedness problems for
+//! vector addition systems," *Theoretical Computer Science*, vol. 6, no. 2,
+//! pp. 223–231, 1978.
+//!
+//! The bound depends only on the target and the number of places — not on
+//! M₀ — and is computable a priori. It caps the depth to which any search
+//! for a covering sequence ever needs to explore the reachability graph,
+//! and it is the basis of the EXPSPACE upper bound for coverability.
+//!
+//! Used in: [`coverability_depth_bound`](rackoff::coverability_depth_bound),
+//! [`PetriNet::rackoff_coverability_depth_bound`](crate::PetriNet::rackoff_coverability_depth_bound).
+//!
+//! Not yet exploited: a depth-capped exhaustive breadth-first search that
+//! returns `Uncoverable` once every distinct marking within the bound has
+//! been enumerated. The bound overflows `u128` beyond a handful of places,
+//! and the Karp–Miller construction already decides coverability exactly
+//! with guaranteed termination, so
+//! [`System::analyze_coverability`](crate::PetriNet::analyze_coverability)
+//! keeps the coverability graph as its deciding procedure.
+//!
+//! ## Lemma 3.2.12 — Length of shortest i-covering sequences
+//!
+//! > Let G ∈ ℤᵏ be a g-marking of N, and let n = 1 + Σᵢ |G(i)|. For every
+//! > G₀ ∈ ℤᵏ and every 0 ≤ i ≤ k: if (N, G₀) has an i-natural sequence
+//! > that i-covers G, then it has one of length at most f(i), where
+//! > f(0) = 1 and f(i) = (n·f(i−1))^i + f(i−1) for i ≥ 1.
+//!
+//! This is the induction behind Theorem 3.2.9; f(k) ≤ (2n)^((k+1)!) is its
+//! closed form. The implementation computes the tighter f(k) rather than
+//! the closed form, with checked arithmetic that abstains on overflow.
+//!
+//! The lecture notes prove the lemma for integer Petri nets (firing is
+//! never blocked). The documentation of
+//! [`coverability_depth_bound`](rackoff::coverability_depth_bound) records
+//! the adaptation that makes the same recurrence valid for standard firing
+//! semantics on the plain nets this library represents.
+//!
+//! Used in: [`coverability_depth_bound`](rackoff::coverability_depth_bound).
