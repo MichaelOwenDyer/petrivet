@@ -15,7 +15,7 @@
 //! # Quick Start
 //!
 //! ```
-//! use petrivet::net::NetBuilder;
+//! use petrivet::builder::NetBuilder;
 //! use petrivet::state_space::ExplorationOrder;
 //! let mut net = NetBuilder::new();
 //! let [p0, p1] = net.add_places();
@@ -28,7 +28,7 @@
 //! let net = net.build().expect("valid net");
 //! let mut sys = net.with_initial_marking([(p0, 1)]);
 //! sys.try_fire(t0).expect("should be enabled");
-//! println!("Marking after firing: {:?}", sys.current_marking());
+//! println!("Marking after firing: {:?}", sys.marking());
 //!
 //! let mut cg = sys.explore_coverability(ExplorationOrder::BreadthFirst);
 //! for state in cg.explore_iter().take(10) {

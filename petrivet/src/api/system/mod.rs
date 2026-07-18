@@ -8,7 +8,8 @@
 //!
 //! ```
 //! use petrivet::builder::NetBuilder;
-//! use petrivet::net::system::PetriNet;
+//! use petrivet::marking::Marking;
+//! use petrivet::system::PetriNet;
 //!
 //! // Build a simple producer-consumer net
 //! let mut b = NetBuilder::new();
@@ -17,15 +18,15 @@
 //! b.add_arcs((idle, start, busy, finish, idle));
 //! let net = b.build().expect("valid net");
 //!
-//! let mut sys = PetriNet::new(&net, [(idle, 1)].into());
+//! let mut sys = PetriNet::new(&net, [(idle, 1)]);
 //!
 //! // Simulation
 //! assert!(sys.is_enabled(start));
 //! sys.fire_unchecked(start);
-//! assert_eq!(sys.current_marking(), [(busy, 1)].into());
+//! assert_eq!(sys.marking(), Marking::from([(busy, 1)]));
 //!
 //! // Behavioral analysis
-//! let sys = PetriNet::new(&net, [(idle, 1)].into());
+//! let sys = PetriNet::new(&net, [(idle, 1)]);
 //! assert!(sys.is_bounded());
 //! assert!(sys.is_live());
 //! ```
@@ -36,19 +37,22 @@
 //!
 //! ```
 //! # use petrivet::builder::NetBuilder;
-//! # use petrivet::net::system::PetriNet;
+//! # use petrivet::system::PetriNet;
 //! # let mut b = NetBuilder::new();
 //! # let [p0, p1] = b.add_places();
 //! # let [t0, t1] = b.add_transitions();
 //! # b.add_arc((p0, t0)); b.add_arc((t0, p1));
 //! # b.add_arc((p1, t1)); b.add_arc((t1, p0));
 //! # let net = b.build().unwrap();
-//! # let mut sys = PetriNet::new(net, [1, 0]);
+//! # let mut sys = PetriNet::new(net, [(p0, 1)]);
 //! // 1. I know which transition - just try it
 //! sys.try_fire(t0).unwrap();
 //!
 //! // 2. I need to choose from the enabled set - zero redundant checks
-//! sys.choose_and_fire(|enabled| enabled.first());
+//! let choice = sys.enabled_transitions().next();
+//! if let Some(t) = choice {
+//!     sys.fire_unchecked(t);
+//! }
 //!
 //! // 3. Fire anything, I don't care which
 //! sys.fire_any();
@@ -71,23 +75,46 @@ use std::ops::Deref;
 
 /// A Petri net system `(N, M₀)` consists of a [`Net`] `N` and an initial [`Marking`] `M₀`.
 ///
-/// ```no_run
-/// use petrivet::prelude::PetriNet;
-/// let pn = PetriNet::new(&net, [(p0, 1), (p2, 5)]);
+/// ```
+/// use petrivet::system::PetriNet;
+/// # use petrivet::builder::NetBuilder;
+/// # let mut b = NetBuilder::new();
+/// # let [p0, p1] = b.add_places();
+/// # let [t0] = b.add_transitions();
+/// # b.add_arcs((p0, t0, p1));
+/// # let net = b.build().unwrap();
+/// let pn = PetriNet::new(&net, [(p0, 1), (p1, 5)]);
 /// ```
 ///
 /// You may simulate the behavior of the system, mutating its marking,
 /// by firing [`Transitions`](Transition).
 ///
-/// ```no_run
-/// pn.try_fire(t0).ok_or(|| "not enabled!")?;
+/// ```
+/// # use petrivet::builder::NetBuilder;
+/// # use petrivet::system::PetriNet;
+/// # let mut b = NetBuilder::new();
+/// # let [p0, p1] = b.add_places();
+/// # let [t0, t1] = b.add_transitions();
+/// # b.add_arc((p0, t0)); b.add_arc((t0, p1));
+/// # b.add_arc((p1, t1)); b.add_arc((t1, p0));
+/// # let net = b.build().unwrap();
+/// # let mut pn = PetriNet::new(&net, [(p0, 1)]);
+/// pn.try_fire(t0).expect("t0 is not enabled!");
 /// ```
 ///
 /// If you want to fire any enabled transition without caring which one,
 /// use [`fire_any()`](Self::fire_any).
 ///
-/// ```no_run
-/// pn.fire_any().ok_or("deadlock!")?;
+/// ```
+/// # use petrivet::builder::NetBuilder;
+/// # use petrivet::system::PetriNet;
+/// # let mut b = NetBuilder::new();
+/// # let [p0, p1] = b.add_places();
+/// # let [t0, t1] = b.add_transitions();
+/// # b.add_arcs((p0, t0, p1, t1, p0));
+/// # let net = b.build().unwrap();
+/// # let mut pn = PetriNet::new(&net, [(p0, 1)]);
+/// pn.fire_any().expect("t0 is enabled");
 /// ```
 ///
 /// To reset the system back to the marking it was initialized with,
@@ -177,7 +204,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns the set of currently enabled transitions.
     ///
     /// This is a read-only query. To fire one of these, use [`try_fire`](Self::try_fire)
-    /// or [`choose_and_fire`](Self::choose_and_fire).
+    /// or [`fire_unchecked`](Self::fire_unchecked).
     pub fn enabled_transitions(&self) -> impl Iterator<Item = Transition> + '_ {
         self.dense_net
             .transition_indices()

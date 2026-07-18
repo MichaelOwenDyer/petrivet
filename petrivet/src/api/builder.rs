@@ -307,7 +307,7 @@ impl NetBuilder {
     /// b.add_arcs((t1, p1, t2, p2, t3));
     /// assert_eq!(b.transition_count(), 3);
     /// assert_eq!(b.arc_count(), 4);
-    /// assert!(b.remove_transition(p2));
+    /// assert!(b.remove_transition(t2));
     /// assert_eq!(b.transition_count(), 2);
     /// assert_eq!(b.arc_count(), 2);
     /// ```

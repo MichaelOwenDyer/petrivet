@@ -15,8 +15,8 @@
 //!
 //! ```
 //! use petrivet::builder::NetBuilder;
-//! use petrivet::net::system::PetriNet;
-//! use petrivet::{CoverabilityGraph, ExplorationOrder};
+//! use petrivet::system::PetriNet;
+//! use petrivet::state_space::{CoverabilityGraph, ExplorationOrder};
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -25,7 +25,7 @@
 //! b.add_arc((t0, p0));
 //! b.add_arc((t0, p1));
 //! let net = b.build().expect("valid net");
-//! let sys = PetriNet::new(net, [1, 0]);
+//! let sys = PetriNet::new(net, [(p0, 1)]);
 //! let cg = sys.build_coverability_graph();
 //! assert!(!cg.is_bounded());
 //! ```
