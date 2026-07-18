@@ -251,6 +251,7 @@ mod tests {
         b.add_arcs((p0, t1, p2));
         b.add_arcs((p1, t2, p0));
         b.add_arcs((p2, t2, p0));
+        b.add_arc((p1, t1)); // extra arc to make it a general net
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::General);
         let sys = net.with_initial_marking([(p0, 1)]);

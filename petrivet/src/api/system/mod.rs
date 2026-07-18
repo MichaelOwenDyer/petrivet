@@ -234,10 +234,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn fire_unchecked(&mut self, t: Transition) {
         if let Some(t_idx) = self.mapping.transition_idx(t) {
             for &p_idx in &self.net.as_ref().dense_net.preset_t[t_idx] {
-                self.marking[p_idx].checked_sub(1).expect("fire_unchecked: token underflow");
+                self.marking[p_idx] = self.marking[p_idx]
+                    .checked_sub(1)
+                    .expect("fire_unchecked: token underflow");
             }
             for &p_idx in &self.net.as_ref().dense_net.postset_t[t_idx] {
-                self.marking[p_idx].checked_add(1).expect("fire_unchecked: token overflow");
+                self.marking[p_idx] = self.marking[p_idx]
+                    .checked_add(1)
+                    .expect("fire_unchecked: token overflow");
             }
         }
     }

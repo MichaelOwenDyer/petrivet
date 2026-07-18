@@ -223,7 +223,7 @@ impl NetBuilder {
     /// # Examples
     ///
     /// ```
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
@@ -250,7 +250,7 @@ impl NetBuilder {
     /// # Examples
     ///
     /// ```
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3] = b.add_places();
     /// let [t1, t2] = b.add_transitions();
@@ -300,7 +300,7 @@ impl NetBuilder {
     /// # Example
     ///
     /// ```
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
@@ -348,7 +348,7 @@ impl NetBuilder {
     /// # Example
     ///
     /// ```
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
@@ -478,11 +478,13 @@ impl NetBuilder {
         let graph = {
             let node_count = ordered_places.len() + ordered_transitions.len();
             let mut graph = petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
-            let p_indices: Vec<NodeIndex> = place_to_index.values()
-                .map(|&p| graph.add_node(IdxNode::Place(p)))
+            let p_indices: Vec<NodeIndex> = ordered_places.iter()
+                .enumerate()
+                .map(|(p_idx, _)| graph.add_node(IdxNode::Place(p_idx)))
                 .collect();
-            let t_indices: Vec<NodeIndex> = transition_to_index.values()
-                .map(|&t| graph.add_node(IdxNode::Transition(t)))
+            let t_indices: Vec<NodeIndex> = ordered_transitions.iter()
+                .enumerate()
+                .map(|(t_idx, _)| graph.add_node(IdxNode::Transition(t_idx)))
                 .collect();
             (0..)
                 .zip(preset_t.iter().zip(postset_t.iter()))
@@ -504,7 +506,6 @@ impl NetBuilder {
 
         let is_strongly_connected = petgraph::algo::tarjan_scc(&graph).len() == 1;
 
-        // Construct the dense analysis core of the net
         let core_net = DenseNet {
             class,
             is_strongly_connected,

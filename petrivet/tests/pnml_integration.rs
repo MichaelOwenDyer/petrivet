@@ -197,7 +197,7 @@ fn to_petri_nets_batch() {
 
 #[test]
 fn mcc_champagne_h04_t1u_parses() {
-    let doc = load("tests/fixtures/Champagne/PT/champagne_H04_T1U.pnml");
+    let doc = load("tests/fixtures/champagne_H04_T1U.pnml");
     let (sys, labels) = first_pt_net(&doc);
     assert_eq!(labels.net_name(), Some("champagne_H04_T1U"));
     assert_eq!(sys.place_count(), 285);
@@ -216,7 +216,7 @@ fn mcc_champagne_h04_t1u_parses() {
 
 #[test]
 fn mcc_cops_and_robers_circular_small_parses() {
-    let doc = load("tests/fixtures/CopsAndRobbers/PT/CopsAndRobbers-PT-Circular-Random-L005X001.pnml");
+    let doc = load("tests/fixtures/CopsAndRobbers-PT-Circular-Random-L005X001.pnml");
     let (sys, labels) = first_pt_net(&doc);
     assert_eq!(
         labels.net_name(),
