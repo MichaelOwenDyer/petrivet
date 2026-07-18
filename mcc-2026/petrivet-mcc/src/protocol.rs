@@ -104,7 +104,6 @@ pub enum Technique {
     SequentialProcessing,
     Explicit,
     Topological,
-    StructuralReduction,
 }
 
 impl fmt::Display for Technique {
@@ -113,7 +112,6 @@ impl fmt::Display for Technique {
             Technique::SequentialProcessing => write!(f, "SEQUENTIAL_PROCESSING"),
             Technique::Explicit => write!(f, "EXPLICIT"),
             Technique::Topological => write!(f, "TOPOLOGICAL"),
-            Technique::StructuralReduction => write!(f, "STRUCTURAL_REDUCTION"),
         }
     }
 }

@@ -28,7 +28,6 @@ const DEFAULT_TECHNIQUES: &[Technique] = &[
 const STRUCTURAL_TECHNIQUES: &[Technique] = &[
     Technique::SequentialProcessing,
     Technique::Topological,
-    Technique::StructuralReduction,
 ];
 
 fn main() -> Result<(), String> {
