@@ -96,6 +96,52 @@ impl<T: TokenOps> Marking<T> {
     }
 }
 
+impl<T: TokenOps + std::fmt::Display> std::fmt::Display for Marking<T> {
+    /// Formats a marking as `{p1: 2, p3: 1}` (only places with tokens, by id),
+    /// or `∅` for the empty marking.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut first = true;
+        for (place, tokens) in &self.support {
+            if first {
+                write!(f, "{{")?;
+                first = false;
+            } else {
+                write!(f, ", ")?;
+            }
+            write!(f, "p{}: {tokens}", place.0.get())?;
+        }
+        if first {
+            write!(f, "∅")
+        } else {
+            write!(f, "}}")
+        }
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use crate::marking::Marking;
+    use crate::prelude::NetBuilder;
+    use crate::state_space::Omega;
+
+    #[test]
+    fn display_u32_marking() {
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places(); // ids 1, 2
+        let m = Marking::from([(p0, 2u32), (p1, 1u32)]);
+        assert_eq!(m.to_string(), "{p1: 2, p2: 1}");
+        assert_eq!(Marking::<u32>::default().to_string(), "∅");
+    }
+
+    #[test]
+    fn display_omega_marking() {
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let m = Marking::from([(p0, Omega::Finite(2)), (p1, Omega::Unbounded)]);
+        assert_eq!(m.to_string(), "{p1: 2, p2: ω}");
+    }
+}
+
 impl<T> IntoIterator for Marking<T> {
     type Item = (Place, T);
     type IntoIter = std::vec::IntoIter<(Place, T)>;

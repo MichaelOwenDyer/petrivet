@@ -22,6 +22,16 @@ pub enum Omega {
     Unbounded,
 }
 
+impl std::fmt::Display for Omega {
+    /// Formats a finite count as its number and the unbounded count as `ω`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Finite(n) => write!(f, "{n}"),
+            Self::Unbounded => write!(f, "ω"),
+        }
+    }
+}
+
 impl Omega {
     /// Returns `true` if this is a finite value.
     #[must_use]
@@ -232,6 +242,12 @@ mod tests {
     use crate::core::marking::IdxMarking;
     use crate::core::state_space::coverability::{IdxOmegaMarking, Omega};
     use std::cmp::Ordering;
+
+    #[test]
+    fn display_omega() {
+        assert_eq!(Omega::Finite(5).to_string(), "5");
+        assert_eq!(Omega::Unbounded.to_string(), "ω");
+    }
 
     #[test]
     fn omega_marking_from_array() {
