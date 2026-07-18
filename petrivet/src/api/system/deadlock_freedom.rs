@@ -15,28 +15,31 @@ use crate::state_space::{ExplorationOrder, ReachabilityExplorer};
 pub type Deadlock = Marking<u32>;
 
 /// An incremental iterator over all reachable deadlock markings in a system.
-pub struct Deadlocks<'a> {
-    explorer: Option<ReachabilityExplorer<'a>>,
-    /// The initial marking iff it is itself a deadlock — yielded first, exactly
-    /// once. The explorer's `search` evaluates the deadlock predicate only on
-    /// newly-discovered *successor* markings, so the (reachable) seed marking
-    /// must be tested separately; otherwise an `m₀`-deadlock is missed and the
-    /// system is falsely reported deadlock-free.
-    initial_deadlock: Option<Deadlock>,
+pub enum Deadlocks<'a> {
+    /// The system is certified deadlock-free: no reachable marking is a deadlock.
+    DeadlockFree,
+    /// The initial marking iff it is itself a deadlock — yielded first, exactly once.
+    InitialDeadlock(Option<Deadlock>),
+    /// The system is not certified deadlock-free: explore the reachable markings for deadlocks.
+    Explorer(ReachabilityExplorer<'a>),
 }
 
 impl Iterator for Deadlocks<'_> {
     type Item = Deadlock;
 
     fn next(&mut self) -> Option<Deadlock> {
-        if let Some(initial) = self.initial_deadlock.take() {
-            return Some(initial);
+        match self {
+            Deadlocks::DeadlockFree => None,
+            Deadlocks::InitialDeadlock(deadlock) => {
+                deadlock.take()
+            }
+            Deadlocks::Explorer(reachability_explorer) => {
+                reachability_explorer
+                    .core
+                    .search(|m| reachability_explorer.core.state_space.net.is_deadlock(m))
+                    .map(|m| reachability_explorer.mapping.encode(m.clone()))
+            }
         }
-        let explorer = self.explorer.as_mut()?;
-        explorer
-            .core
-            .search(|m| explorer.core.state_space.net.is_deadlock(m))
-            .map(|m| explorer.mapping.encode(m.clone()))
     }
 }
 
@@ -59,19 +62,18 @@ impl<N: AsRef<Net>> PetriNet<N> {
         if self.is_efficiently_deadlock_free() == Some(true) {
             // Certified deadlock-free: no reachable marking — including m₀ — is a
             // deadlock.
-            Deadlocks { explorer: None, initial_deadlock: None }
+            Deadlocks::DeadlockFree
         } else {
-            // The seed (initial) marking is reachable and may itself be a
-            // deadlock; capture it here, since the explorer's `search` tests only
-            // successors.
-            let initial_deadlock = self
+            // Yield the initial marking once if it is a deadlock.
+            // Otherwise, explore the reachable markings for deadlocks.
+            self
                 .dense_net
                 .is_deadlock(&self.marking)
-                .then(|| self.mapping.encode(self.marking.clone()));
-            Deadlocks {
-                explorer: Some(self.explore_reachability(ExplorationOrder::BreadthFirst)),
-                initial_deadlock,
-            }
+                .then(|| self.mapping.encode(self.marking.clone()))
+                .map_or_else(
+                    || Deadlocks::Explorer(self.explore_reachability(ExplorationOrder::BreadthFirst)),
+                    |deadlock| Deadlocks::InitialDeadlock(Some(deadlock))
+                )
         }
     }
 
