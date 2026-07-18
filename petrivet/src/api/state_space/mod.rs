@@ -185,6 +185,51 @@ impl<T: TokenOps> StateGraph<'_, T> {
         self.state_space.graph.edge_count()
     }
 
+    /// Renders this state graph in Graphviz DOT format.
+    ///
+    /// Each node is labelled with its marking (non-zero places only, as
+    /// `p<id>:<tokens>`; `∅` for the empty marking) and each edge with the
+    /// transition that was fired (`t<id>`). Markings and transitions are shown as
+    /// the public [`Place`]/[`Transition`] ids, not internal indices. Pipe the
+    /// output to e.g. `dot -Tsvg` to visualise.
+    #[must_use]
+    pub fn to_dot(&self) -> String
+    where
+        T: std::fmt::Debug,
+    {
+        use petgraph::visit::EdgeRef;
+        use std::fmt::Write as _;
+
+        let graph = &self.state_space.graph;
+        let mut out = String::from("digraph state_space {\n");
+        for idx in graph.node_indices() {
+            let marking = self.mapping.encode(graph[idx].clone());
+            let mut label = String::new();
+            for place in marking.support() {
+                if !label.is_empty() {
+                    label.push_str(", ");
+                }
+                let _ = write!(label, "p{}:{:?}", place.0.get(), marking.get(place));
+            }
+            if label.is_empty() {
+                label.push('∅');
+            }
+            let _ = writeln!(out, "    {} [label=\"{label}\"];", idx.index());
+        }
+        for edge in graph.edge_references() {
+            let t = self.mapping.transition(*edge.weight());
+            let _ = writeln!(
+                out,
+                "    {} -> {} [label=\"t{}\"];",
+                edge.source().index(),
+                edge.target().index(),
+                t.0.get(),
+            );
+        }
+        out.push_str("}\n");
+        out
+    }
+
     /// Iterator over all distinct markings in the graph.
     pub fn markings(&self) -> impl Iterator<Item = Marking<T>> {
         self.state_space
@@ -316,5 +361,51 @@ impl<T: TokenOps> StateGraph<'_, T> {
                 .map(|t_idx| self.mapping.transition(t_idx))
                 .collect()
         })
+    }
+}
+
+#[cfg(test)]
+mod dot_tests {
+    use crate::prelude::NetBuilder;
+    use crate::state_space::ExplorationOrder;
+
+    /// The reachability graph of a bounded net renders as a well-formed DOT
+    /// digraph with marking node labels and transition edge labels.
+    #[test]
+    fn reachability_graph_to_dot_is_well_formed() {
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arcs((p0, t0, p1, t1, p0));
+        let net = b.build().expect("valid net");
+        let sys = net.with_initial_marking([(p0, 1)]);
+
+        let dot = sys.build_reachability_graph().to_dot();
+        assert!(dot.starts_with("digraph"), "DOT must open a digraph: {dot}");
+        assert!(dot.trim_end().ends_with('}'), "DOT must be closed: {dot}");
+        assert!(dot.contains("->"), "a two-state cycle has at least one edge: {dot}");
+        assert!(dot.contains("[label=\"t"), "edges carry transition labels: {dot}");
+        assert!(dot.contains("p1:") || dot.contains("p2:"), "nodes carry marking labels: {dot}");
+    }
+
+    /// The coverability graph of an unbounded net renders without panicking and
+    /// exercises the `Omega` token formatting path.
+    #[test]
+    fn coverability_graph_to_dot_handles_omega() {
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p0));
+        b.add_arc((t0, p1)); // p1 grows without bound -> ω
+        let net = b.build().expect("valid net");
+        let sys = net.with_initial_marking([(p0, 1)]);
+
+        let dot = sys
+            .explore_coverability(ExplorationOrder::BreadthFirst)
+            .build_graph()
+            .to_dot();
+        assert!(dot.starts_with("digraph"));
+        assert!(dot.contains("Unbounded"), "the ω place must appear in a node label: {dot}");
     }
 }
