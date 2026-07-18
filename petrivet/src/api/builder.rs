@@ -223,7 +223,7 @@ impl NetBuilder {
     /// # Examples
     ///
     /// ```
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
@@ -250,7 +250,7 @@ impl NetBuilder {
     /// # Examples
     ///
     /// ```
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3] = b.add_places();
     /// let [t1, t2] = b.add_transitions();
@@ -300,7 +300,7 @@ impl NetBuilder {
     /// # Example
     ///
     /// ```
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
@@ -348,7 +348,7 @@ impl NetBuilder {
     /// # Example
     ///
     /// ```
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
@@ -478,13 +478,6 @@ impl NetBuilder {
         let graph = {
             let node_count = ordered_places.len() + ordered_transitions.len();
             let mut graph = petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
-            // The node-index arrays are addressed below by dense index
-            // (`p_indices[p_idx]`, `t_indices[t_idx]`), so they must be built in
-            // dense-index order. `ordered_places` / `ordered_transitions` are
-            // exactly that order (position == dense index). Iterating
-            // `place_to_index.values()` instead visits hash-map order, which
-            // scrambles the place/transition -> NodeIndex correspondence and wires
-            // the petgraph edges between the wrong nodes.
             let p_indices: Vec<NodeIndex> = (0..ordered_places.len())
                 .map(|p_idx| graph.add_node(IdxNode::Place(p_idx)))
                 .collect();
@@ -511,7 +504,6 @@ impl NetBuilder {
 
         let is_strongly_connected = petgraph::algo::tarjan_scc(&graph).len() == 1;
 
-        // Construct the dense analysis core of the net
         let core_net = DenseNet {
             class,
             is_strongly_connected,

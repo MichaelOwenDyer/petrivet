@@ -61,6 +61,8 @@ pub enum NonCoverabilityProof {
     /// The ILP marking equation (integer) is infeasible.
     /// Stronger than LP: no integer firing count vector exists.
     MarkingEquationNoIntegerSolution,
+    /// An SMT solver proved the target is not coverable.
+    Smt(), // todo: add unsat core
     /// Full coverability graph explored; target not covered.
     ExhaustiveSearch,
 }
@@ -120,7 +122,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             &self.marking,
             &target_idx_marking,
         ) else {
-            return CoverabilityResult::Uncoverable(NonCoverabilityProof::ExhaustiveSearch);
+            return CoverabilityResult::Uncoverable(NonCoverabilityProof::Smt());
         };
 
         // todo: backwards coverability
@@ -181,7 +183,7 @@ mod tests {
         assert!(res.is_uncoverable());
         assert!(matches!(
             res,
-            CoverabilityResult::Uncoverable(NonCoverabilityProof::MarkingEquationNoRationalSolution)
+            CoverabilityResult::Uncoverable(NonCoverabilityProof::Smt())
         ));
     }
 

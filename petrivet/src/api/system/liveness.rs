@@ -481,7 +481,7 @@ mod tests {
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::MarkedGraph);
 
-        let sys = PetriNet::new(net, []);
+        let sys = PetriNet::new(net, [(p0, 1)]);
         let analysis = sys.liveness();
         assert_eq!(analysis.level(t_src), LivenessLevel::L4);
         assert_eq!(analysis.level(t0), LivenessLevel::L4);

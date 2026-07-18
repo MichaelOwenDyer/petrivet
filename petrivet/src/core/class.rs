@@ -53,7 +53,7 @@ pub enum NetClass {
     ///
     /// ```
     /// use petrivet::class::NetClass;
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
@@ -118,7 +118,7 @@ pub enum NetClass {
     ///
     /// ```
     /// use petrivet::class::NetClass;
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [bal_0, bal_5, bal_10, bal_15, bal_20] = b.add_places();
     /// let [bal_0_dep_5, bal_0_dep_10, bal_5_dep_5, bal_5_dep_10, bal_10_dep_5,
@@ -225,7 +225,7 @@ pub enum NetClass {
     ///
     /// ```
     /// use petrivet::class::NetClass;
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3, p4, p5] = b.add_places();
     /// let [t1, t2, t3, t4] = b.add_transitions();
@@ -340,7 +340,7 @@ pub enum NetClass {
     ///
     /// ```
     /// use petrivet::class::NetClass;
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();
     /// let [t1, t2] = b.add_transitions();
@@ -376,7 +376,7 @@ pub enum NetClass {
     ///
     /// ```
     /// use petrivet::class::NetClass;
-    /// use petrivet::Net;
+    /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
