@@ -478,13 +478,11 @@ impl NetBuilder {
         let graph = {
             let node_count = ordered_places.len() + ordered_transitions.len();
             let mut graph = petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
-            let p_indices: Vec<NodeIndex> = ordered_places.iter()
-                .enumerate()
-                .map(|(p_idx, _)| graph.add_node(IdxNode::Place(p_idx)))
+            let p_indices: Vec<NodeIndex> = (0..ordered_places.len())
+                .map(|p_idx| graph.add_node(IdxNode::Place(p_idx)))
                 .collect();
-            let t_indices: Vec<NodeIndex> = ordered_transitions.iter()
-                .enumerate()
-                .map(|(t_idx, _)| graph.add_node(IdxNode::Transition(t_idx)))
+            let t_indices: Vec<NodeIndex> = (0..ordered_transitions.len())
+                .map(|t_idx| graph.add_node(IdxNode::Transition(t_idx)))
                 .collect();
             (0..)
                 .zip(preset_t.iter().zip(postset_t.iter()))
@@ -1141,5 +1139,66 @@ mod tests {
         let net = b.build().unwrap();
         let p_idx = net.mapping.place_idx(p).expect("built net contains p");
         assert_eq!(net.mapping.place(p_idx), p);
+    }
+
+    /// Regression guard for the hash-order petgraph-mirror bug: the petgraph
+    /// mirror (`Net::graph`) must encode exactly the flow relation held by the
+    /// dense adjacency (`DenseNet`). The two were built from index maps whose
+    /// `.values()` iterate in `HashMap` order while the node arrays were addressed
+    /// by dense index, scrambling the node correspondence and wiring edges between
+    /// the wrong nodes. The fixture uses a source transition plus a circuit and a
+    /// second branch so the dense (RCM) order is unlikely to coincide with
+    /// insertion order.
+    #[test]
+    fn petgraph_mirror_agrees_with_dense_adjacency() {
+        use crate::core::net::IdxNode;
+        use petgraph::visit::EdgeRef;
+
+        // `IdxNode` is not `Ord`; project each endpoint to a sortable key.
+        fn key(n: IdxNode) -> (u8, usize) {
+            match n {
+                IdxNode::Place(p) => (0, p),
+                IdxNode::Transition(t) => (1, t),
+            }
+        }
+
+        let mut b = NetBuilder::new();
+        let [p_src, p0, p1, p2] = b.add_places();
+        let [t_src, t0, t1, t2] = b.add_transitions();
+        b.add_arc((t_src, p_src)); // source transition feeding the circuit entry
+        b.add_arc((p_src, t0));
+        b.add_arc((t0, p0)); // circuit t0 -> p0 -> t1 -> p1 -> t0
+        b.add_arc((p0, t1));
+        b.add_arc((t1, p1));
+        b.add_arc((p1, t0));
+        b.add_arc((t1, p2)); // second branch so dense order diverges from insertion
+        b.add_arc((p2, t2));
+        b.add_arc((t2, p_src));
+        let net = b.build().expect("valid net");
+
+        // The dense flow relation as a sorted set of directed arc keys.
+        let mut dense_arcs: Vec<((u8, usize), (u8, usize))> = Vec::new();
+        for t_idx in net.dense_net.transition_indices() {
+            for &p_idx in &net.dense_net.preset_t[t_idx] {
+                dense_arcs.push((key(IdxNode::Place(p_idx)), key(IdxNode::Transition(t_idx))));
+            }
+            for &p_idx in &net.dense_net.postset_t[t_idx] {
+                dense_arcs.push((key(IdxNode::Transition(t_idx)), key(IdxNode::Place(p_idx))));
+            }
+        }
+        dense_arcs.sort_unstable();
+
+        // The same set reconstructed from the petgraph mirror's node weights.
+        let mut graph_arcs: Vec<((u8, usize), (u8, usize))> = net
+            .graph
+            .edge_references()
+            .map(|e| (key(net.graph[e.source()]), key(net.graph[e.target()])))
+            .collect();
+        graph_arcs.sort_unstable();
+
+        assert_eq!(
+            graph_arcs, dense_arcs,
+            "petgraph mirror edges must equal the dense flow relation"
+        );
     }
 }
