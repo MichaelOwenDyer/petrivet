@@ -64,8 +64,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
             NetClass::Circuit | NetClass::StateMachine => Some(true),
             // A marked graph is bounded iff it is strongly connected
             NetClass::MarkedGraph => Some(self.is_strongly_connected()),
-            // A live free-choice system is bounded iff every place belongs to an s-component
-            NetClass::FreeChoice if self.is_live() => Some(self.is_covered_by_s_components()),
+            // A live free-choice system is bounded iff every place belongs to an
+            // S-component. `is_covered_by_s_components` abstains (`None`) until a
+            // certifying S-component decomposition exists; propagate that abstention
+            // rather than fabricate an unboundedness verdict, so `is_bounded` falls
+            // through to the exact coverability graph. A `Some(_)` here is only ever
+            // reported once it is certificate-backed.
+            NetClass::FreeChoice if self.is_live() => self.is_covered_by_s_components(),
             _ => None,
         }
     }

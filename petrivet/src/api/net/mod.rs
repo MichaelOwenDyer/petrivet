@@ -258,11 +258,21 @@ impl Net {
         })
     }
 
-    /// Returns whether every place in this net belongs to an S-component.
+    /// Returns whether every place in this net belongs to an S-component, or
+    /// `None` while the S-component decomposition is unimplemented.
+    ///
+    /// This previously returned a hardcoded `false`. That `false` was consumed as
+    /// a verdict at [`PetriNet::is_efficiently_bounded`](crate::system::PetriNet::is_efficiently_bounded)
+    /// for live free-choice nets and reported as *unboundedness* carrying no
+    /// evidence — a fabricated negative. A predicate that cannot yet decide must
+    /// abstain (`None`), not invent an answer; the certifying replacement (an
+    /// S-component decomposition emitting a witness) is future work, at which
+    /// point this becomes `Some(true)`/`Some(false)` with that witness.
     #[must_use]
-    pub fn is_covered_by_s_components(&self) -> bool {
-        // todo
-        false
+    pub const fn is_covered_by_s_components(&self) -> Option<bool> {
+        // Abstain rather than fabricate a verdict until the checked S-component
+        // decomposition lands.
+        None
     }
 
     /// Returns true if the given marking enables no transitions in this net
