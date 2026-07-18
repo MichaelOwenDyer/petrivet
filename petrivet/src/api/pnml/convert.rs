@@ -37,7 +37,7 @@
 //! are not yet implemented. This is intentional: silently ignoring high-level
 //! inscriptions or color declarations would produce structurally wrong nets.
 
-use super::{net, net_type, nupn::NupnMetadata, PageObject, PnmlDocument};
+use super::{net, net_type, nupn::NupnMetadata, ArcType, PageObject, PnmlDocument};
 use crate::pnml::graphics::PnmlGraphics;
 use crate::pnml::labels::NetLabels;
 use crate::prelude::{Arc, Marking, Net, NetBuilder, NetError, PetriNet, Place, Transition};
@@ -66,6 +66,44 @@ pub enum PnmlConversionError {
     /// Multiple nodes in the document share the same `id` attribute.
     DuplicateId(String),
 
+    /// A place's `<initialMarking>` token count exceeds `u32::MAX`, the ceiling
+    /// of petrivet's token representation. Silently clamping it to `u32::MAX`
+    /// would import a *structurally different* net than the input, and every
+    /// analysis after that would answer confidently about a net the file does
+    /// not describe — so this is a hard error rather than a saturating cast.
+    MarkingOverflow {
+        /// The PNML `id` of the offending place.
+        place_id: String,
+        /// The token count found in the file (which does not fit `u32`).
+        value: u64,
+    },
+
+    /// An arc carries a non-unit `<inscription>` weight. petrivet's native
+    /// model represents only unit-weight arcs; silently collapsing a weight-`k`
+    /// arc to weight-1 imports a structurally different net than the input,
+    /// contrary to the converter's own discipline. Rejected rather than
+    /// silently dropped, consistent with the colored-net refusal.
+    NonUnitWeightArc {
+        /// The PNML `id` of the offending arc.
+        arc_id: String,
+        /// The arc weight found in the file (some value other than 1).
+        weight: u64,
+    },
+
+    /// An arc carries a special `<arctype>` (inhibitor, read, or reset) from the
+    /// special-arcs extension. petrivet's native model represents only normal
+    /// P/T flow arcs; a special arc changes the firing semantics — an inhibitor
+    /// arc in particular *inverts* the enabling condition — so silently
+    /// importing it as a normal arc produces a structurally different net than
+    /// the input. Rejected rather than silently misimported, consistent with
+    /// the non-unit-weight refusal.
+    UnsupportedArcType {
+        /// The PNML `id` of the offending arc.
+        arc_id: String,
+        /// The special arc type found in the file (anything but `Normal`).
+        arc_type: ArcType,
+    },
+
     /// The topology could not form a valid net (empty or disconnected).
     InvalidTopology(NetError),
 }
@@ -81,6 +119,12 @@ impl std::fmt::Display for PnmlConversionError {
                 write!(f, "reference node '{id}' could not be resolved (dangling or cyclic reference)"),
             Self::DuplicateId(id) =>
                 write!(f, "duplicate PNML id '{id}'"),
+            Self::MarkingOverflow { place_id, value } =>
+                write!(f, "place '{place_id}': initial marking {value} exceeds the u32 token ceiling ({})", u32::MAX),
+            Self::NonUnitWeightArc { arc_id, weight } =>
+                write!(f, "arc '{arc_id}': non-unit weight {weight} is not representable (only unit-weight P/T arcs are supported)"),
+            Self::UnsupportedArcType { arc_id, arc_type } =>
+                write!(f, "arc '{arc_id}': unsupported arc type {arc_type:?} (only normal P/T flow arcs are representable; inhibitor/read/reset arcs change the firing semantics)"),
             Self::InvalidTopology(build_err) =>
                 write!(f, "invalid net topology: {build_err}"),
         }
@@ -253,6 +297,34 @@ fn convert_pt_net(
             }
         })?;
 
+        // petrivet's native model represents only normal P/T flow arcs. A
+        // special `<arctype>` (inhibitor/read/reset) changes the firing
+        // semantics — an inhibitor arc inverts the enabling condition — so
+        // importing it as a normal arc would produce a structurally different
+        // net. Refuse rather than silently misimport; an absent or normal type
+        // continues as an ordinary flow arc.
+        if let Some(arc_type) = pnml_arc.arc_type.as_ref()
+            && *arc_type != ArcType::Normal
+        {
+            return Err(PnmlConversionError::UnsupportedArcType {
+                arc_id: pnml_arc.id.clone(),
+                arc_type: arc_type.clone(),
+            });
+        }
+
+        // petrivet's native model represents only unit-weight arcs. An
+        // absent `<inscription>` means weight 1; any present weight other than 1
+        // would have to be linearised, producing a structurally different net.
+        // Refuse rather than silently collapse to weight 1.
+        if let Some(weight) = pnml_arc.inscription.as_ref().and_then(|i| i.text)
+            && weight != 1
+        {
+            return Err(PnmlConversionError::NonUnitWeightArc {
+                arc_id: pnml_arc.id.clone(),
+                weight,
+            });
+        }
+
         match (
             places.get(src_id),
             transitions.get(src_id),
@@ -280,14 +352,23 @@ fn convert_pt_net(
     }
 
     // Initial marking: index by the dense Place handle.
-    let initial_marking: Marking<u32> = flat.places
-        .iter()
-        .filter_map(|p| {
-            p.initial_marking.as_ref().and_then(|m| m.text).map(|count| {
-                (places[p.id.as_str()], u32::try_from(count).unwrap_or(u32::MAX))
-            })
-        })
-        .collect();
+    //
+    // A token count above `u32::MAX` is a hard error, not a silent
+    // saturating clamp. Clamping would import a structurally different net than
+    // the input (wrong-net-in), so we reject it instead.
+    let mut marking_pairs: Vec<(Place, u32)> = Vec::new();
+    for p in &flat.places {
+        if let Some(count) = p.initial_marking.as_ref().and_then(|m| m.text) {
+            let tokens = u32::try_from(count).map_err(|_| {
+                PnmlConversionError::MarkingOverflow {
+                    place_id: p.id.clone(),
+                    value: count,
+                }
+            })?;
+            marking_pairs.push((places[p.id.as_str()], tokens));
+        }
+    }
+    let initial_marking: Marking<u32> = marking_pairs.into_iter().collect();
 
     let mut place_names = HashMap::new();
     let mut place_ids_map = HashMap::new();
@@ -466,5 +547,136 @@ impl PnmlDocument {
     /// other nets.
     pub fn to_petri_nets(&self) -> Vec<Result<PetriNetKind, PnmlConversionError>> {
         self.nets.iter().map(net::PnmlNet::to_petri_net).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PnmlConversionError;
+    use crate::pnml::{ArcType, PnmlDocument};
+
+    /// Build a minimal valid P/T net document around the given place/arc body.
+    /// The wrapper supplies a 2-place / 1-transition connected topology.
+    fn convert(body: &str) -> Result<(), PnmlConversionError> {
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">
+  <net id="n" type="http://www.pnml.org/version-2009/grammar/ptnet">
+    <page id="pg">
+      {body}
+    </page>
+  </net>
+</pnml>"#
+        );
+        let doc = PnmlDocument::from_xml(&xml).expect("well-formed PNML");
+        doc.nets[0].to_pt_system().map(|_| ())
+    }
+
+    /// Regression: a non-unit-weight P/T arc must be REJECTED, not
+    /// silently linearised to weight 1 (which would import a structurally
+    /// different net). Before the fix the inscription was parsed but ignored.
+    #[test]
+    fn non_unit_weight_arc_is_rejected() {
+        let body = r#"
+            <place id="p0"><initialMarking><text>1</text></initialMarking></place>
+            <place id="p1"/>
+            <transition id="t0"/>
+            <arc id="a0" source="p0" target="t0"><inscription><text>3</text></inscription></arc>
+            <arc id="a1" source="t0" target="p1"/>
+        "#;
+        let err = convert(body).expect_err("weight-3 arc must be rejected");
+        assert_eq!(
+            err,
+            PnmlConversionError::NonUnitWeightArc { arc_id: "a0".to_string(), weight: 3 },
+        );
+    }
+
+    /// Regression: an arc carrying a special `<arctype>` (here inhibitor) must
+    /// be REJECTED, not silently imported as a normal flow arc. An inhibitor
+    /// arc inverts the enabling condition, so importing it as a normal arc
+    /// yields a semantically different net. Before the fix the arc type was
+    /// parsed but ignored during conversion — the same silent-misimport class
+    /// as the dropped arc weight (issue #46).
+    #[test]
+    fn inhibitor_arc_type_is_rejected() {
+        let body = r#"
+            <place id="p0"><initialMarking><text>1</text></initialMarking></place>
+            <place id="p1"/>
+            <transition id="t0"/>
+            <arc id="a0" source="p0" target="t0"><arctype>inhibitor</arctype></arc>
+            <arc id="a1" source="t0" target="p1"/>
+        "#;
+        let err = convert(body).expect_err("inhibitor arc must be rejected");
+        assert_eq!(
+            err,
+            PnmlConversionError::UnsupportedArcType {
+                arc_id: "a0".to_string(),
+                arc_type: ArcType::Inhibitor,
+            },
+        );
+    }
+
+    /// An explicit `<arctype>normal</arctype>` is an ordinary flow arc and must
+    /// be accepted — only inhibitor/read/reset are refused.
+    #[test]
+    fn explicit_normal_arc_type_is_accepted() {
+        let body = r#"
+            <place id="p0"><initialMarking><text>1</text></initialMarking></place>
+            <place id="p1"/>
+            <transition id="t0"/>
+            <arc id="a0" source="p0" target="t0"><arctype>normal</arctype></arc>
+            <arc id="a1" source="t0" target="p1"/>
+        "#;
+        assert!(convert(body).is_ok(), "explicit normal arc type must be accepted");
+    }
+
+    /// A unit-weight arc (explicit `<inscription><text>1</text></inscription>`)
+    /// is accepted — only weights other than 1 are refused.
+    #[test]
+    fn explicit_unit_weight_arc_is_accepted() {
+        let body = r#"
+            <place id="p0"><initialMarking><text>1</text></initialMarking></place>
+            <place id="p1"/>
+            <transition id="t0"/>
+            <arc id="a0" source="p0" target="t0"><inscription><text>1</text></inscription></arc>
+            <arc id="a1" source="t0" target="p1"/>
+        "#;
+        assert!(convert(body).is_ok(), "explicit unit weight must be accepted");
+    }
+
+    /// Regression: an initial marking above `u32::MAX` must be REJECTED,
+    /// not silently clamped to `u32::MAX` (which would import a structurally
+    /// different net). `5_000_000_000 > u32::MAX (4_294_967_295)`.
+    #[test]
+    fn over_u32_max_marking_is_rejected() {
+        let body = r#"
+            <place id="p0"><initialMarking><text>5000000000</text></initialMarking></place>
+            <place id="p1"/>
+            <transition id="t0"/>
+            <arc id="a0" source="p0" target="t0"/>
+            <arc id="a1" source="t0" target="p1"/>
+        "#;
+        let err = convert(body).expect_err("over-u32::MAX marking must be rejected");
+        assert_eq!(
+            err,
+            PnmlConversionError::MarkingOverflow {
+                place_id: "p0".to_string(),
+                value: 5_000_000_000,
+            },
+        );
+    }
+
+    /// A marking exactly at `u32::MAX` is the boundary and must still be
+    /// accepted (only strictly-greater values overflow).
+    #[test]
+    fn marking_at_u32_max_is_accepted() {
+        let body = r#"
+            <place id="p0"><initialMarking><text>4294967295</text></initialMarking></place>
+            <place id="p1"/>
+            <transition id="t0"/>
+            <arc id="a0" source="p0" target="t0"/>
+            <arc id="a1" source="t0" target="p1"/>
+        "#;
+        assert!(convert(body).is_ok(), "marking == u32::MAX must be accepted");
     }
 }
