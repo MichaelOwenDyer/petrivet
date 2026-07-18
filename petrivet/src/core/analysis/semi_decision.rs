@@ -58,6 +58,11 @@ use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, Solv
 ///   "a nonnegative integer solution x must exist" is a necessary reachability condition.
 /// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation)
 ///   (state equation as necessary condition)
+// No caller today: the negative reachability verdict this backed now rests on
+// the exact rational check (`exact_matrix::marking_equation_exact`), which
+// cannot report a spurious "infeasible" the way a floating-point LP can.
+// Retained as a fast suggester for a future guided path.
+#[allow(dead_code)]
 #[must_use]
 pub fn find_marking_equation_rational_solution(
     net: &DenseNet,
