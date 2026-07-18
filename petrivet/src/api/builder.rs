@@ -384,13 +384,13 @@ impl NetBuilder {
 
     /// Returns the number of places currently in the builder.
     #[must_use]
-    pub const fn place_count(&self) -> usize {
+    pub fn place_count(&self) -> usize {
         self.places.len()
     }
 
     /// Returns the number of transitions currently in the builder.
     #[must_use]
-    pub const fn transition_count(&self) -> usize {
+    pub fn transition_count(&self) -> usize {
         self.transitions.len()
     }
 
