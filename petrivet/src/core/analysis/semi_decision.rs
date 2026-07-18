@@ -18,8 +18,8 @@
 //!
 //! ```
 //! use petrivet::builder::NetBuilder;
-//! use petrivet::marking::IdxMarking;
-//! use petrivet::net::system::PetriNet;
+//! use petrivet::marking::Marking;
+//! use petrivet::system::PetriNet;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -27,14 +27,14 @@
 //! b.add_arc((p0, t0)); b.add_arc((t0, p1));
 //! b.add_arc((p1, t1)); b.add_arc((t1, p0));
 //! let net = b.build().unwrap();
-//! let sys = PetriNet::new(net, [1u32, 0]);
+//! let sys = PetriNet::new(net, [(p0, 1)]);
 //!
 //! // Can we reach (0, 1)? The marking equation says: feasible
-//! let result = sys.analyze_reachability(&IdxMarking::from([0u32, 1]));
+//! let result = sys.analyze_reachability(&Marking::from([(p1, 1)]));
 //! assert!(result.is_reachable());
 //!
 //! // Can we reach (2, 0)? Conservation law violated — definitely not
-//! let result = sys.analyze_reachability(&IdxMarking::from([2u32, 0]));
+//! let result = sys.analyze_reachability(&Marking::from([(p0, 2)]));
 //! assert!(!result.is_reachable());
 //! ```
 
