@@ -32,7 +32,7 @@ use ahash::HashMap;
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
 /// let [t0] = b.add_transitions();
-/// b.add_arc((p0, t0));
+/// b.add_arcs((p0, t0));
 /// b.add_arc((t0, p0));
 /// b.add_arc((t0, p1));
 /// let net = b.build().unwrap();

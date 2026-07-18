@@ -79,12 +79,11 @@ use std::ops::Deref;
 /// use petrivet::system::PetriNet;
 /// # use petrivet::builder::NetBuilder;
 /// # let mut b = NetBuilder::new();
-/// # let [p0, p2] = b.add_places();
+/// # let [p0, p1] = b.add_places();
 /// # let [t0] = b.add_transitions();
-/// # b.add_arc((p0, t0));
-/// # b.add_arc((t0, p2));
+/// # b.add_arcs((p0, t0, p1));
 /// # let net = b.build().unwrap();
-/// let pn = PetriNet::new(&net, [(p0, 1), (p2, 5)]);
+/// let pn = PetriNet::new(&net, [(p0, 1), (p1, 5)]);
 /// ```
 ///
 /// You may simulate the behavior of the system, mutating its marking,
@@ -112,11 +111,10 @@ use std::ops::Deref;
 /// # let mut b = NetBuilder::new();
 /// # let [p0, p1] = b.add_places();
 /// # let [t0, t1] = b.add_transitions();
-/// # b.add_arc((p0, t0)); b.add_arc((t0, p1));
-/// # b.add_arc((p1, t1)); b.add_arc((t1, p0));
+/// # b.add_arcs((p0, t0, p1, t1, p0));
 /// # let net = b.build().unwrap();
 /// # let mut pn = PetriNet::new(&net, [(p0, 1)]);
-/// pn.fire_any().expect("deadlock!");
+/// pn.fire_any().expect("t0 is enabled");
 /// ```
 ///
 /// To reset the system back to the marking it was initialized with,

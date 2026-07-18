@@ -123,7 +123,7 @@ pub enum NetClass {
     /// let [bal_0, bal_5, bal_10, bal_15, bal_20] = b.add_places();
     /// let [bal_0_dep_5, bal_0_dep_10, bal_5_dep_5, bal_5_dep_10, bal_10_dep_5,
     ///     bal_10_dep_10, bal_15_dep_5, get_candy_for_15, get_candy_for_20,
-    ///     get_candy_for_15_from_20] = b.add_transitions();
+    ///     get_candy_for_15_with_change] = b.add_transitions();
     ///
     /// // Note how in an S-net,
     /// // every transition is just a simple bridge between two places.
@@ -136,7 +136,7 @@ pub enum NetClass {
     /// b.add_arcs((bal_15, bal_15_dep_5, bal_20));
     /// b.add_arcs((bal_15, get_candy_for_15, bal_0));
     /// b.add_arcs((bal_20, get_candy_for_20, bal_0));
-    /// b.add_arcs((bal_20, get_candy_for_15_from_20, bal_5));
+    /// b.add_arcs((bal_20, get_candy_for_15_with_change, bal_5));
     /// let class = b.build().unwrap().class();
     /// assert!(class == NetClass::StateMachine);
     /// assert!(!class.is_circuit());
