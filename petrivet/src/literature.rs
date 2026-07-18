@@ -367,8 +367,7 @@
 //! Termination is guaranteed because D shrinks on each iteration.
 //! The result is the unique maximal siphon (or trap) contained in X.
 //!
-//! Used in: [`minimal_siphons`](structural::minimal_siphons),
-//! [`minimal_traps`](structural::minimal_traps).
+//! Used in: [`minimal_siphons`](structural::minimal_siphons).
 //!
 //! ## Definition 5.9 — S-components and T-components
 //!

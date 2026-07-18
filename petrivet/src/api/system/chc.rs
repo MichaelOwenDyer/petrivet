@@ -24,7 +24,7 @@ pub type CommonerHackCriterion = Box<[SiphonTrapPair]>;
 /// a siphon which contains no trap marked at the initial marking.
 pub type UnmarkedSiphonTrapPair = SiphonTrapPair;
 
-/// Result of the Commoner/Hack criterion check.
+/// Result of a *completed* Commoner/Hack criterion check.
 ///
 /// For free-choice nets, this criterion is both necessary and sufficient for
 /// liveness: a free-choice system (N, M₀) is live if and only if every proper
@@ -44,7 +44,15 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// contain a trap marked at the initial marking.
     /// This is a necessary and sufficient condition for liveness in free-choice nets,
     /// and a sufficient condition for deadlock-freedom in general nets.
-    pub fn commoner_hack_criterion(&self) -> CommonerHackCriterionResult {
+    ///
+    /// Siphon enumeration is worst-case exponential and therefore bounded, so the
+    /// result is an [`Option`]:
+    /// - `Some(Ok(_))` — every siphon contains a marked trap (criterion holds);
+    /// - `Some(Err(_))` — a siphon with no marked trap was found (criterion fails);
+    /// - `None` — enumeration hit its work bound without a counterexample, so the
+    ///   answer is **inconclusive** and callers must fall back to another procedure
+    ///   rather than assume either outcome.
+    pub fn commoner_hack_criterion(&self) -> Option<CommonerHackCriterionResult> {
         fn to_api(mapping: &DenseMapping, pair: siphon_trap::SiphonTrapPair) -> SiphonTrapPair {
             SiphonTrapPair {
                 siphon: pair.siphon.into_ones().map(|p_idx| mapping.place(p_idx)).collect(),
@@ -52,12 +60,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
         }
 
-        siphon_trap::commoner_hack_criterion(&self.dense_net, &self.marking)
-            .map(|siphon_trap_pairs| {
-                siphon_trap_pairs.into_iter().map(|pair| to_api(&self.mapping, pair)).collect()
-            })
-            .map_err(|counterexample| {
-                to_api(&self.mapping, counterexample)
-            })
+        siphon_trap::commoner_hack_criterion(&self.dense_net, &self.marking).map(|result| {
+            result
+                .map(|siphon_trap_pairs| {
+                    siphon_trap_pairs.into_iter().map(|pair| to_api(&self.mapping, pair)).collect()
+                })
+                .map_err(|counterexample| to_api(&self.mapping, counterexample))
+        })
     }
 }

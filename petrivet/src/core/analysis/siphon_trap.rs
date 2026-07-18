@@ -1,65 +1,32 @@
 use crate::core::marking::IdxMarking;
-use crate::core::net::{DenseNet, PlaceIdx};
-use good_lp::Variable;
+use crate::core::net::{DenseNet, PlaceIdx, TransitionIdx};
 use std::collections::HashSet;
 use fixedbitset::FixedBitSet;
 
-/// Computes the maximal siphon contained in a given set of places.
+/// Shrinks `places` to the maximal subset closed under a "no starving witness"
+/// property, the shared fixpoint behind [`maximal_siphon_in`] and
+/// [`maximal_trap_in`].
 ///
-/// A siphon is a set of places D such that •D ⊆ D•: every transition that
-/// produces into D also consumes from D. Once empty, it stays empty forever.
+/// Repeatedly removes any place `p` that has a witness transition
+/// `t ∈ place_adj[p]` none of whose adjacent places `trans_adj[t]` remain in the
+/// set. The two callers are duals and differ only in the adjacency passed:
+/// - siphon: `place_adj = •p` (`preset_p`), `trans_adj = •t` (`preset_t`);
+/// - trap:   `place_adj = p•` (`postset_p`), `trans_adj = t•` (`postset_t`).
 ///
-/// Uses the shrinking algorithm from the [Petri Net Primer, Algorithm 6.19](crate::literature#algorithm-619--maximal-siphontrap-in-a-subset):
-/// iteratively remove any place p where some transition t ∈ •p has no
-/// input place in the current set. Runs in O(|S|² · |T|²).
-#[must_use]
-pub fn maximal_siphon_in(
-    net: &DenseNet,
+/// Termination is guaranteed because the set strictly shrinks each pass; the
+/// result is the unique maximal subset closed under the chosen property.
+fn shrink_to_closed(
     mut places: FixedBitSet,
+    place_adj: &[Box<[TransitionIdx]>],
+    trans_adj: &[Box<[PlaceIdx]>],
 ) -> FixedBitSet {
     loop {
-        let to_remove: Vec<PlaceIdx> = places.ones().filter(|&p| {
-            // Check if some t ∈ •p has no input place in D.
-            net.preset_p[p].iter().any(|&t_idx| {
-                // t ∈ •p. For the siphon property, we need t ∈ D•,
-                // i.e. t consumes from some place in D.
-                // If it doesn't, then p cannot be in the siphon.
-                net.preset_t[t_idx].iter().all(|&p_idx| !places.contains(p_idx))
-            })
-        }).collect();
-        if to_remove.is_empty() {
-            break;
-        }
-        for p_idx in to_remove {
-            places.remove(p_idx);
-        }
-    }
-    places
-}
-
-/// Computes the maximal trap contained in a given set of places.
-///
-/// A trap Q satisfies Q• ⊆ •Q: every transition that consumes from Q also
-/// produces into Q. Once marked, a trap stays marked forever.
-///
-/// Uses the dual of the shrinking algorithm: iteratively remove any place p
-/// where some transition t ∈ p• has no output place in the current set.
-#[must_use]
-pub fn maximal_trap_in(
-    net: &DenseNet,
-    mut places: FixedBitSet
-) -> FixedBitSet {
-    loop {
-        let to_remove: Vec<PlaceIdx> = places.ones()
-            .filter(|&p_idx| {
-                // Check if some t ∈ p• has no output place in Q.
-                // p• = transitions that consume from p = postset_p(p)
-                net.postset_p[p_idx].iter().any(|&t| {
-                    // t ∈ p•. For the trap property, we need t ∈ •Q,
-                    // i.e. t produces into some place in Q.
-                    // t• = postset_t(t) = output places of t.
-                    !net.postset_t[t].iter().any(|&p_idx| places.contains(p_idx))
-                })
+        let to_remove: Vec<PlaceIdx> = places
+            .ones()
+            .filter(|&p| {
+                place_adj[p]
+                    .iter()
+                    .any(|&t| trans_adj[t].iter().all(|&q| !places.contains(q)))
             })
             .collect();
         if to_remove.is_empty() {
@@ -72,9 +39,73 @@ pub fn maximal_trap_in(
     places
 }
 
-/// Finds all minimal siphons of a net as sets of [`PlaceIdx`].
+/// Computes the maximal siphon contained in a given set of places.
+///
+/// A siphon is a set of places D such that •D ⊆ D•: every transition that
+/// produces into D also consumes from D. Once empty, it stays empty forever.
+///
+/// Uses the shrinking algorithm from the [Petri Net Primer, Algorithm 6.19](crate::literature#algorithm-619--maximal-siphontrap-in-a-subset):
+/// iteratively remove any place p where some transition t ∈ •p has no
+/// input place in the current set. Runs in O(|S|² · |T|²).
 #[must_use]
-pub fn minimal_siphons(net: &DenseNet) -> Box<[FixedBitSet]> {
+pub fn maximal_siphon_in(net: &DenseNet, places: FixedBitSet) -> FixedBitSet {
+    shrink_to_closed(places, &net.preset_p, &net.preset_t)
+}
+
+/// Computes the maximal trap contained in a given set of places.
+///
+/// A trap Q satisfies Q• ⊆ •Q: every transition that consumes from Q also
+/// produces into Q. Once marked, a trap stays marked forever.
+///
+/// Uses the dual of the shrinking algorithm: iteratively remove any place p
+/// where some transition t ∈ p• has no output place in the current set.
+#[must_use]
+pub fn maximal_trap_in(net: &DenseNet, places: FixedBitSet) -> FixedBitSet {
+    shrink_to_closed(places, &net.postset_p, &net.postset_t)
+}
+
+/// Upper bound on the number of maximal-siphon shrink operations
+/// [`minimal_siphons`] performs before it stops and reports an incomplete
+/// enumeration.
+///
+/// Minimal-siphon enumeration is worst-case exponential in the number of places
+/// (a net whose every subset is a siphon has `2^|S|` of them, and the search
+/// visits the whole subset lattice). This bound caps the work so a pathological
+/// net degrades to an incomplete result — surfaced via [`MinimalSiphons::complete`]
+/// and propagated as an inconclusive answer at the decision layer — instead of
+/// hanging. Typical structural nets finish in far fewer steps; a net that reaches
+/// the bound simply falls back to reachability-graph analysis, which stays sound.
+///
+/// This is a conservative safety valve, not a correctness parameter: raising it
+/// never changes a definite answer, only how large a net can be before the search
+/// gives up. The bound is on a deterministic step count (not wall-clock time) so
+/// results remain reproducible.
+const MAX_SHRINK_CALLS: usize = 100_000;
+
+/// The minimal siphons of a net, together with whether their enumeration was
+/// exhaustive.
+///
+/// When `complete` is `false` the search hit the [`MAX_SHRINK_CALLS`] work bound
+/// and `siphons` holds only those discovered so far; callers must then treat the
+/// absence of a particular siphon as unknown rather than proven.
+#[derive(Debug, Clone)]
+pub struct MinimalSiphons {
+    /// The minimal siphons found. A prefix of the true set when `complete` is
+    /// `false`.
+    pub siphons: Box<[FixedBitSet]>,
+    /// `true` if enumeration ran to completion; `false` if it stopped at the
+    /// [`MAX_SHRINK_CALLS`] work bound, in which case `siphons` may be incomplete.
+    pub complete: bool,
+}
+
+/// Finds the minimal siphons of a net as sets of [`PlaceIdx`].
+///
+/// Enumeration is worst-case exponential, so it is bounded by [`MAX_SHRINK_CALLS`].
+/// If the bound is reached, [`MinimalSiphons::complete`] is `false` and the siphon
+/// list may be incomplete; callers must treat an incomplete result as inconclusive
+/// rather than assuming the listed siphons are all that exist.
+#[must_use]
+pub fn minimal_siphons(net: &DenseNet) -> MinimalSiphons {
     let mut results: Vec<FixedBitSet> = Vec::new();
     let mut stack: Vec<FixedBitSet> = vec![{
         let mut set = FixedBitSet::with_capacity(net.place_count());
@@ -82,8 +113,15 @@ pub fn minimal_siphons(net: &DenseNet) -> Box<[FixedBitSet]> {
         set
     }];
     let mut visited: ahash::HashSet<FixedBitSet> = HashSet::default();
+    let mut shrink_calls: usize = 0;
+    let mut complete = true;
 
-    while let Some(candidate_set) = stack.pop() {
+    'search: while let Some(candidate_set) = stack.pop() {
+        if shrink_calls >= MAX_SHRINK_CALLS {
+            complete = false;
+            break;
+        }
+        shrink_calls += 1;
         let siphon = maximal_siphon_in(net, candidate_set);
         if siphon.is_clear() {
             continue;
@@ -101,6 +139,11 @@ pub fn minimal_siphons(net: &DenseNet) -> Box<[FixedBitSet]> {
             if reduced.is_clear() {
                 continue;
             }
+            if shrink_calls >= MAX_SHRINK_CALLS {
+                complete = false;
+                break 'search;
+            }
+            shrink_calls += 1;
             let smaller_siphon = maximal_siphon_in(net, reduced);
             if !smaller_siphon.is_clear() {
                 is_minimal = false;
@@ -117,195 +160,10 @@ pub fn minimal_siphons(net: &DenseNet) -> Box<[FixedBitSet]> {
         }
     }
 
-    results.into_boxed_slice()
-}
-
-/// Finds all minimal traps of a net.
-///
-/// A trap is a set of places D where D• ⊆ •D: every transition that
-/// takes tokens out of D also puts tokens into D. Once a token is present
-/// in a trap, the trap can never become unmarked again.
-#[must_use]
-#[expect(unused)]
-pub fn minimal_traps(net: &DenseNet) -> Box<[FixedBitSet]> {
-    let mut results: Vec<FixedBitSet> = Vec::new();
-    let mut stack: Vec<FixedBitSet> = {
-        let mut set = FixedBitSet::with_capacity(net.place_count());
-        set.insert_range(..);
-        vec![set]
-    };
-    let mut visited: ahash::HashSet<FixedBitSet> = HashSet::default();
-
-    while let Some(candidate_set) = stack.pop() {
-        let trap = maximal_trap_in(net, candidate_set);
-        if trap.is_clear() {
-            continue;
-        }
-
-        if !visited.insert(trap.clone()) {
-            continue;
-        }
-
-        let mut is_minimal = true;
-        for p_idx in trap.ones() {
-            let mut reduced = trap.clone();
-            reduced.remove(p_idx);
-            if reduced.is_clear() {
-                continue;
-            }
-            let smaller_trap = maximal_trap_in(net, reduced);
-            if !smaller_trap.is_clear() {
-                is_minimal = false;
-                stack.push(smaller_trap);
-            }
-        }
-
-        if is_minimal {
-            let dominated = results.iter().any(|existing| existing.is_subset(&trap));
-            if !dominated {
-                results.retain(|existing| !trap.is_subset(existing));
-                results.push(trap);
-            }
-        }
+    MinimalSiphons {
+        siphons: results.into_boxed_slice(),
+        complete,
     }
-
-    results.into_boxed_slice()
-}
-
-/// Finds all minimal siphons using ILP enumeration.
-///
-/// Encodes the siphon property as binary constraints and iteratively
-/// solves for minimum-cardinality siphons, adding no-good cuts to
-/// exclude previously found solutions. Slower than the backtracking
-/// approach for small nets but more systematic.
-#[must_use]
-#[expect(unused)]
-pub fn minimal_siphons_ilp(net: &DenseNet) -> Box<[FixedBitSet]> {
-    use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
-
-    let mut results: Vec<FixedBitSet> = Vec::new();
-
-    let mut vars = ProblemVariables::new();
-    let place_selectors: Box<[Variable]> = net
-        .place_indices()
-        .map(|_| vars.add(variable().binary()))
-        .collect();
-
-    let mut constraints = Vec::new();
-
-    let selected_count: Expression = place_selectors.iter().copied().sum();
-    constraints.push(constraint!(selected_count >= 1.0));
-
-    // Siphon property: x[p] ≤ Σ_{q ∈ •t} x[q]  for all p, t ∈ •p
-    for p in net.place_indices() {
-        for &t in &net.preset_p[p] {
-            let sum_preset: Expression = net
-                .preset_t[t]
-                .iter()
-                .map(|&q| place_selectors[q])
-                .sum();
-            constraints.push(constraint!(place_selectors[p] <= sum_preset));
-        }
-    }
-
-    let objective: Expression = place_selectors.iter().copied().sum();
-    while let Ok(solution) = vars.clone()
-        .minimise(&objective)
-        .using(good_lp::microlp)
-        .with_all(constraints.clone())
-        .solve() {
-
-        let siphon: FixedBitSet = {
-            let mut siphon = FixedBitSet::with_capacity(net.place_count());
-            for p_idx in net.place_indices() {
-                siphon.set(p_idx, solution.value(place_selectors[p_idx]) > 0.5);
-            }
-            siphon
-        };
-
-        if siphon.is_clear() {
-            break;
-        }
-
-        let dominated = results.iter().any(|existing| existing.is_subset(&siphon));
-        if !dominated {
-            results.retain(|existing| !siphon.is_subset(existing));
-            results.push(siphon.clone());
-        }
-
-        let prev_sum: Expression = siphon.ones().map(|p| place_selectors[p]).sum();
-        #[allow(clippy::cast_precision_loss)]
-        constraints.push(constraint!(prev_sum <= siphon.count_ones(..) as f64 - 1.0));
-    }
-
-    results.into_boxed_slice()
-}
-
-/// Finds all minimal traps using ILP enumeration.
-#[must_use]
-#[expect(unused)]
-pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[FixedBitSet]> {
-    use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel};
-
-    let mut results: Vec<FixedBitSet> = Vec::new();
-    let mut no_good_sets: Vec<FixedBitSet> = Vec::new();
-
-    loop {
-        let mut vars = ProblemVariables::new();
-        let x: Vec<_> = net
-            .place_indices()
-            .map(|_| vars.add(variable().binary()))
-            .collect();
-
-        let mut constraints = Vec::new();
-        let selected_places: Expression = x.iter().copied().sum();
-        constraints.push(constraint!(selected_places.clone() >= 1.0));
-
-        // Trap property: x[p] ≤ Σ_{q ∈ t•} x[q]  for all p, t ∈ p•
-        for p in net.place_indices() {
-            for &t in &net.postset_p[p] {
-                let sum_postset: Expression = net
-                    .postset_t[t]
-                    .iter()
-                    .map(|&q| x[q])
-                    .sum();
-                constraints.push(constraint!(x[p] <= sum_postset));
-            }
-        }
-
-        for prev in &no_good_sets {
-            let prev_sum: Expression = prev.ones().map(|p| x[p]).sum();
-            #[allow(clippy::cast_precision_loss)]
-            constraints.push(constraint!(prev_sum <= prev.count_ones(..) as f64 - 1.0));
-        }
-
-        let Ok(solution) = vars
-            .minimise(selected_places)
-            .using(good_lp::microlp)
-            .with_all(constraints)
-            .solve() else { break };
-
-        let trap: FixedBitSet = {
-            let mut trap = FixedBitSet::with_capacity(net.place_count());
-            for p_idx in net.place_indices() {
-                trap.set(p_idx, solution.value(x[p_idx]) > 0.5);
-            }
-            trap
-        };
-
-        if trap.is_clear() {
-            break;
-        }
-
-        let dominated = results.iter().any(|existing| existing.is_subset(&trap));
-        if !dominated {
-            results.retain(|existing| !trap.is_subset(existing));
-            results.push(trap.clone());
-        }
-        no_good_sets.push(trap);
-    }
-
-    results.into_boxed_slice()
 }
 
 /// A siphon is a set of places D such that •D ⊆ D•.
@@ -332,7 +190,12 @@ pub struct SiphonTrapPair {
     pub trap: Trap,
 }
 
-/// Result of the Commoner/Hack criterion check.
+/// Result of a *completed* Commoner/Hack criterion check.
+///
+/// `Ok` carries, for every minimal siphon, the maximal trap found within it (all
+/// marked); `Err` carries a single siphon whose maximal trap is unmarked — a
+/// counterexample. See [`commoner_hack_criterion`], which wraps this in an
+/// [`Option`] to also represent an inconclusive (bounded-out) enumeration.
 ///
 /// For free-choice nets, this criterion is both necessary and sufficient for
 /// liveness: a free-choice system (N, M₀) is live if and only if every proper
@@ -367,6 +230,19 @@ pub type CommonerHackCriterionResult = Result<Box<[SiphonTrapPair]>, SiphonTrapP
 /// the siphon satisfies the condition; if it is empty or unmarked,
 /// no trap inside the siphon can be marked.
 ///
+/// # Bounded enumeration
+///
+/// Because siphon enumeration is worst-case exponential it is capped (see
+/// [`minimal_siphons`]). The result is therefore an [`Option`]:
+/// - `Some(Ok(pairs))` — every siphon contains a marked trap; enumeration was
+///   exhaustive, so the criterion definitely holds.
+/// - `Some(Err(counterexample))` — a siphon with no marked trap was found; this
+///   is definitive even under a truncated enumeration, since the witness is a
+///   genuine siphon.
+/// - `None` — enumeration hit its work bound without finding a counterexample, so
+///   the criterion is **inconclusive**. This must never be read as either outcome;
+///   the decision layer degrades it to an inefficient (reachability-graph) answer.
+///
 /// References:
 /// - [Murata 1989, Theorem 12](crate::literature#theorem-12--commonerhack-criterion):
 ///   "A free-choice net (N, M₀) is live iff every siphon in N contains a marked trap."
@@ -375,25 +251,110 @@ pub type CommonerHackCriterionResult = Result<Box<[SiphonTrapPair]>, SiphonTrapP
 pub fn commoner_hack_criterion(
     net: &DenseNet,
     marking: &IdxMarking<u32>,
-) -> CommonerHackCriterionResult {
-    minimal_siphons(net)
-        .into_iter()
-        .try_fold(Vec::new(),
-            |mut acc, siphon| {
-            let trap = maximal_trap_in(net, siphon.clone());
-            let trap_is_marked = !trap.is_clear() && trap.ones().any(|p_idx| marking[p_idx] > 0);
-            if trap_is_marked {
-                acc.push(SiphonTrapPair {
-                    siphon,
-                    trap,
-                });
-                Ok(acc)
-            } else {
-                Err(SiphonTrapPair {
-                    siphon,
-                    trap,
-                })
-            }
-        })
-        .map(Vec::into_boxed_slice)
+) -> Option<CommonerHackCriterionResult> {
+    let MinimalSiphons { siphons, complete } = minimal_siphons(net);
+
+    let checked = siphons.into_iter().try_fold(Vec::new(), |mut acc, siphon| {
+        let trap = maximal_trap_in(net, siphon.clone());
+        let trap_is_marked = !trap.is_clear() && trap.ones().any(|p_idx| marking[p_idx] > 0);
+        if trap_is_marked {
+            acc.push(SiphonTrapPair { siphon, trap });
+            Ok(acc)
+        } else {
+            Err(SiphonTrapPair { siphon, trap })
+        }
+    });
+
+    match checked {
+        // A siphon with no marked trap is a definitive counterexample, even if the
+        // enumeration was truncated: the witness is a genuine siphon.
+        Err(counterexample) => Some(Err(counterexample)),
+        // Every enumerated siphon contained a marked trap. Conclusive only if the
+        // enumeration was exhaustive; otherwise an unseen siphon might violate it.
+        Ok(pairs) if complete => Some(Ok(pairs.into_boxed_slice())),
+        Ok(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::class::NetClass;
+
+    fn boxed(rows: Vec<Vec<usize>>) -> Box<[Box<[usize]>]> {
+        rows.into_iter().map(Vec::into_boxed_slice).collect()
+    }
+
+    /// `n` places, each with its own self-loop transition `t_i : p_i → p_i`.
+    ///
+    /// Every subset of places is a siphon here, so the backtracking search visits
+    /// the entire subset lattice (`2^n` sets) — the pathological case the work
+    /// bound exists to contain.
+    fn self_loop_net(n: usize) -> DenseNet {
+        let singletons = || boxed((0..n).map(|i| vec![i]).collect());
+        DenseNet {
+            class: NetClass::General,
+            is_strongly_connected: false,
+            preset_t: singletons(),
+            postset_t: singletons(),
+            preset_p: singletons(),
+            postset_p: singletons(),
+        }
+    }
+
+    /// `p0 → t0 → p1 → t1 → p0`. Its only siphon is the whole place set `{p0, p1}`,
+    /// which is also a trap.
+    fn two_place_cycle() -> DenseNet {
+        DenseNet {
+            class: NetClass::General,
+            is_strongly_connected: true,
+            preset_t: boxed(vec![vec![0], vec![1]]),  // t0 consumes p0, t1 consumes p1
+            postset_t: boxed(vec![vec![1], vec![0]]), // t0 produces p1, t1 produces p0
+            preset_p: boxed(vec![vec![1], vec![0]]),  // p0 produced by t1, p1 produced by t0
+            postset_p: boxed(vec![vec![0], vec![1]]), // p0 consumed by t0, p1 consumed by t1
+        }
+    }
+
+    #[test]
+    fn minimal_siphons_complete_on_small_net() {
+        let result = minimal_siphons(&two_place_cycle());
+        assert!(result.complete, "small net should enumerate exhaustively");
+        assert_eq!(result.siphons.len(), 1);
+        let siphon = &result.siphons[0];
+        assert_eq!(siphon.count_ones(..), 2);
+        assert!(siphon.contains(0) && siphon.contains(1));
+    }
+
+    #[test]
+    fn minimal_siphons_bounded_on_pathological_net() {
+        // 2^20 siphons would take millions of shrink operations; the bound must stop
+        // it and report an incomplete (but sound) result rather than hang.
+        let result = minimal_siphons(&self_loop_net(20));
+        assert!(!result.complete, "enumeration should hit the work bound");
+    }
+
+    #[test]
+    fn commoner_hack_decides_completed_small_net() {
+        let net = two_place_cycle();
+        // Marked at p0: the sole siphon {p0,p1} is a marked trap → criterion holds.
+        assert!(matches!(
+            commoner_hack_criterion(&net, &IdxMarking(vec![1u32, 0])),
+            Some(Ok(_))
+        ));
+        // Fully unmarked: that siphon's maximal trap is unmarked → definitive counterexample.
+        assert!(matches!(
+            commoner_hack_criterion(&net, &IdxMarking(vec![0u32, 0])),
+            Some(Err(_))
+        ));
+    }
+
+    #[test]
+    fn commoner_hack_inconclusive_when_enumeration_bounded() {
+        // Every place marked, so no enumerated siphon is a counterexample; but the
+        // enumeration is truncated, so the honest answer is `None` (inconclusive),
+        // never a spurious `Ok`/`Err`.
+        let net = self_loop_net(20);
+        let marking = IdxMarking(vec![1u32; 20]);
+        assert!(commoner_hack_criterion(&net, &marking).is_none());
+    }
 }
