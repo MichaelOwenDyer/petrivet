@@ -60,6 +60,7 @@ pub mod reachability;
 pub mod deadlock_freedom;
 pub mod liveness;
 pub mod chc;
+pub mod implicit;
 
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::ExplorationOrder;

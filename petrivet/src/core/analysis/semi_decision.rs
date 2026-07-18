@@ -58,6 +58,11 @@ use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, Solv
 ///   "a nonnegative integer solution x must exist" is a necessary reachability condition.
 /// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation)
 ///   (state equation as necessary condition)
+// No caller today: the negative reachability verdict this backed now rests on
+// the exact rational check (`exact_matrix::marking_equation_exact`), which
+// cannot report a spurious "infeasible" the way a floating-point LP can.
+// Retained as a fast suggester for a future guided path.
+#[allow(dead_code)]
 #[must_use]
 pub fn find_marking_equation_rational_solution(
     net: &DenseNet,
@@ -229,6 +234,84 @@ pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
                 .map(|v| solution.value(v))
                 .collect()
         })
+}
+
+/// Suggests, via an f64 LP, a non-negative weight vector `y` over the places
+/// **other than `place`** that may witness `place` **implicit** at `initial`, or
+/// `None` if the LP is infeasible (or `place` is out of range).
+///
+/// This is only a *suggestion*. The returned `f64` weights must be rationalized and
+/// re-checked EXACTLY over ℚ
+/// ([`is_implicit_place_certificate`](super::exact_matrix::is_implicit_place_certificate))
+/// before `place` is treated as implicit: a near-boundary float solution can only
+/// *fail* that exact check, never mint a false certificate. The returned vector has
+/// one entry per place in dense order, with the `place` entry pinned to `0`.
+///
+/// # The program (all arcs weight 1, so `Pre[q][t] = [q ∈ •t]`)
+///
+/// minimise `Σ_q y_q` (a small witness) subject to `y_q ≥ 0`, `y_place = 0`, and
+/// - **(C1)** for every transition `t`:  `Σ_{q≠place} y_q·N[q][t] ≤ N[place][t]`;
+/// - **(C2)** for every `t ∈ place•`:     `Σ_{q≠place} y_q·(M₀[q] − [q ∈ •t]) ≤ M₀[place] − 1`.
+///
+/// (C2) is the rearrangement of `M₀[place] − Σ y_q M₀[q] + Σ_{q∈•t∖place} y_q ≥ 1`.
+/// Feasibility of this LP is *necessary but not sufficient* for the exact ℚ
+/// certificate; the exact re-check is what makes a positive verdict sound.
+#[must_use]
+pub fn find_implicit_place_weights(
+    net: &DenseNet,
+    place: PlaceIdx,
+    initial: &IdxMarking<u32>,
+) -> Option<Box<[f64]>> {
+    if place >= net.place_count() {
+        return None;
+    }
+    let mut variables = ProblemVariables::new();
+    // One weight per place; the subject place's weight is pinned to 0 so only the
+    // *other* places contribute to the combination.
+    let weights: Box<[Variable]> = net
+        .place_indices()
+        .map(|q| {
+            if q == place {
+                variables.add(variable().min(0.0).max(0.0))
+            } else {
+                variables.add(variable().min(0.0))
+            }
+        })
+        .collect();
+
+    let incidence = net.incidence_matrix();
+
+    // (C1) flow domination: Σ_q y_q·N[q][t] ≤ N[place][t] for every transition.
+    let flow_constraints = net.transition_indices().map(|t| {
+        let lhs: Expression = net
+            .place_indices()
+            .map(|q| f64::from(incidence.get(q, t)) * weights[q])
+            .sum();
+        constraint!(lhs <= f64::from(incidence.get(place, t)))
+    });
+
+    // (C2) enabling domination: for each t ∈ place•,
+    // Σ_q y_q·(M₀[q] − [q ∈ •t]) ≤ M₀[place] − 1.
+    let m0_place = f64::from(initial[place]);
+    let enabling_constraints = net.postset_p[place].iter().map(|&t| {
+        let lhs: Expression = net
+            .place_indices()
+            .map(|q| {
+                let in_preset = f64::from(u8::from(net.preset_t[t].contains(&q)));
+                (f64::from(initial[q]) - in_preset) * weights[q]
+            })
+            .sum();
+        constraint!(lhs <= m0_place - 1.0)
+    });
+
+    let objective: Expression = weights.iter().copied().sum();
+    variables
+        .minimise(objective)
+        .using(good_lp::microlp)
+        .with_all(flow_constraints.chain(enabling_constraints))
+        .solve()
+        .ok()
+        .map(|solution| weights.iter().map(|&v| solution.value(v)).collect())
 }
 
 #[cfg(test)]

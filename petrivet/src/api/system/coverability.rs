@@ -1,3 +1,4 @@
+use crate::core::analysis::exact_matrix::{self, CoveringInvariantExact};
 use crate::core::coverability::find_candidate_covering_parikh_vector;
 use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::marking::Marking;
@@ -55,14 +56,26 @@ pub struct CoverabilityProof {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum NonCoverabilityProof {
-    /// The LP marking equation (rational relaxation) is infeasible.
-    /// Some S-invariant is violated.
-    MarkingEquationNoRationalSolution,
-    /// The ILP marking equation (integer) is infeasible.
-    /// Stronger than LP: no integer firing count vector exists.
-    MarkingEquationNoIntegerSolution,
+    /// A non-negative place weighting `y` satisfies `yᵀ·C ≤ 0` — the weighted
+    /// token count `y·M` can never increase across a firing — while the target's
+    /// weighted count strictly exceeds the initial marking's
+    /// (`y·target > y·M₀`). No reachable marking can therefore cover the target.
+    /// The weighting is found exactly, over the rationals, from the incidence
+    /// matrix's left kernel; no floating point or external solver is trusted.
+    PlaceInvariant,
     /// An SMT solver proved the target is not coverable.
-    Smt(), // todo: add unsat core
+    ///
+    /// Reserved and not currently produced. The SMT candidate search
+    /// (`find_candidate_covering_parikh_vector`) returns `None` for three
+    /// distinct reasons — the solver proved the constraints unsatisfiable, the
+    /// solver returned neither Sat nor Unsat, or a Sat model whose values did
+    /// not extract into `u32` — and the current API cannot distinguish a genuine
+    /// UNSAT from the other two. A bare `None` is therefore not a sound
+    /// uncoverability verdict; the negative verdict rests on [`Self::PlaceInvariant`]
+    /// (exact, over ℚ) or on the exhausted coverability graph instead. This
+    /// variant is retained for a future path that surfaces a genuine, checkable
+    /// UNSAT core from the solver.
+    Smt(), // todo: add unsat core, and only then produce this from a genuine UNSAT
     /// Full coverability graph explored; target not covered.
     ExhaustiveSearch,
 }
@@ -116,14 +129,39 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }.into();
         }
 
+        // The SMT candidate search stays as the first pass: it prunes candidate
+        // covering markings against violated S-invariants and initially-marked
+        // traps, and a surviving candidate can later seed the exploration.
         // todo: use potentially coverable marking as hint for state space exploration
-        let Some(_potentially_reachable_cover) = find_candidate_covering_parikh_vector(
+        if find_candidate_covering_parikh_vector(
             &self.net.as_ref().dense_net,
             &self.marking,
             &target_idx_marking,
-        ) else {
-            return CoverabilityResult::Uncoverable(NonCoverabilityProof::Smt());
-        };
+        ).is_none() {
+            // `None` from the candidate search is evidence of uncoverability, but
+            // not yet a verdict. It conflates three cases: the solver proved the
+            // constraints unsatisfiable; the solver returned neither Sat nor
+            // Unsat; and a Sat model whose values did not extract into `u32`.
+            // Only the first is an uncoverability argument, and even it rests on
+            // an external solver. The verdict therefore comes from an exact
+            // rational certificate computed against this net's own incidence
+            // matrix: a non-negative place weighting `y` with `yᵀ·C ≤ 0` (the
+            // weighted token count can never increase across a firing) and
+            // `y·target > y·M₀` (the target demands more weight than any
+            // reachable marking can hold). When exact arithmetic cannot certify
+            // — an integer-only infeasibility, or i128 overflow — fall through
+            // to the coverability graph, which decides exactly.
+            match exact_matrix::covering_invariant_exact(
+                &self.net.as_ref().dense_net,
+                &self.marking,
+                &target_idx_marking,
+            ) {
+                CoveringInvariantExact::Uncoverable { .. } => {
+                    return NonCoverabilityProof::PlaceInvariant.into();
+                }
+                CoveringInvariantExact::NotCertified | CoveringInvariantExact::Overflowed => {}
+            }
+        }
 
         // todo: backwards coverability
         let mut explorer = self.explore_coverability(ExplorationOrder::BreadthFirst);
@@ -170,8 +208,11 @@ mod tests {
     }
 
     #[test]
-    fn coverability_uncoverable_detected_by_lp() {
-        // Two-place cycle with one token: cannot cover (1,1).
+    fn coverability_uncoverable_certified_by_place_invariant() {
+        // Two-place cycle with one token: p0 + p1 = 1 in every reachable marking
+        // (the weighting y = (1, 1) never gains weight across a firing), while
+        // covering (1, 1) would need weight 2. The verdict must carry that exact
+        // invariant as its evidence, not depend on a solver failing.
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
@@ -183,7 +224,7 @@ mod tests {
         assert!(res.is_uncoverable());
         assert!(matches!(
             res,
-            CoverabilityResult::Uncoverable(NonCoverabilityProof::Smt())
+            CoverabilityResult::Uncoverable(NonCoverabilityProof::PlaceInvariant)
         ));
     }
 
