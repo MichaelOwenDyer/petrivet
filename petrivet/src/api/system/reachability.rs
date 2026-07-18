@@ -1,5 +1,6 @@
 use ahash::HashMap;
 use crate::class::NetClass;
+use crate::core::analysis::exact_matrix::{self, MarkingEquationExact};
 use crate::core::analysis::semi_decision;
 use crate::core::state_space::ExploreNext;
 use crate::marking::Marking;
@@ -156,35 +157,38 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
         }
 
-        if self.class().is_marked_graph() && self.is_live() {
-            return semi_decision::find_marking_equation_integer_solution(
-                &self.dense_net,
-                &self.marking,
-                &target
-            ).map_or_else(
-                || UnreachabilityProof::MarkingEquationNoIntegerSolution.into(),
-                |solution| {
-                    let solution = self.transitions().zip(solution).collect();
-                    ReachabilityProof::LiveMarkedGraphMarkingEquationIntegerSolution(solution).into()
-                }
-            )
+        // Live marked graph: take the f64-ILP firing vector only as a *suggestion*
+        // and realize it as a genuine firing word against the net. The former path
+        // returned the rounded ILP vector directly as a positive proof (an `f64`
+        // round to `u32` need not satisfy the marking equation exactly — a possible
+        // false positive) and minted `Unreachable` when the f64 ILP merely failed
+        // (a possible false negative). Realization replays the suggestion and only
+        // succeeds if the target is actually reached; otherwise we fall through to
+        // the exact negative guard / state space below — never fabricating from f64.
+        if let Some(word) = self.live_marked_graph_realized_word(&target) {
+            return ReachabilityProof::FiringSequence(word).into();
         }
 
-        if semi_decision::find_marking_equation_rational_solution(
-            &self.dense_net,
-            &self.marking,
-            &target,
-        ).is_none() {
-            return UnreachabilityProof::MarkingEquationNoRationalSolution.into();
-        }
-
-        // todo: only test ILP if the rational solution is already an integer solution
-        if semi_decision::find_marking_equation_integer_solution(
-            &self.dense_net,
-            &self.marking,
-            &target,
-        ).is_none() {
-            return UnreachabilityProof::MarkingEquationNoIntegerSolution.into();
+        // The negative reachability verdict must rest on an EXACT certificate, not
+        // on an `f64` LP/ILP merely failing to find a solution: a spurious floating
+        // "infeasible" at a degenerate vertex would be a silent false `Unreachable`.
+        // The exact check over ℚ is a *sufficient* unreachability certificate —
+        // `target − m₀ ∉ col(C)` ⇒ no firing-count vector (rational or integer)
+        // solves the marking equation at all. A target that is rationally feasible
+        // but has no non-negative *integer* firing vector (the former ILP arm's
+        // claim) is a ℤ-regime argument that ℚ cannot certify, so it is NOT minted
+        // here; the honest move for the integer-only and degenerate cases alike is
+        // to escalate to the (terminating) state-space explorer below.
+        match exact_matrix::marking_equation_exact(&self.dense_net, &self.marking, &target) {
+            // Exactly infeasible over ℚ (a separating P-invariant is the witness):
+            // a sound `Unreachable`.
+            MarkingEquationExact::Infeasible { .. } => {
+                return UnreachabilityProof::MarkingEquationNoRationalSolution.into();
+            }
+            // Feasible over ℚ (any f64 "infeasible" was spurious, or the gap is
+            // integer-only), or the i128 kernel overflowed: do not fabricate —
+            // decide by exploration.
+            MarkingEquationExact::Feasible | MarkingEquationExact::Overflowed => {}
         }
 
         let mut explorer = self.explore_coverability(ExplorationOrder::BreadthFirst).core;
@@ -206,6 +210,56 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
         }
         UnreachabilityProof::ExhaustiveSearch.into()
+    }
+
+    /// For a live marked graph, take the f64-ILP firing vector as a *suggestion*
+    /// and realize it as a genuine firing word. Returns `None` (so the caller
+    /// falls through to the exact guard / state space) when the net is not a live
+    /// marked graph, the ILP suggests nothing, or realization does not reach the
+    /// target — never fabricating a verdict from f64.
+    fn live_marked_graph_realized_word(
+        &self,
+        target: &crate::core::marking::IdxMarking<u32>,
+    ) -> Option<Box<[Transition]>> {
+        if !(self.class().is_marked_graph() && self.is_live()) {
+            return None;
+        }
+        let solution = semi_decision::find_marking_equation_integer_solution(
+            &self.dense_net,
+            &self.marking,
+            target,
+        )?;
+        let suggested: HashMap<Transition, u32> = self.transitions().zip(solution).collect();
+        self.realize_firing_vector(&suggested, target)
+    }
+
+    /// Replays a suggested firing-count vector `sigma` against the net, firing any
+    /// still-needed enabled transition until the counts are exhausted, and returns
+    /// the firing word iff the *actually reached* marking equals `target`. This
+    /// turns an unverified (possibly f64-rounded) suggestion into a sound,
+    /// replay-checkable witness: the marking equation is only necessary in
+    /// general, so the reached marking — not the equation — is the arbiter.
+    fn realize_firing_vector(
+        &self,
+        sigma: &HashMap<Transition, u32>,
+        target: &crate::core::marking::IdxMarking<u32>,
+    ) -> Option<Box<[Transition]>> {
+        let mut remaining: HashMap<Transition, u32> =
+            sigma.iter().filter(|(_, c)| **c > 0).map(|(t, c)| (*t, *c)).collect();
+        let mut sys = PetriNet::new(self.net.as_ref(), self.mapping.encode(self.marking.clone()));
+        let mut word: Vec<Transition> = Vec::new();
+        while !remaining.is_empty() {
+            let t = remaining.keys().copied().find(|&t| sys.is_enabled(t))?;
+            sys.try_fire(t).ok()?;
+            word.push(t);
+            let count = remaining.get_mut(&t).expect("t is a key");
+            *count -= 1;
+            if *count == 0 {
+                remaining.remove(&t);
+            }
+        }
+        let reached = self.mapping.decode(sys.marking());
+        (reached == *target).then(|| word.into_boxed_slice())
     }
 }
 
@@ -257,5 +311,60 @@ mod tests {
         let sys = net.with_initial_marking([(p0, 1)]);
         assert!(sys.is_reachable(&[(p0, 1)].into()));
         assert!(sys.is_reachable(&[(p1, 1)].into()));
+    }
+
+    /// Headline regression for the exact negative guard: a genuinely *reachable*
+    /// target must never be reported `Unreachable`. The negative verdict
+    /// previously rested on the f64 LP/ILP merely failing; a spurious floating
+    /// "infeasible" at a degenerate vertex would be a silent false `Unreachable`
+    /// (a verdict with no positive witness to check). The net is ill-conditioned
+    /// — `p3` is produced by two transitions and drained by one, the regime where
+    /// the f64 simplex is most prone to spurious infeasibility — so the exact ℚ
+    /// guard is what keeps the verdict sound.
+    #[test]
+    fn feasible_target_at_degenerate_vertex_not_reported_unreachable() {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2, p3] = b.add_places();
+        let [t0, t1, t2, t3] = b.add_transitions();
+        b.add_arc((p0, t0)); b.add_arc((t0, p1)); // t0: p0 -> p1
+        b.add_arc((p1, t1)); b.add_arc((t1, p2)); b.add_arc((t1, p3)); // t1: p1 -> p2,p3
+        b.add_arc((p2, t2)); b.add_arc((t2, p3)); // t2: p2 -> p3 (second producer → degenerate)
+        b.add_arc((p3, t3)); b.add_arc((t3, p0)); // t3: p3 -> p0
+        let net = b.build().expect("valid net");
+        let sys = net.with_initial_marking([(p0, 1)]);
+
+        // (p1, 1) is reachable by firing t0 once; its marking equation is
+        // rationally feasible, so the verdict must not be a false `Unreachable`.
+        let target: crate::marking::Marking<u32> = [(p1, 1)].into();
+        let result = sys.analyze_reachability(&target);
+        assert!(
+            !result.is_unreachable(),
+            "a genuinely reachable target must never be reported Unreachable (got {result:?})"
+        );
+        assert!(sys.is_reachable(&target), "target is in fact reachable");
+    }
+
+    /// The exact guard decides both directions in a General (non-state-machine,
+    /// non-marked-graph) net: reachable targets resolve to a witness, and a
+    /// conservation-violating target resolves to `Unreachable`.
+    #[test]
+    fn general_net_exact_guard_decides_both_directions() {
+        let mut b = NetBuilder::new();
+        let [pa, pb, pc, pd, pe] = b.add_places();
+        let [t0, t1, t2] = b.add_transitions();
+        // pa• = {t0, t1} and pc• = {t1, t2} intersect on t1 but are incomparable
+        // → not asymmetric-choice → General. Acyclic, hence bounded.
+        b.add_arc((pa, t0)); b.add_arc((t0, pb));
+        b.add_arc((pa, t1)); b.add_arc((pc, t1)); b.add_arc((t1, pd));
+        b.add_arc((pc, t2)); b.add_arc((t2, pe));
+        let net = b.build().unwrap();
+        assert_eq!(net.class(), NetClass::General);
+        let sys = net.with_initial_marking([(pa, 1), (pc, 1)]);
+        assert!(sys.is_reachable(&[(pa, 1), (pc, 1)].into()), "m0 is reachable (empty word)");
+        assert!(sys.is_reachable(&[(pb, 1), (pc, 1)].into()), "fire t0: pa -> pb, pc untouched");
+        assert!(
+            !sys.is_reachable(&[(pb, 1), (pd, 1), (pe, 1)].into()),
+            "a target unreachable by any firing must be reported unreachable"
+        );
     }
 }
