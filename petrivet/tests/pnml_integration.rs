@@ -226,3 +226,28 @@ fn mcc_cops_and_robers_circular_small_parses() {
     assert!(sys.transition_count() >= 1);
     assert!(labels.nupn().is_none(), "this fixture has no NUPN block");
 }
+// ── Strict import of unrepresentable features ─────────────────────────────────
+//
+// The Heawood CopsAndRobbers instance carries weight-2 arcs (e.g.
+// `p2t-wait_cops-start_chase`). Before strict import, the converter parsed and
+// ignored the `<inscription>` weight, silently collapsing every weight-2 arc to
+// weight 1 — analysis then ran on a structurally different net than the file
+// describes. This is consistent with the wrong state-space counts reported for
+// exactly this instance in issue #46 (expected 17158 states, got 31816), though
+// that diagnosis is a hypothesis until the counts are re-derived with real
+// weighted-arc support. Until such support exists (issue #57), the honest
+// posture is to reject the import rather than analyze the wrong net.
+
+#[test]
+fn mcc_heawood_weighted_arcs_rejected_not_collapsed() {
+    let doc = load("tests/fixtures/CopsAndRobbers-PT-Heawood-Random-L014X002.pnml");
+    let err = doc.nets[0]
+        .to_pt_system()
+        .expect_err("a net with weight-2 arcs must not import as a unit-weight net");
+    match err {
+        petrivet::pnml::convert::PnmlConversionError::NonUnitWeightArc { weight, .. } => {
+            assert_eq!(weight, 2, "the Heawood instance's non-unit arcs have weight 2");
+        }
+        other => panic!("expected NonUnitWeightArc, got {other:?}"),
+    }
+}
