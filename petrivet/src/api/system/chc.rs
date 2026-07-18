@@ -44,6 +44,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// contain a trap marked at the initial marking.
     /// This is a necessary and sufficient condition for liveness in free-choice nets,
     /// and a sufficient condition for deadlock-freedom in general nets.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` with an [`UnmarkedSiphonTrapPair`] counterexample when the
+    /// criterion fails: some siphon contains no trap marked under the initial
+    /// marking.
     pub fn commoner_hack_criterion(&self) -> CommonerHackCriterionResult {
         fn to_api(mapping: &DenseMapping, pair: siphon_trap::SiphonTrapPair) -> SiphonTrapPair {
             SiphonTrapPair {
