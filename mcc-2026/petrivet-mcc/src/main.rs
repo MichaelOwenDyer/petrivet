@@ -1,14 +1,13 @@
 mod protocol;
 
-use petrivet::state_space::ReachabilityGraph;
 use petrivet::prelude::{Net, PetriNet};
+use petrivet::state_space::ReachabilityGraph;
 use protocol::{
     BooleanFormulaReport, Examination, ParticipationError, RunContext, StateSpaceReport, Technique,
 };
 use std::path::{Path, PathBuf};
 
-const HELP: &str =
-    "Usage: petrivet-mcc [--help|-h]
+const HELP: &str = "Usage: petrivet-mcc [--help|-h]
     Reads MCC execution context from environment variables and prints the contest
     response keywords expected by BenchKit.
 
@@ -25,10 +24,8 @@ const DEFAULT_TECHNIQUES: &[Technique] = &[
     Technique::Topological,
 ];
 
-const STRUCTURAL_TECHNIQUES: &[Technique] = &[
-    Technique::SequentialProcessing,
-    Technique::Topological,
-];
+const STRUCTURAL_TECHNIQUES: &[Technique] =
+    &[Technique::SequentialProcessing, Technique::Topological];
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
@@ -43,7 +40,7 @@ fn main() -> Result<(), String> {
         Ok(Err(err)) => {
             println!("{err}");
             Ok(())
-        },
+        }
         Err(_panic_cause) => {
             eprintln!("panic!");
             println!("{}", ParticipationError::CannotCompute);
@@ -73,22 +70,14 @@ fn run(ctx: &RunContext) -> Result<(), ParticipationError> {
         Examination::ReachabilityDeadlock => run_reachability_deadlock(&input_dir),
         Examination::OneSafe => run_one_safe(&input_dir),
         Examination::QuasiLiveness => {
-            run_global_property_via_rg(
-                &input_dir,
-                ctx.examination.as_str(),
-                |rg| {
-                    rg.transition_liveness().is_quasi_live()
-                }
-            )
+            run_global_property_via_rg(&input_dir, ctx.examination.as_str(), |rg| {
+                rg.transition_liveness().is_quasi_live()
+            })
         }
         Examination::StableMarking => {
-            run_global_property_via_rg(
-                &input_dir,
-                ctx.examination.as_str(),
-                |rg| {
-                    rg.has_stable_place()
-                }
-            )
+            run_global_property_via_rg(&input_dir, ctx.examination.as_str(), |rg| {
+                rg.has_stable_place()
+            })
         }
         Examination::Liveness => run_liveness(&input_dir),
         Examination::UpperBounds
@@ -171,15 +160,21 @@ fn run_global_property_via_rg(
 }
 
 fn print_boolean_result(formula: &str, value: bool, techniques: &[Technique]) {
-    println!("{}", BooleanFormulaReport { formula, value: Some(value), techniques });
+    println!(
+        "{}",
+        BooleanFormulaReport {
+            formula,
+            value: Some(value),
+            techniques
+        }
+    );
 }
 
 fn load_system(input_dir: &Path) -> Result<PetriNet<Net>, ParticipationError> {
-    let pnml = std::fs::read_to_string(input_dir.join("model.pnml"))
-        .map_err(|e| {
-            eprintln!("failed to read model.pnml: {e}");
-            ParticipationError::CannotCompute
-        })?;
+    let pnml = std::fs::read_to_string(input_dir.join("model.pnml")).map_err(|e| {
+        eprintln!("failed to read model.pnml: {e}");
+        ParticipationError::CannotCompute
+    })?;
     PetriNet::from_pnml(&pnml).map_err(|e| {
         eprintln!("failed to parse system: {e}");
         ParticipationError::CannotCompute

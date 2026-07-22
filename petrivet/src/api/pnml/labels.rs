@@ -30,8 +30,8 @@
 //! assert_eq!(labels.transition_name(finish), Some("Finish"));
 //! ```
 
-use crate::pnml::nupn::NupnMetadata;
 use crate::net::{Arc, Place, Transition};
+use crate::pnml::nupn::NupnMetadata;
 use ahash::{HashMap, HashMapExt};
 
 /// Human-readable labels and metadata for the elements of a single Petri net.
@@ -227,17 +227,13 @@ impl NetLabels {
 
     /// Iterates over `(Place, name)` pairs for all places that have a name set.
     pub fn named_places(&self) -> impl Iterator<Item = (Place, &str)> {
-        self.place_names
-            .iter()
-            .map(|(k, v)| (*k, v.as_str()))
+        self.place_names.iter().map(|(k, v)| (*k, v.as_str()))
     }
 
     /// Iterates over `(Transition, name)` pairs for all transitions that have a
     /// name set (crate-internal).
     pub fn named_transitions(&self) -> impl Iterator<Item = (Transition, &str)> {
-        self.transition_names
-            .iter()
-            .map(|(k, v)| (*k, v.as_str()))
+        self.transition_names.iter().map(|(k, v)| (*k, v.as_str()))
     }
 }
 
@@ -273,8 +269,8 @@ impl NetLabels {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{Arc, NetBuilder};
     use crate::pnml::labels::NetLabels;
+    use crate::prelude::{Arc, NetBuilder};
 
     #[test]
     fn set_and_get_place_name() {
@@ -359,7 +355,9 @@ mod tests {
     #[test]
     fn net_level_labels() {
         let mut l = NetLabels::new();
-        l.set_net_name("Ring").set_net_id("n0").set_net_description("A token ring.");
+        l.set_net_name("Ring")
+            .set_net_id("n0")
+            .set_net_description("A token ring.");
         assert_eq!(l.net_name(), Some("Ring"));
         assert_eq!(l.net_id(), Some("n0"));
         assert_eq!(l.net_description(), Some("A token ring."));

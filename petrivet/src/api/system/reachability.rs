@@ -1,4 +1,3 @@
-use ahash::HashMap;
 use crate::class::NetClass;
 use crate::core::analysis::semi_decision;
 use crate::core::state_space::ExploreNext;
@@ -6,6 +5,7 @@ use crate::marking::Marking;
 use crate::net::{Net, Transition};
 use crate::prelude::PetriNet;
 use crate::state_space::ExplorationOrder;
+use ahash::HashMap;
 
 /// Result of reachability analysis.
 ///
@@ -42,9 +42,7 @@ impl ReachabilityResult {
 pub enum ReachabilityProof {
     /// Valid for S-Systems (State Machines) that are strongly connected and M0(S) > 0.
     /// Proof relies on strict token conservation (Theorem 5.1.5).
-    LiveStateMachineTokenConservation {
-        marking_sum: u32,
-    },
+    LiveStateMachineTokenConservation { marking_sum: u32 },
 
     /// Valid for T-Systems (Marked Graphs) that are live (all circuits marked).
     /// Proof relies on a non-negative integer solution to the marking equation (Theorem 5.2.7).
@@ -99,7 +97,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
         // todo: efficient check necessary for reachability: maximal unmarked trap in target must be unmarked in M0
         match self.class() {
             NetClass::Circuit => Some(self.marking.sum() == target.total_tokens()),
-            NetClass::StateMachine if self.is_live() => Some(self.marking.sum() == target.total_tokens()),
+            NetClass::StateMachine if self.is_live() => {
+                Some(self.marking.sum() == target.total_tokens())
+            }
             // NetClass::MarkedGraph if self.is_live() => Some(self.marking() ~ target) // todo: ~ relation
             // NetClass::FreeChoice if self.is_live() && self.is_bounded() => None, // todo: requires ILP + trap check
             _ => None,
@@ -112,9 +112,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns `false` for inconclusive results.
     #[must_use]
     pub fn is_reachable(&self, target: &Marking<u32>) -> bool {
-        self.is_efficiently_reachable(target).unwrap_or_else(|| {
-            self.analyze_reachability(target).is_reachable()
-        })
+        self.is_efficiently_reachable(target)
+            .unwrap_or_else(|| self.analyze_reachability(target).is_reachable())
     }
 
     /// Analyzes reachability of a target marking with structured evidence.
@@ -152,7 +151,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
             if self.is_strongly_connected() {
                 return ReachabilityProof::LiveStateMachineTokenConservation {
                     marking_sum: initial_sum,
-                }.into();
+                }
+                .into();
             }
         }
 
@@ -160,21 +160,25 @@ impl<N: AsRef<Net>> PetriNet<N> {
             return semi_decision::find_marking_equation_integer_solution(
                 &self.dense_net,
                 &self.marking,
-                &target
-            ).map_or_else(
+                &target,
+            )
+            .map_or_else(
                 || UnreachabilityProof::MarkingEquationNoIntegerSolution.into(),
                 |solution| {
                     let solution = self.transitions().zip(solution).collect();
-                    ReachabilityProof::LiveMarkedGraphMarkingEquationIntegerSolution(solution).into()
-                }
-            )
+                    ReachabilityProof::LiveMarkedGraphMarkingEquationIntegerSolution(solution)
+                        .into()
+                },
+            );
         }
 
         if semi_decision::find_marking_equation_rational_solution(
             &self.dense_net,
             &self.marking,
             &target,
-        ).is_none() {
+        )
+        .is_none()
+        {
             return UnreachabilityProof::MarkingEquationNoRationalSolution.into();
         }
 
@@ -183,11 +187,15 @@ impl<N: AsRef<Net>> PetriNet<N> {
             &self.dense_net,
             &self.marking,
             &target,
-        ).is_none() {
+        )
+        .is_none()
+        {
             return UnreachabilityProof::MarkingEquationNoIntegerSolution.into();
         }
 
-        let mut explorer = self.explore_coverability(ExplorationOrder::BreadthFirst).core;
+        let mut explorer = self
+            .explore_coverability(ExplorationOrder::BreadthFirst)
+            .core;
         while let Some((_t_idx, node_idx, is_new)) = explorer.explore_next() {
             if !is_new {
                 continue;
@@ -197,12 +205,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 return ReachabilityResult::Inconclusive;
             }
             if marking == target {
-                let path = explorer.path_from_initial_to(marking)
+                let path = explorer
+                    .path_from_initial_to(marking)
                     .expect("marking is in graph")
                     .into_iter()
                     .map(|t_idx| self.mapping.transition(t_idx))
                     .collect();
-                return ReachabilityProof::FiringSequence(path).into()
+                return ReachabilityProof::FiringSequence(path).into();
             }
         }
         UnreachabilityProof::ExhaustiveSearch.into()

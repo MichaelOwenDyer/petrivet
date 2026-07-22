@@ -1,16 +1,9 @@
-#![warn(
-    clippy::pedantic,
-    clippy::nursery,
-    clippy::cargo,
-)]
-#![allow(
-    clippy::cargo_common_metadata,
-    clippy::use_self,
-)]
+#![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
+#![allow(clippy::cargo_common_metadata, clippy::use_self)]
 
 //! `petrivet`: a Rust library for modeling, simulating, and analyzing Petri nets.
 //!
-//! 
+//!
 //!
 //! # Quick Start
 //!
@@ -38,23 +31,12 @@
 //! }
 //! ```
 
-pub mod literature;
 pub(crate) mod api;
 pub(crate) mod core;
+pub mod literature;
 
-pub use api::{
-    builder,
-    marking,
-    net,
-    pnml,
-    state_space,
-    system,
-};
-pub use core::{
-    boundedness,
-    class,
-    liveness,
-};
+pub use api::{builder, marking, net, pnml, state_space, system};
+pub use core::{boundedness, class, liveness};
 
 pub mod prelude {
     pub use crate::api::{
@@ -63,9 +45,5 @@ pub mod prelude {
         net::{Arc, Net, Node, Place, Transition},
         system::PetriNet,
     };
-    pub use crate::core::{
-        boundedness::Boundedness,
-        class::NetClass,
-        liveness::LivenessLevel,
-    };
+    pub use crate::core::{boundedness::Boundedness, class::NetClass, liveness::LivenessLevel};
 }

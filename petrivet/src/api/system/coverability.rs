@@ -112,8 +112,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
         if self.marking >= target_idx_marking {
             return CoverabilityProof {
                 firing_sequence: Vec::new(),
-                covering_marking: self.mapping.encode(IdxOmegaMarking::from(self.marking.clone())),
-            }.into();
+                covering_marking: self
+                    .mapping
+                    .encode(IdxOmegaMarking::from(self.marking.clone())),
+            }
+            .into();
         }
 
         // todo: use potentially coverable marking as hint for state space exploration
@@ -127,18 +130,17 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
         // todo: backwards coverability
         let mut explorer = self.explore_coverability(ExplorationOrder::BreadthFirst);
-        explorer
-            .find_cover(OmegaMarking::from(target))
-            .map_or_else(
-                || NonCoverabilityProof::ExhaustiveSearch.into(),
-                |cover| {
-                    let firing_sequence = explorer.find_path_from_initial(cover.clone()).unwrap();
-                    CoverabilityProof {
-                        firing_sequence,
-                        covering_marking: cover,
-                    }.into()
+        explorer.find_cover(OmegaMarking::from(target)).map_or_else(
+            || NonCoverabilityProof::ExhaustiveSearch.into(),
+            |cover| {
+                let firing_sequence = explorer.find_path_from_initial(cover.clone()).unwrap();
+                CoverabilityProof {
+                    firing_sequence,
+                    covering_marking: cover,
                 }
-            )
+                .into()
+            },
+        )
     }
 }
 
@@ -147,7 +149,9 @@ mod tests {
     use crate::builder::NetBuilder;
     use crate::prelude::PetriNet;
     use crate::state_space::Omega;
-    use crate::system::coverability::{CoverabilityProof, CoverabilityResult, NonCoverabilityProof};
+    use crate::system::coverability::{
+        CoverabilityProof, CoverabilityResult, NonCoverabilityProof,
+    };
 
     #[test]
     fn coverability_initial_marking_covers() {
@@ -161,7 +165,10 @@ mod tests {
         let res = sys.analyze_coverability([(p0, 1)].into());
         assert!(res.is_coverable());
         match res {
-            CoverabilityResult::Coverable(CoverabilityProof { firing_sequence, covering_marking }) => {
+            CoverabilityResult::Coverable(CoverabilityProof {
+                firing_sequence,
+                covering_marking,
+            }) => {
                 assert_eq!(covering_marking, [(p0, 1.into())].into());
                 assert_eq!(firing_sequence.len(), 0);
             }
@@ -202,7 +209,9 @@ mod tests {
         let res = sys.analyze_coverability([(p0, 1), (p1, 10)].into());
         assert!(res.is_coverable());
         match res {
-            CoverabilityResult::Coverable(CoverabilityProof { covering_marking, .. }) => {
+            CoverabilityResult::Coverable(CoverabilityProof {
+                covering_marking, ..
+            }) => {
                 // p0 stays 1; p1 becomes ω in the coverability graph.
                 assert_eq!(covering_marking.get(p0), Omega::Finite(1));
                 assert!(covering_marking.get(p1) >= Omega::Finite(100_000));

@@ -39,7 +39,10 @@
 
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, PlaceIdx};
-use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel, Variable, VariableDefinition};
+use good_lp::{
+    Expression, ProblemVariables, Solution, SolverModel, Variable, VariableDefinition, constraint,
+    variable,
+};
 
 /// Checks the marking equation M = M₀ + N · x for a non-negative rational solution x,
 /// where N: |P|×|T| is the incidence matrix of the net.
@@ -63,13 +66,7 @@ pub fn find_marking_equation_rational_solution(
     initial: &IdxMarking<u32>,
     target: &IdxMarking<u32>,
 ) -> Option<Box<[f64]>> {
-    find_marking_equation_solution(
-        net,
-        initial,
-        target,
-        &variable().min(0.0),
-        |v| v,
-    )
+    find_marking_equation_solution(net, initial, target, &variable().min(0.0), |v| v)
 }
 
 /// Checks the marking equation using ILP (integer linear programming).
@@ -119,16 +116,14 @@ fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
         .collect();
 
     let incidence = net.incidence_matrix();
-    let constraints = net
-        .place_indices()
-        .map(|p| {
-            let lhs: Expression = net
-                .transition_indices()
-                .map(|t| f64::from(incidence.get(p, t)) * firing_counts[t])
-                .sum();
-            let rhs = f64::from(target[p]) - f64::from(initial[p]);
-            constraint!(lhs == rhs)
-        });
+    let constraints = net.place_indices().map(|p| {
+        let lhs: Expression = net
+            .transition_indices()
+            .map(|t| f64::from(incidence.get(p, t)) * firing_counts[t])
+            .sum();
+        let rhs = f64::from(target[p]) - f64::from(initial[p]);
+        constraint!(lhs == rhs)
+    });
 
     let objective: Expression = firing_counts.iter().copied().sum();
     variables
@@ -171,9 +166,7 @@ fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
 /// returns the weight vector y. Given a specific initial marking M₀,
 /// per-place upper bounds can be derived: `M[p] ≤ ⌊(y·M₀) / y[p]⌋`.
 #[must_use]
-pub fn find_positive_place_subvariant(
-    net: &DenseNet
-) -> Option<Box<[f64]>> {
+pub fn find_positive_place_subvariant(net: &DenseNet) -> Option<Box<[f64]>> {
     find_semipositive_place_subvariant(net, |_| true)
 }
 
@@ -195,7 +188,8 @@ pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
     mut covering: F,
 ) -> Option<Box<[f64]>> {
     let mut variables = ProblemVariables::new();
-    let place_weights: Box<[Variable]> = net.place_indices()
+    let place_weights: Box<[Variable]> = net
+        .place_indices()
         .map(|p| {
             if covering(&p) {
                 variables.add(variable().min(1.0))
@@ -206,15 +200,13 @@ pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
         .collect();
 
     let incidence = net.incidence_matrix();
-    let constraints = net
-        .transition_indices()
-        .map(|t| {
-            let token_delta: Expression = net
-                .place_indices()
-                .map(|p| f64::from(incidence.get(p, t)) * place_weights[p])
-                .sum();
-            constraint!(token_delta <= 0.0)
-        });
+    let constraints = net.transition_indices().map(|t| {
+        let token_delta: Expression = net
+            .place_indices()
+            .map(|p| f64::from(incidence.get(p, t)) * place_weights[p])
+            .sum();
+        constraint!(token_delta <= 0.0)
+    });
 
     variables
         .minimise(Expression::from(0))
@@ -246,7 +238,10 @@ mod tests {
     #[test]
     fn cycle_structurally_bounded() {
         let net = two_place_cycle();
-        assert!(find_positive_place_subvariant(&net.dense_net).is_some(), "cycle should be structurally bounded");
+        assert!(
+            find_positive_place_subvariant(&net.dense_net).is_some(),
+            "cycle should be structurally bounded"
+        );
     }
 
     #[test]
@@ -259,7 +254,10 @@ mod tests {
         b.add_arc((t1, p1));
         b.add_arc((p1, t0));
         let net = b.build().unwrap().dense_net;
-        assert!(find_positive_place_subvariant(&net).is_some(), "producer net should be proven bounded");
+        assert!(
+            find_positive_place_subvariant(&net).is_some(),
+            "producer net should be proven bounded"
+        );
     }
 
     #[test]

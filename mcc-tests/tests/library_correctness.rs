@@ -1,9 +1,9 @@
 use datatest_stable::Result;
+use mcc_tests::oracle::{Examination, Verdict, parse_oracle_file};
+use mcc_tests::runner::RunResult;
 use petrivet::system::PetriNet;
 use std::path::Path;
 use std::str::FromStr;
-use mcc_tests::oracle::{parse_oracle_file, Examination, Verdict};
-use mcc_tests::runner::RunResult;
 
 fn has_definitive_verdict(v: &Verdict) -> bool {
     matches!(
@@ -32,7 +32,8 @@ fn run_exam_test(verdict_path: &Path, examination: Examination) -> Result<()> {
 
     if model_dir.join("iscolored").exists()
         && let Ok(c) = std::fs::read_to_string(model_dir.join("iscolored"))
-        && c.trim().eq_ignore_ascii_case("TRUE") {
+        && c.trim().eq_ignore_ascii_case("TRUE")
+    {
         return Err("colored model".into());
     }
 
@@ -41,7 +42,8 @@ fn run_exam_test(verdict_path: &Path, examination: Examination) -> Result<()> {
     };
 
     if let Ok(max_places) = std::env::var("MCC_MAX_PLACES")
-        && let Ok(max_places) = u32::from_str(&max_places) {
+        && let Ok(max_places) = u32::from_str(&max_places)
+    {
         let place_count = mcc_tests::models::place_count(&pnml);
         if place_count > max_places {
             return Ok(());
@@ -51,23 +53,42 @@ fn run_exam_test(verdict_path: &Path, examination: Examination) -> Result<()> {
     let result = mcc_tests::runner::run_analysis(&sys, examination);
 
     match &result {
-        RunResult::DoNotCompete => return Err("DoNotCompete — petrivet failed on a model that should be computable".into()),
+        RunResult::DoNotCompete => {
+            return Err(
+                "DoNotCompete — petrivet failed on a model that should be computable".into(),
+            );
+        }
         RunResult::CannotCompute => {
             if entry.verdicts.iter().any(has_definitive_verdict) {
-                return Err("CannotCompute — petrivet failed on a model with definitive oracle verdicts".into());
+                return Err(
+                    "CannotCompute — petrivet failed on a model with definitive oracle verdicts"
+                        .into(),
+                );
             }
             return Ok(()); // if oracle has no definitive verdicts, we can't call this a failure
         }
         RunResult::Verdicts(actual) => {
-            let mismatches = mcc_tests::runner::compare_verdicts(&entry.model_id, examination, &entry.verdicts, actual);
+            let mismatches = mcc_tests::runner::compare_verdicts(
+                &entry.model_id,
+                examination,
+                &entry.verdicts,
+                actual,
+            );
 
             if !mismatches.is_empty() {
                 let detail = mismatches
                     .iter()
-                    .map(|m| format!("  {}/{}: expected '{}', got '{}'", m.model_id, m.name, m.expected, m.actual))
+                    .map(|m| {
+                        format!(
+                            "  {}/{}: expected '{}', got '{}'",
+                            m.model_id, m.name, m.expected, m.actual
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join("\n");
-                return Err(format!("{} correctness failure(s):\n{detail}", mismatches.len()).into());
+                return Err(
+                    format!("{} correctness failure(s):\n{detail}", mismatches.len()).into(),
+                );
             }
         }
     }

@@ -45,19 +45,13 @@ impl PnmlGraphics {
     /// Returns the PNML position of the place at dense index `index`, if present.
     #[must_use]
     pub fn place_position(&self, index: &Place) -> Option<&Coordinates> {
-        self.place_graphics
-            .get(index)?
-            .position
-            .as_ref()
+        self.place_graphics.get(index)?.position.as_ref()
     }
 
     /// Returns the PNML position of the transition at dense index `index`, if present.
     #[must_use]
     pub fn transition_position(&self, transition: &Transition) -> Option<&Coordinates> {
-        self.transition_graphics
-            .get(transition)?
-            .position
-            .as_ref()
+        self.transition_graphics.get(transition)?.position.as_ref()
     }
 }
 

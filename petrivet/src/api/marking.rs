@@ -57,9 +57,7 @@ impl<T> Marking<T> {
 
 impl<T: TokenOps> FromIterator<(Place, T)> for Marking<T> {
     fn from_iter<I: IntoIterator<Item = (Place, T)>>(iter: I) -> Self {
-        let mut vec: Vec<(Place, T)> = iter.into_iter()
-            .filter(|(_, t)| *t != T::ZERO)
-            .collect();
+        let mut vec: Vec<(Place, T)> = iter.into_iter().filter(|(_, t)| *t != T::ZERO).collect();
         vec.sort_unstable_by_key(|elem| elem.0.0);
         vec.dedup_by_key(|elem| elem.0.0);
         Marking { support: vec }
@@ -76,7 +74,8 @@ impl<T: TokenOps> Marking<T> {
     /// Returns the number of tokens this marking assigns to the provided [`Place`].
     #[must_use]
     pub fn get(&self, place: Place) -> T {
-        self.support.iter()
+        self.support
+            .iter()
             .find(|(p, _)| *p == place)
             .map_or(T::ZERO, |(_, t)| *t)
     }
@@ -84,7 +83,8 @@ impl<T: TokenOps> Marking<T> {
     /// Returns the maximum token count assigned to any place in this marking.
     #[must_use]
     pub fn max_token_count(&self) -> T {
-        self.support.iter()
+        self.support
+            .iter()
             .map(|(_, t)| *t)
             .max()
             .unwrap_or(T::ZERO)
@@ -93,9 +93,7 @@ impl<T: TokenOps> Marking<T> {
     /// Returns the total number of tokens across all places in this marking.
     #[must_use]
     pub fn total_tokens(&self) -> T {
-        self.support.iter()
-            .map(|(_, t)| *t)
-            .sum()
+        self.support.iter().map(|(_, t)| *t).sum()
     }
 }
 

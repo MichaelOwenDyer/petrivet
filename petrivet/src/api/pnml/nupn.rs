@@ -135,7 +135,8 @@ impl NupnMetadata {
         }
         for obj in &page.objects {
             if let PageObject::Page(sub) = obj
-                && let Some(m) = Self::from_page(sub) {
+                && let Some(m) = Self::from_page(sub)
+            {
                 return Some(m);
             }
         }

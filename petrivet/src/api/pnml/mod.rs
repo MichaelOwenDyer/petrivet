@@ -65,8 +65,8 @@ use serde::{Deserialize, Serialize};
 
 pub mod convert;
 pub mod graphics;
-pub mod net;
 pub mod labels;
+pub mod net;
 pub mod nupn;
 
 pub use nupn::{NupnIdList, NupnMetadata, NupnSize, NupnStructure, NupnUnit};
@@ -79,7 +79,8 @@ pub mod net_type {
     pub const PT_HLPNG: &str = "http://www.pnml.org/version-2009/grammar/pt-hlpng";
     pub const INHIBITOR_NET: &str = "http://www.pnml.org/version-2009/extensions/inhibitorptnet";
     pub const RESET_NET: &str = "http://www.pnml.org/version-2009/extensions/resetptnet";
-    pub const RESET_INHIBITOR_NET: &str = "http://www.pnml.org/version-2009/extensions/resetinhibitorptnet";
+    pub const RESET_INHIBITOR_NET: &str =
+        "http://www.pnml.org/version-2009/extensions/resetinhibitorptnet";
 }
 
 /// The root element of a PNML file. A single `.pnml` file may contain one or
@@ -113,7 +114,11 @@ pub struct Page {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graphics: Option<NodeGraphics>,
 
-    #[serde(rename = "toolspecific", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "toolspecific",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub tool_specific: Vec<ToolSpecific>,
 }
 
@@ -155,7 +160,11 @@ pub struct ReferencePlace {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graphics: Option<NodeGraphics>,
 
-    #[serde(rename = "toolspecific", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "toolspecific",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub tool_specific: Vec<ToolSpecific>,
 }
 
@@ -179,7 +188,11 @@ pub struct ReferenceTransition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graphics: Option<NodeGraphics>,
 
-    #[serde(rename = "toolspecific", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "toolspecific",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub tool_specific: Vec<ToolSpecific>,
 }
 
@@ -313,7 +326,9 @@ impl PnmlDocument {
 
 impl std::fmt::Display for PnmlDocument {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.to_xml().map_err(|_| std::fmt::Error).and_then(|s| f.write_str(&s))
+        self.to_xml()
+            .map_err(|_| std::fmt::Error)
+            .and_then(|s| f.write_str(&s))
     }
 }
 
@@ -354,15 +369,34 @@ mod tests {
         let net = &doc.nets[0];
         assert_eq!(net.id, "net1");
         assert_eq!(net.net_type, net_type::PT_NET);
-        assert_eq!(net.name.as_ref().and_then(|n| n.text.as_deref()), Some("Minimal"));
+        assert_eq!(
+            net.name.as_ref().and_then(|n| n.text.as_deref()),
+            Some("Minimal")
+        );
         assert_eq!(net.pages.len(), 1);
 
         let page = &net.pages[0];
-        let places: Vec<_> = page.objects.iter().filter_map(|o| {
-            if let PageObject::Place(p) = o { Some(p) } else { None }
-        }).collect();
-        let transition_count = page.objects.iter().filter(|o| matches!(o, PageObject::Transition(_))).count();
-        let arc_count = page.objects.iter().filter(|o| matches!(o, PageObject::Arc(_))).count();
+        let places: Vec<_> = page
+            .objects
+            .iter()
+            .filter_map(|o| {
+                if let PageObject::Place(p) = o {
+                    Some(p)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let transition_count = page
+            .objects
+            .iter()
+            .filter(|o| matches!(o, PageObject::Transition(_)))
+            .count();
+        let arc_count = page
+            .objects
+            .iter()
+            .filter(|o| matches!(o, PageObject::Arc(_)))
+            .count();
 
         assert_eq!(places.len(), 2);
         assert_eq!(transition_count, 1);
@@ -424,26 +458,46 @@ mod tests {
         let doc = PnmlDocument::from_xml(xml).expect("parse failed");
         let page = &doc.nets[0].pages[0];
 
-        let place = page.objects.iter().find_map(|o| {
-            if let PageObject::Place(p) = o { Some(p) } else { None }
-        }).expect("place");
+        let place = page
+            .objects
+            .iter()
+            .find_map(|o| {
+                if let PageObject::Place(p) = o {
+                    Some(p)
+                } else {
+                    None
+                }
+            })
+            .expect("place");
 
-        let pos = place.graphics.as_ref()
+        let pos = place
+            .graphics
+            .as_ref()
             .and_then(|g| g.position.as_ref())
             .expect("position");
         assert_eq!(pos.x, 500.0);
         assert_eq!(pos.y, 692.0);
 
-        let name_offset = place.name.as_ref()
+        let name_offset = place
+            .name
+            .as_ref()
             .and_then(|n| n.graphics.as_ref())
             .and_then(|g| g.offset.as_ref())
             .expect("name offset");
         assert_eq!(name_offset.x, 22.0);
         assert_eq!(name_offset.y, -10.0);
 
-        let arc = page.objects.iter().find_map(|o| {
-            if let PageObject::Arc(a) = o { Some(a) } else { None }
-        }).expect("arc");
+        let arc = page
+            .objects
+            .iter()
+            .find_map(|o| {
+                if let PageObject::Arc(a) = o {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .expect("arc");
         let waypoints = &arc.graphics.as_ref().expect("arc graphics").waypoints;
         assert_eq!(waypoints.len(), 1);
         assert_eq!(waypoints[0].x, 100.0);
@@ -465,9 +519,17 @@ mod tests {
             </pnml>
         "#;
         let doc = PnmlDocument::from_xml(xml).expect("parse failed");
-        let arc = doc.nets[0].pages[0].objects.iter().find_map(|o| {
-            if let PageObject::Arc(a) = o { Some(a) } else { None }
-        }).expect("arc");
+        let arc = doc.nets[0].pages[0]
+            .objects
+            .iter()
+            .find_map(|o| {
+                if let PageObject::Arc(a) = o {
+                    Some(a)
+                } else {
+                    None
+                }
+            })
+            .expect("arc");
         assert_eq!(arc.arc_type, Some(ArcType::Inhibitor));
     }
 
@@ -492,7 +554,11 @@ mod tests {
         "#;
         let doc = PnmlDocument::from_xml(xml).expect("parse failed");
         let page = &doc.nets[0].pages[0];
-        let ts = page.tool_specific.iter().find(|t| t.tool == "nupn").expect("nupn");
+        let ts = page
+            .tool_specific
+            .iter()
+            .find(|t| t.tool == "nupn")
+            .expect("nupn");
         assert_eq!(ts.version, "1.1");
         assert!(ts.content.is_none());
         let sz = ts.nupn_size.as_ref().expect("nupn size");
@@ -508,9 +574,17 @@ mod tests {
         assert!(st.units[0].subunits.is_empty());
         let meta = nupn::NupnMetadata::extract_from_pnml_net(&doc.nets[0]).expect("metadata");
         assert!(meta.unit_safe_declared());
-        let p0 = page.objects.iter().find_map(|o| {
-            if let PageObject::Place(p) = o { Some(p) } else { None }
-        }).expect("place");
+        let p0 = page
+            .objects
+            .iter()
+            .find_map(|o| {
+                if let PageObject::Place(p) = o {
+                    Some(p)
+                } else {
+                    None
+                }
+            })
+            .expect("place");
         assert_eq!(p0.initial_marking.as_ref().and_then(|m| m.text), Some(1));
     }
 

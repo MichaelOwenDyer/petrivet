@@ -37,7 +37,7 @@
 //! are not yet implemented. This is intentional: silently ignoring high-level
 //! inscriptions or color declarations would produce structurally wrong nets.
 
-use super::{net, net_type, nupn::NupnMetadata, PageObject, PnmlDocument};
+use super::{PageObject, PnmlDocument, net, net_type, nupn::NupnMetadata};
 use crate::pnml::graphics::PnmlGraphics;
 use crate::pnml::labels::NetLabels;
 use crate::prelude::{Arc, Marking, Net, NetBuilder, NetError, PetriNet, Place, Transition};
@@ -54,10 +54,7 @@ pub enum PnmlConversionError {
     /// An arc's `source` or `target` attribute refers to an ID that does not
     /// correspond to any place or transition in this net (after resolving all
     /// reference nodes).
-    UnresolvedArcEndpoint {
-        arc_id: String,
-        endpoint_id: String,
-    },
+    UnresolvedArcEndpoint { arc_id: String, endpoint_id: String },
 
     /// A `<referencePlace>` or `<referenceTransition>` `ref` attribute points
     /// to an ID that cannot be resolved, or the reference chain forms a cycle.
@@ -73,16 +70,20 @@ pub enum PnmlConversionError {
 impl std::fmt::Display for PnmlConversionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::WrongNetType(uri) =>
-                write!(f, "expected a P/T net but found type URI '{uri}'"),
-            Self::UnresolvedArcEndpoint { arc_id, endpoint_id } =>
-                write!(f, "arc '{arc_id}': endpoint '{endpoint_id}' does not resolve to any place or transition"),
-            Self::UnresolvedReference(id) =>
-                write!(f, "reference node '{id}' could not be resolved (dangling or cyclic reference)"),
-            Self::DuplicateId(id) =>
-                write!(f, "duplicate PNML id '{id}'"),
-            Self::InvalidTopology(build_err) =>
-                write!(f, "invalid net topology: {build_err}"),
+            Self::WrongNetType(uri) => write!(f, "expected a P/T net but found type URI '{uri}'"),
+            Self::UnresolvedArcEndpoint {
+                arc_id,
+                endpoint_id,
+            } => write!(
+                f,
+                "arc '{arc_id}': endpoint '{endpoint_id}' does not resolve to any place or transition"
+            ),
+            Self::UnresolvedReference(id) => write!(
+                f,
+                "reference node '{id}' could not be resolved (dangling or cyclic reference)"
+            ),
+            Self::DuplicateId(id) => write!(f, "duplicate PNML id '{id}'"),
+            Self::InvalidTopology(build_err) => write!(f, "invalid net topology: {build_err}"),
         }
     }
 }
@@ -127,16 +128,16 @@ pub enum PetriNetKind {
 
 /// All data collected by walking the page tree of a single PNML net.
 struct FlatNet<'a> {
-    places:      Vec<&'a net::Place>,
+    places: Vec<&'a net::Place>,
     transitions: Vec<&'a net::Transition>,
-    arcs:        Vec<&'a net::Arc>,
+    arcs: Vec<&'a net::Arc>,
     /// Maps every PNML `id` that belongs to a place to the place.
     place_by_id: HashMap<&'a str, &'a net::Place>,
     /// Maps every PNML `id` that belongs to a transition to the transition.
     trans_by_id: HashMap<&'a str, &'a net::Transition>,
     /// Maps reference-node IDs to the `ref` target they point at.
     /// Used for a second pass to resolve chains.
-    ref_map:     HashMap<&'a str, &'a str>,
+    ref_map: HashMap<&'a str, &'a str>,
 }
 
 impl<'a> FlatNet<'a> {
@@ -152,10 +153,7 @@ impl<'a> FlatNet<'a> {
     }
 
     /// Walk one page and all nested sub-pages recursively, collecting nodes.
-    fn visit_page(
-        &mut self,
-        page: &'a super::Page,
-    ) -> Result<(), PnmlConversionError> {
+    fn visit_page(&mut self, page: &'a super::Page) -> Result<(), PnmlConversionError> {
         for obj in &page.objects {
             match obj {
                 PageObject::Place(p) => {
@@ -217,9 +215,7 @@ impl<'a> FlatNet<'a> {
 /// representation of a P/T net. This function contains all the business logic
 /// shared by `to_petri_net` and `to_pt_system`.
 #[expect(clippy::too_many_lines)]
-fn convert_pt_net(
-    pnml_net: &net::PnmlNet,
-) -> Result<PetriNet<Net>, PnmlConversionError> {
+fn convert_pt_net(pnml_net: &net::PnmlNet) -> Result<PetriNet<Net>, PnmlConversionError> {
     let mut flat = FlatNet::new();
     for page in &pnml_net.pages {
         flat.visit_page(page)?;
@@ -280,12 +276,19 @@ fn convert_pt_net(
     }
 
     // Initial marking: index by the dense Place handle.
-    let initial_marking: Marking<u32> = flat.places
+    let initial_marking: Marking<u32> = flat
+        .places
         .iter()
         .filter_map(|p| {
-            p.initial_marking.as_ref().and_then(|m| m.text).map(|count| {
-                (places[p.id.as_str()], u32::try_from(count).unwrap_or(u32::MAX))
-            })
+            p.initial_marking
+                .as_ref()
+                .and_then(|m| m.text)
+                .map(|count| {
+                    (
+                        places[p.id.as_str()],
+                        u32::try_from(count).unwrap_or(u32::MAX),
+                    )
+                })
         })
         .collect();
 
@@ -294,7 +297,9 @@ fn convert_pt_net(
     for pnml_place in &flat.places {
         let p = places[pnml_place.id.as_str()];
         place_ids_map.insert(p, pnml_place.id.clone());
-        pnml_place.name.as_ref()
+        pnml_place
+            .name
+            .as_ref()
             .and_then(|n| n.text.clone())
             .map(|n| place_names.insert(p, n));
     }
@@ -304,7 +309,9 @@ fn convert_pt_net(
     for pnml_trans in &flat.transitions {
         let t = transitions[pnml_trans.id.as_str()];
         transition_ids_map.insert(t, pnml_trans.id.clone());
-        pnml_trans.name.as_ref()
+        pnml_trans
+            .name
+            .as_ref()
             .and_then(|n| n.text.clone())
             .map(|n| transition_names.insert(t, n));
     }
@@ -312,10 +319,18 @@ fn convert_pt_net(
     let mut arc_names: HashMap<Arc, String> = HashMap::new();
     let mut arc_ids: HashMap<Arc, String> = HashMap::new();
     for pnml_arc in &flat.arcs {
-        let Some(src_id) = flat.resolve(&pnml_arc.source) else { continue };
-        let Some(tgt_id) = flat.resolve(&pnml_arc.target) else { continue };
-        let arc = match (places.get(src_id), transitions.get(src_id),
-                         places.get(tgt_id), transitions.get(tgt_id)) {
+        let Some(src_id) = flat.resolve(&pnml_arc.source) else {
+            continue;
+        };
+        let Some(tgt_id) = flat.resolve(&pnml_arc.target) else {
+            continue;
+        };
+        let arc = match (
+            places.get(src_id),
+            transitions.get(src_id),
+            places.get(tgt_id),
+            transitions.get(tgt_id),
+        ) {
             (Some(&p), None, None, Some(&t)) => Arc::PlaceToTransition(p, t),
             (None, Some(&t), Some(&p), None) => Arc::TransitionToPlace(t, p),
             _ => continue,
@@ -346,13 +361,18 @@ fn convert_pt_net(
     let mut place_marking_graphics = HashMap::new();
     for pnml_place in &flat.places {
         let p = places[pnml_place.id.as_str()];
-        pnml_place.graphics
+        pnml_place
+            .graphics
             .as_ref()
             .map(|g| place_graphics.insert(p, g.clone()));
-        pnml_place.name.as_ref()
+        pnml_place
+            .name
+            .as_ref()
             .and_then(|n| n.graphics.clone())
             .map(|n| place_name_graphics.insert(p, n));
-        pnml_place.initial_marking.as_ref()
+        pnml_place
+            .initial_marking
+            .as_ref()
             .and_then(|m| m.graphics.clone())
             .map(|m| place_marking_graphics.insert(p, m));
     }
@@ -361,9 +381,13 @@ fn convert_pt_net(
     let mut transition_name_graphics = HashMap::new();
     for pnml_trans in &flat.transitions {
         let t = transitions[pnml_trans.id.as_str()];
-        pnml_trans.graphics.as_ref()
+        pnml_trans
+            .graphics
+            .as_ref()
             .map(|g| transition_graphics.insert(t, g.clone()));
-        pnml_trans.name.as_ref()
+        pnml_trans
+            .name
+            .as_ref()
             .and_then(|n| n.graphics.clone())
             .map(|g| transition_name_graphics.insert(t, g));
     }
@@ -371,13 +395,17 @@ fn convert_pt_net(
     let mut arc_graphics = HashMap::new();
     let mut arc_inscription_graphics = HashMap::new();
     for pnml_arc in &flat.arcs {
-        let Some(src_id) = flat.resolve(&pnml_arc.source) else { continue };
-        let Some(tgt_id) = flat.resolve(&pnml_arc.target) else { continue };
+        let Some(src_id) = flat.resolve(&pnml_arc.source) else {
+            continue;
+        };
+        let Some(tgt_id) = flat.resolve(&pnml_arc.target) else {
+            continue;
+        };
         let arc = match (
             places.get(src_id),
             transitions.get(src_id),
             places.get(tgt_id),
-            transitions.get(tgt_id)
+            transitions.get(tgt_id),
         ) {
             (Some(&p), None, None, Some(&t)) => Arc::PlaceToTransition(p, t),
             (None, Some(&t), Some(&p), None) => Arc::TransitionToPlace(t, p),
@@ -386,7 +414,11 @@ fn convert_pt_net(
         if let Some(g) = pnml_arc.graphics.clone() {
             arc_graphics.insert(arc, g);
         }
-        if let Some(g) = pnml_arc.inscription.as_ref().and_then(|i| i.graphics.clone()) {
+        if let Some(g) = pnml_arc
+            .inscription
+            .as_ref()
+            .and_then(|i| i.graphics.clone())
+        {
             arc_inscription_graphics.insert(arc, g);
         }
     }

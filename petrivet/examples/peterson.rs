@@ -95,5 +95,7 @@ fn main() {
         !PetriNet::new(&net, initial_marking).is_coverable(dangerous),
         "Peterson's mutual exclusion algorithm failed: both processes can be in critical section simultaneously."
     );
-    println!("Peterson's mutual exclusion algorithm verified: both processes cannot be in critical section simultaneously.");
+    println!(
+        "Peterson's mutual exclusion algorithm verified: both processes cannot be in critical section simultaneously."
+    );
 }

@@ -26,7 +26,11 @@ pub struct PnmlNet {
     pub pages: Vec<Page>,
 
     /// Tool-specific extension blocks at the net level.
-    #[serde(rename = "toolspecific", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "toolspecific",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub tool_specific: Vec<ToolSpecific>,
 }
 
@@ -49,11 +53,14 @@ pub struct Place {
 
     // TODO(timed-nets): When adding support for timed Petri nets, add a `time: Option<TimeLabel>`
     //  for the place timing annotation.
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graphics: Option<NodeGraphics>,
 
-    #[serde(rename = "toolspecific", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "toolspecific",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub tool_specific: Vec<ToolSpecific>,
 }
 
@@ -72,11 +79,14 @@ pub struct Transition {
 
     // TODO(stochastic-nets): When adding support for stochastic Petri nets, add
     //  `rate: Option<RateLabel>` for the firing rate distribution.
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graphics: Option<NodeGraphics>,
 
-    #[serde(rename = "toolspecific", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "toolspecific",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub tool_specific: Vec<ToolSpecific>,
 }
 
@@ -115,10 +125,13 @@ pub struct Arc {
     // TODO(colored-nets): When adding support for High-Level / Symmetric / Colored Petri Nets,
     //  add `hl_inscription: Option<HlInscription>` here for the high-level arc inscription
     //  expression (a multiset expression).
-
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graphics: Option<EdgeGraphics>,
 
-    #[serde(rename = "toolspecific", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "toolspecific",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub tool_specific: Vec<ToolSpecific>,
 }

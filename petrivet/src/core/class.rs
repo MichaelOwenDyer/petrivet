@@ -421,14 +421,24 @@ impl NetClass {
     /// (since all of these are subclasses of Free-Choice nets).
     #[must_use]
     pub const fn is_free_choice(&self) -> bool {
-        matches!(self, Self::FreeChoice | Self::StateMachine | Self::MarkedGraph | Self::Circuit)
+        matches!(
+            self,
+            Self::FreeChoice | Self::StateMachine | Self::MarkedGraph | Self::Circuit
+        )
     }
 
     /// Returns true if this class is `AsymmetricChoice`, `FreeChoice`, `StateMachine`, `MarkedGraph`, or `Circuit`
     /// (since all of these are subclasses of Asymmetric-Choice nets).
     #[must_use]
     pub const fn is_asymmetric_choice(&self) -> bool {
-        matches!(self, Self::AsymmetricChoice | Self::FreeChoice | Self::StateMachine | Self::MarkedGraph | Self::Circuit)
+        matches!(
+            self,
+            Self::AsymmetricChoice
+                | Self::FreeChoice
+                | Self::StateMachine
+                | Self::MarkedGraph
+                | Self::Circuit
+        )
     }
 }
 
@@ -468,7 +478,7 @@ fn is_connected<S: std::hash::BuildHasher>(
                 Node::Place(p) => {
                     for &t in iter::chain(
                         preset_p.get(&p).expect("eagerly populated").iter(),
-                        postset_p.get(&p).expect("eagerly populated").iter()
+                        postset_p.get(&p).expect("eagerly populated").iter(),
                     ) {
                         if visited_t.insert(t) {
                             queue.push_back(Node::Transition(t));
@@ -478,7 +488,7 @@ fn is_connected<S: std::hash::BuildHasher>(
                 Node::Transition(t) => {
                     for &p in iter::chain(
                         preset_t.get(&t).expect("eagerly populated").iter(),
-                        postset_t.get(&t).expect("eagerly populated").iter()
+                        postset_t.get(&t).expect("eagerly populated").iter(),
                     ) {
                         if visited_p.insert(p) {
                             queue.push_back(Node::Place(p));
@@ -506,7 +516,7 @@ pub fn classify<S: std::hash::BuildHasher>(
     preset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     postset_t: &HashMap<Transition, HashSet<Place, S>, S>,
     preset_p: &HashMap<Place, HashSet<Transition, S>, S>,
-    postset_p: &HashMap<Place, HashSet<Transition, S>, S>
+    postset_p: &HashMap<Place, HashSet<Transition, S>, S>,
 ) -> Option<NetClass> {
     if !is_connected(preset_t, postset_t, preset_p, postset_p) {
         return None;
@@ -527,16 +537,18 @@ pub fn classify<S: std::hash::BuildHasher>(
 /// S-net: |•t| = 1 and |t•| = 1 for every transition t.
 fn is_s_net<S: std::hash::BuildHasher>(
     transition_presets: &HashMap<Transition, HashSet<Place, S>, S>,
-    transition_postsets: &HashMap<Transition, HashSet<Place, S>, S>
+    transition_postsets: &HashMap<Transition, HashSet<Place, S>, S>,
 ) -> bool {
     transition_presets.values().all(|preset| preset.len() == 1)
-        && transition_postsets.values().all(|postset| postset.len() == 1)
+        && transition_postsets
+            .values()
+            .all(|postset| postset.len() == 1)
 }
 
 /// T-net: |•p| = 1 and |p•| = 1 for every place p.
 fn is_t_net<S: std::hash::BuildHasher>(
     place_presets: &HashMap<Place, HashSet<Transition, S>, S>,
-    place_postsets: &HashMap<Place, HashSet<Transition, S>, S>
+    place_postsets: &HashMap<Place, HashSet<Transition, S>, S>,
 ) -> bool {
     place_presets.values().all(|preset| preset.len() == 1)
         && place_postsets.values().all(|postset| postset.len() == 1)
@@ -550,7 +562,8 @@ fn is_free_choice<S: std::hash::BuildHasher>(
 ) -> bool {
     postset_p.values().all(|postset| {
         let mut iter = postset.iter().map(|t| preset_t.get(t).unwrap());
-        iter.next().is_none_or(|first| iter.all(|preset| preset == first))
+        iter.next()
+            .is_none_or(|first| iter.all(|preset| preset == first))
     })
 }
 
@@ -559,8 +572,8 @@ fn is_asymmetric_choice<S: std::hash::BuildHasher>(
     postset_p: &HashMap<Place, HashSet<Transition, S>, S>,
 ) -> bool {
     postset_p.values().all(|a| {
-        postset_p.values().all(|b| {
-            a.is_disjoint(b) || a.is_subset(b) || b.is_subset(a)
-        })
+        postset_p
+            .values()
+            .all(|b| a.is_disjoint(b) || a.is_subset(b) || b.is_subset(a))
     })
 }

@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use petrivet::prelude::*;
 use petrivet::state_space::ExplorationOrder;
 
@@ -9,14 +9,38 @@ struct NetFixture {
     build: fn(NetSize) -> PetriNet<Net>,
 }
 
-const CIRCUIT: NetFixture = NetFixture { label: "circuit", build: circuit };
-const STATE_MACHINE_SC: NetFixture = NetFixture { label: "state_machine/sc", build: state_machine_sc };
-const STATE_MACHINE_NON_SC: NetFixture = NetFixture { label: "state_machine/non_sc", build: state_machine_non_sc };
-const MARKED_GRAPH_LIVE: NetFixture = NetFixture { label: "marked_graph/live", build: marked_graph_live };
-const MARKED_GRAPH_DARK: NetFixture = NetFixture { label: "marked_graph/dark", build: marked_graph_dark };
-const FREE_CHOICE: NetFixture = NetFixture { label: "free_choice", build: free_choice };
-const ASYM_CHOICE: NetFixture = NetFixture { label: "asym_choice", build: asym_choice };
-const GENERAL: NetFixture = NetFixture { label: "general", build: general };
+const CIRCUIT: NetFixture = NetFixture {
+    label: "circuit",
+    build: circuit,
+};
+const STATE_MACHINE_SC: NetFixture = NetFixture {
+    label: "state_machine/sc",
+    build: state_machine_sc,
+};
+const STATE_MACHINE_NON_SC: NetFixture = NetFixture {
+    label: "state_machine/non_sc",
+    build: state_machine_non_sc,
+};
+const MARKED_GRAPH_LIVE: NetFixture = NetFixture {
+    label: "marked_graph/live",
+    build: marked_graph_live,
+};
+const MARKED_GRAPH_DARK: NetFixture = NetFixture {
+    label: "marked_graph/dark",
+    build: marked_graph_dark,
+};
+const FREE_CHOICE: NetFixture = NetFixture {
+    label: "free_choice",
+    build: free_choice,
+};
+const ASYM_CHOICE: NetFixture = NetFixture {
+    label: "asym_choice",
+    build: asym_choice,
+};
+const GENERAL: NetFixture = NetFixture {
+    label: "general",
+    build: general,
+};
 const GENERATORS: &[NetFixture] = &[
     CIRCUIT,
     STATE_MACHINE_SC,
@@ -31,11 +55,7 @@ const GENERATORS: &[NetFixture] = &[
 const SMALL: (&str, NetSize) = ("small", 5);
 const MEDIUM: (&str, NetSize) = ("medium", 25);
 const LARGE: (&str, NetSize) = ("large", 25);
-const SIZES: &[(&str, NetSize)] = &[
-    SMALL,
-    MEDIUM,
-    LARGE,
-];
+const SIZES: &[(&str, NetSize)] = &[SMALL, MEDIUM, LARGE];
 
 /// n-place n-transition ring, 1 token in the first place.
 fn circuit(n: NetSize) -> PetriNet<Net> {
@@ -210,10 +230,9 @@ fn general(n: NetSize) -> PetriNet<Net> {
 fn bench_build(c: &mut Criterion) {
     let mut group = c.benchmark_group("build");
     let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {
-        group.bench_function(
-            BenchmarkId::new(fixture.label, size_label),
-            |b| b.iter(|| std::hint::black_box((fixture.build)(size))),
-        );
+        group.bench_function(BenchmarkId::new(fixture.label, size_label), |b| {
+            b.iter(|| std::hint::black_box((fixture.build)(size)))
+        });
     };
     for fixture in GENERATORS {
         for &size in SIZES {
@@ -228,16 +247,13 @@ fn bench_build(c: &mut Criterion) {
 fn bench_unbuild(c: &mut Criterion) {
     let mut group = c.benchmark_group("unbuild");
     let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {
-        group.bench_function(
-            BenchmarkId::new(fixture.label, size_label),
-            |b| {
-                b.iter_batched(
-                    || (fixture.build)(size).net,
-                    |net| std::hint::black_box(NetBuilder::from(net)),
-                    criterion::BatchSize::SmallInput,
-                );
-            },
-        );
+        group.bench_function(BenchmarkId::new(fixture.label, size_label), |b| {
+            b.iter_batched(
+                || (fixture.build)(size).net,
+                |net| std::hint::black_box(NetBuilder::from(net)),
+                criterion::BatchSize::SmallInput,
+            );
+        });
     };
     for fixture in GENERATORS {
         for &size in SIZES {
@@ -251,13 +267,10 @@ fn bench_unbuild(c: &mut Criterion) {
 fn bench_liveness(c: &mut Criterion) {
     let mut group = c.benchmark_group("liveness");
     let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {
-        group.bench_function(
-            BenchmarkId::new(fixture.label, size_label),
-            |b| {
-                let sys = (fixture.build)(size);
-                b.iter(|| std::hint::black_box(sys.liveness()));
-            },
-        );
+        group.bench_function(BenchmarkId::new(fixture.label, size_label), |b| {
+            let sys = (fixture.build)(size);
+            b.iter(|| std::hint::black_box(sys.liveness()));
+        });
     };
     for fixture in &[
         CIRCUIT,
@@ -284,13 +297,10 @@ fn bench_liveness(c: &mut Criterion) {
 fn bench_boundedness(c: &mut Criterion) {
     let mut group = c.benchmark_group("boundedness");
     let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {
-        group.bench_function(
-            BenchmarkId::new(fixture.label, size_label),
-            |b| {
-                let sys = (fixture.build)(size);
-                b.iter(|| std::hint::black_box(sys.boundedness()));
-            },
-        );
+        group.bench_function(BenchmarkId::new(fixture.label, size_label), |b| {
+            let sys = (fixture.build)(size);
+            b.iter(|| std::hint::black_box(sys.boundedness()));
+        });
     };
     for fixture in GENERATORS {
         for &size in SIZES {
@@ -305,13 +315,10 @@ fn bench_boundedness(c: &mut Criterion) {
 fn bench_deadlock(c: &mut Criterion) {
     let mut group = c.benchmark_group("deadlock_freedom");
     let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {
-        group.bench_function(
-            BenchmarkId::new(fixture.label, size_label),
-            |b| {
-                let sys = (fixture.build)(size);
-                b.iter(|| std::hint::black_box(sys.is_deadlock_free()));
-            },
-        );
+        group.bench_function(BenchmarkId::new(fixture.label, size_label), |b| {
+            let sys = (fixture.build)(size);
+            b.iter(|| std::hint::black_box(sys.is_deadlock_free()));
+        });
     };
     for fixture in GENERATORS {
         for &size in &[SMALL, MEDIUM] {
@@ -325,13 +332,17 @@ fn bench_deadlock(c: &mut Criterion) {
 fn bench_reachability_graph(c: &mut Criterion) {
     let mut group = c.benchmark_group("reachability_graph");
     let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {
-        group.bench_function(
-            BenchmarkId::new(fixture.label, size_label),
-            |b| {
-                let sys = (fixture.build)(size);
-                b.iter(|| std::hint::black_box(sys.explore_reachability(ExplorationOrder::BreadthFirst).explore_iter().take(100_000).count()));
-            },
-        );
+        group.bench_function(BenchmarkId::new(fixture.label, size_label), |b| {
+            let sys = (fixture.build)(size);
+            b.iter(|| {
+                std::hint::black_box(
+                    sys.explore_reachability(ExplorationOrder::BreadthFirst)
+                        .explore_iter()
+                        .take(100_000)
+                        .count(),
+                )
+            });
+        });
     };
     for fixture in GENERATORS {
         for &size in &[SMALL, MEDIUM] {
@@ -345,13 +356,17 @@ fn bench_reachability_graph(c: &mut Criterion) {
 fn bench_coverability_graph(c: &mut Criterion) {
     let mut group = c.benchmark_group("coverability_graph");
     let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {
-        group.bench_function(
-            BenchmarkId::new(fixture.label, size_label),
-            |b| {
-                let sys = (fixture.build)(size);
-                b.iter(|| std::hint::black_box(sys.explore_coverability(ExplorationOrder::BreadthFirst).explore_iter().take(10_000).count()));
-            },
-        );
+        group.bench_function(BenchmarkId::new(fixture.label, size_label), |b| {
+            let sys = (fixture.build)(size);
+            b.iter(|| {
+                std::hint::black_box(
+                    sys.explore_coverability(ExplorationOrder::BreadthFirst)
+                        .explore_iter()
+                        .take(10_000)
+                        .count(),
+                )
+            });
+        });
     };
     for fixture in GENERATORS {
         for &size in &[SMALL, MEDIUM] {

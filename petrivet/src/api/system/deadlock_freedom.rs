@@ -30,15 +30,11 @@ impl Iterator for Deadlocks<'_> {
     fn next(&mut self) -> Option<Deadlock> {
         match self {
             Deadlocks::DeadlockFree => None,
-            Deadlocks::InitialDeadlock(deadlock) => {
-                deadlock.take()
-            }
-            Deadlocks::Explorer(reachability_explorer) => {
-                reachability_explorer
-                    .core
-                    .search(|m| reachability_explorer.core.state_space.net.is_deadlock(m))
-                    .map(|m| reachability_explorer.mapping.encode(m.clone()))
-            }
+            Deadlocks::InitialDeadlock(deadlock) => deadlock.take(),
+            Deadlocks::Explorer(reachability_explorer) => reachability_explorer
+                .core
+                .search(|m| reachability_explorer.core.state_space.net.is_deadlock(m))
+                .map(|m| reachability_explorer.mapping.encode(m.clone())),
         }
     }
 }
@@ -52,7 +48,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         match self.is_efficiently_live() {
             Some(true) => Some(true), // liveness implies deadlock-freedom
             Some(false) if self.class() == NetClass::FreeChoice => Some(false), // same condition, no need to check it again
-            _ => self.commoner_hack_criterion().ok().map(|_| true)
+            _ => self.commoner_hack_criterion().ok().map(|_| true),
         }
     }
 
@@ -66,13 +62,16 @@ impl<N: AsRef<Net>> PetriNet<N> {
         } else {
             // Yield the initial marking once if it is a deadlock.
             // Otherwise, explore the reachable markings for deadlocks.
-            self
-                .dense_net
+            self.dense_net
                 .is_deadlock(&self.marking)
                 .then(|| self.mapping.encode(self.marking.clone()))
                 .map_or_else(
-                    || Deadlocks::Explorer(self.explore_reachability(ExplorationOrder::BreadthFirst)),
-                    |deadlock| Deadlocks::InitialDeadlock(Some(deadlock))
+                    || {
+                        Deadlocks::Explorer(
+                            self.explore_reachability(ExplorationOrder::BreadthFirst),
+                        )
+                    },
+                    |deadlock| Deadlocks::InitialDeadlock(Some(deadlock)),
                 )
         }
     }
@@ -98,10 +97,7 @@ mod tests {
         // EMPTY initial marking: t0 needs p0, t1 needs p1, both empty — no
         // transition is enabled, so m₀ is itself a reachable total deadlock.
         let dead = net.with_initial_marking([]);
-        assert!(
-            !dead.is_deadlock_free(),
-            "an m₀ deadlock must be detected"
-        );
+        assert!(!dead.is_deadlock_free(), "an m₀ deadlock must be detected");
         assert!(
             dead.deadlocks().next().is_some(),
             "deadlocks() must yield the initial deadlock marking"
@@ -109,7 +105,10 @@ mod tests {
         // Control: the SAME cycle marked is live, hence deadlock-free; m₀ is not a
         // deadlock and the fix does not over-report.
         let live = net.with_initial_marking([(p0, 1)]);
-        assert!(live.is_deadlock_free(), "a live marked cycle is deadlock-free");
+        assert!(
+            live.is_deadlock_free(),
+            "a live marked cycle is deadlock-free"
+        );
         assert!(
             live.deadlocks().next().is_none(),
             "a live marked cycle has no deadlock"

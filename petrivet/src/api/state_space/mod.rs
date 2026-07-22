@@ -36,7 +36,7 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     #[must_use]
     pub fn new<N: AsRef<Net>>(sys: &'a PetriNet<N>, order: ExplorationOrder) -> Self
     where
-        IdxMarking<T>: From<IdxMarking<u32>>
+        IdxMarking<T>: From<IdxMarking<u32>>,
     {
         let initial_marking = IdxMarking::from(sys.marking.clone());
         Self {
@@ -90,7 +90,8 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
 
     /// All markings discovered so far which enable no transitions.
     pub fn deadlocks(&self) -> impl Iterator<Item = Marking<T>> {
-        self.core.state_space
+        self.core
+            .state_space
             .deadlocks()
             .cloned()
             .map(|marking| self.mapping.encode(marking))
@@ -111,7 +112,7 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
 
 impl<'a, T: TokenOps> StateGraphExplorer<'a, T>
 where
-    DenseStateGraphExplorer<'a, T>: ExploreNext<T>
+    DenseStateGraphExplorer<'a, T>: ExploreNext<T>,
 {
     /// Explore the next item in the frontier: fire a transition from a marking
     /// and record the new edge (and possibly new marking) in the state graph.
@@ -121,14 +122,16 @@ where
     ///
     /// Return `None` if the frontier is empty and exploration is complete.
     pub fn explore_next(&mut self) -> Option<ExplorationStep<T>> {
-        self.core.explore_next().map(|(transition_idx, node_idx, is_new)| {
-            let idx_marking = self.core.state_space.marking_at(node_idx);
-            ExplorationStep {
-                transition: self.mapping.transition(transition_idx),
-                marking: self.mapping.encode(idx_marking.clone()),
-                is_new,
-            }
-        })
+        self.core
+            .explore_next()
+            .map(|(transition_idx, node_idx, is_new)| {
+                let idx_marking = self.core.state_space.marking_at(node_idx);
+                ExplorationStep {
+                    transition: self.mapping.transition(transition_idx),
+                    marking: self.mapping.encode(idx_marking.clone()),
+                    is_new,
+                }
+            })
     }
 
     /// Returns an iterator that drives exploration step by step.
@@ -199,13 +202,18 @@ impl<T: TokenOps> StateGraph<'_, T> {
     /// For coverability queries, use `cover()`.
     #[must_use]
     pub fn contains_marking(&self, marking: Marking<T>) -> bool {
-        self.state_space.seen.contains_key(&self.mapping.decode(marking))
+        self.state_space
+            .seen
+            .contains_key(&self.mapping.decode(marking))
     }
 
     /// The initial marking.
     #[must_use]
     pub fn initial_marking(&self) -> Marking<T> {
-        let marking = self.state_space.marking_at(self.state_space.initial_idx).clone();
+        let marking = self
+            .state_space
+            .marking_at(self.state_space.initial_idx)
+            .clone();
         self.mapping.encode(marking)
     }
 
@@ -214,16 +222,13 @@ impl<T: TokenOps> StateGraph<'_, T> {
     /// unbounded.
     #[must_use]
     pub fn place_bound(&self, p: Place) -> T {
-        self.mapping.place_idx(p).map_or(
-            T::ZERO,
-            |p_idx| {
-                self.state_space
-                    .markings()
-                    .map(|marking| marking[p_idx])
-                    .max()
-                    .unwrap_or(T::ZERO)
-            }
-        )
+        self.mapping.place_idx(p).map_or(T::ZERO, |p_idx| {
+            self.state_space
+                .markings()
+                .map(|marking| marking[p_idx])
+                .max()
+                .unwrap_or(T::ZERO)
+        })
     }
 
     /// Tries to find a marking which covers the provided marking.
@@ -265,7 +270,8 @@ impl<T: TokenOps> StateGraph<'_, T> {
     /// The largest single-place bound across the entire net.
     #[must_use]
     pub fn max_token_in_any_place(&self) -> T {
-        self.state_space.markings()
+        self.state_space
+            .markings()
             .map(|m| m.iter().max().expect("marking must have length > 0"))
             .max()
             .copied()
@@ -274,8 +280,12 @@ impl<T: TokenOps> StateGraph<'_, T> {
 
     /// The largest total token count across all reachable markings.
     #[must_use]
-    pub fn max_token_per_marking(&self) -> T where T: Sum {
-        self.state_space.markings()
+    pub fn max_token_per_marking(&self) -> T
+    where
+        T: Sum,
+    {
+        self.state_space
+            .markings()
             .map(|m| m.iter().copied().sum::<T>())
             .max()
             .expect("initial marking is always present")

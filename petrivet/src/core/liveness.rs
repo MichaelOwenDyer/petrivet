@@ -78,7 +78,7 @@ impl LivenessLevel {
     }
 
     /// Returns true if the transition is L0-live (dead).
-    /// 
+    ///
     /// This is a synonym for `is_l0_live`.
     #[must_use]
     pub const fn is_dead(&self) -> bool {
@@ -128,7 +128,7 @@ impl LivenessLevel {
     }
 
     /// Returns true if the transition is [`L4-live`](LivenessLevel::L4) (live).
-    /// 
+    ///
     /// This is a synonym for `is_l4_live`.
     #[must_use]
     pub const fn is_live(&self) -> bool {

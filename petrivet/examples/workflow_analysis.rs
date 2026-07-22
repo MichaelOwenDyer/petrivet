@@ -42,22 +42,9 @@ fn main() {
 
     let mut b = NetBuilder::new();
 
-    let [
-        raw,
-        station,
-        soldered,
-        passed,
-        failed,
-        done,
-    ] = b.add_places();
+    let [raw, station, soldered, passed, failed, done] = b.add_places();
 
-    let transitions @ [
-        solder,
-        inspect_pass,
-        inspect_fail,
-        ship,
-        rework,
-    ] = b.add_transitions();
+    let transitions @ [solder, inspect_pass, inspect_fail, ship, rework] = b.add_transitions();
 
     // Solder: raw + station → soldered + station
     b.add_arcs((raw, solder, soldered));
@@ -75,7 +62,11 @@ fn main() {
 
     let net = b.build().expect("valid net");
 
-    println!("Net: {} places, {} transitions", net.place_count(), net.transition_count());
+    println!(
+        "Net: {} places, {} transitions",
+        net.place_count(),
+        net.transition_count()
+    );
     println!("Structural class: {}", net.class());
 
     println!("\n--- Structural Analysis ---\n");
@@ -93,7 +84,10 @@ fn main() {
     let liveness = sys.liveness();
 
     println!("Bounded: {:?}", boundedness.is_bounded());
-    println!("Live (every transition always eventually firable): {}", liveness.global_level().is_live());
+    println!(
+        "Live (every transition always eventually firable): {}",
+        liveness.global_level().is_live()
+    );
 
     for t in &transitions {
         println!("Transition {:?} liveness: {}", t, liveness.level(*t));
@@ -105,9 +99,13 @@ fn main() {
     let result = sys.analyze_reachability(&[(station, 1), (done, 3)].into());
     println!(
         "All 3 boards done? {}",
-        if result.is_reachable() { "reachable" }
-        else if result.is_unreachable() { "definitely unreachable" }
-        else { "inconclusive" }
+        if result.is_reachable() {
+            "reachable"
+        } else if result.is_unreachable() {
+            "definitely unreachable"
+        } else {
+            "inconclusive"
+        }
     );
 
     // Can we magically get 4 boards done from 3?
@@ -115,30 +113,40 @@ fn main() {
     let result2 = sys.analyze_reachability(&impossible);
     println!(
         "4 boards done from 3? {}",
-        if result2.is_reachable() { "reachable" }
-        else if result2.is_unreachable() { "definitely unreachable" }
-        else { "inconclusive" }
+        if result2.is_reachable() {
+            "reachable"
+        } else if result2.is_unreachable() {
+            "definitely unreachable"
+        } else {
+            "inconclusive"
+        }
     );
 
     println!("\n--- Coverability Graph ---\n");
 
     let cg = sys.build_coverability_graph();
-    println!("Markings: {}, Edges: {}", cg.marking_count(), cg.transition_count());
+    println!(
+        "Markings: {}, Edges: {}",
+        cg.marking_count(),
+        cg.transition_count()
+    );
     println!("Bounded: {}", cg.is_bounded());
 
     let threshold = [(station, 1.into()), (done, 3.into())].into();
     println!(
         "All-done marking coverable: {}",
-        cg.cover(threshold).map_or_else(
-            || "no".to_string(),
-            |cover| format!("yes: {cover:?}")
-        )
+        cg.cover(threshold)
+            .map_or_else(|| "no".to_string(), |cover| format!("yes: {cover:?}"))
     );
 
     println!("\n--- Reachability Graph ---\n");
 
     let rg = sys.build_reachability_graph();
-    println!("States: {}, Edges: {}", rg.marking_count(), rg.transition_count());
+    println!(
+        "States: {}, Edges: {}",
+        rg.marking_count(),
+        rg.transition_count()
+    );
     println!("Deadlock-free: {}", rg.is_deadlock_free());
 
     if !rg.is_deadlock_free() {
@@ -148,7 +156,10 @@ fn main() {
         }
     }
 
-    println!("\nLiveness (from RG): {}", rg.transition_liveness().is_live());
+    println!(
+        "\nLiveness (from RG): {}",
+        rg.transition_liveness().is_live()
+    );
 
     println!("\n--- Incremental Exploration ---\n");
 
@@ -176,5 +187,8 @@ fn main() {
         rg.transition_count()
     );
 
-    println!("Promoted to ReachabilityGraph: live: {}", rg.transition_liveness().is_live());
+    println!(
+        "Promoted to ReachabilityGraph: live: {}",
+        rg.transition_liveness().is_live()
+    );
 }

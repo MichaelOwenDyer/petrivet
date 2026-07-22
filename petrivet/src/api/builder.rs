@@ -76,8 +76,14 @@ pub enum NetError {
 impl fmt::Display for NetError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Degenerate => write!(f, "the net must have at least one place and at least one transition"),
-            Self::NotConnected => write!(f, "the net must be connected (every node reachable from every other node ignoring arc directions)"),
+            Self::Degenerate => write!(
+                f,
+                "the net must have at least one place and at least one transition"
+            ),
+            Self::NotConnected => write!(
+                f,
+                "the net must be connected (every node reachable from every other node ignoring arc directions)"
+            ),
         }
     }
 }
@@ -271,10 +277,12 @@ impl NetBuilder {
         } else {
             return false;
         }
-        let preset = self.preset_p
+        let preset = self
+            .preset_p
             .remove(&place)
             .expect("adjacency map desynchronization detected");
-        let postset = self.postset_p
+        let postset = self
+            .postset_p
             .remove(&place)
             .expect("adjacency map desynchronization detected");
         for &input_transition in &preset {
@@ -321,10 +329,12 @@ impl NetBuilder {
         } else {
             return false;
         }
-        let preset = self.preset_t
+        let preset = self
+            .preset_t
             .remove(&transition)
             .expect("adjacency map desynchronization detected");
-        let postset = self.postset_t
+        let postset = self
+            .postset_t
             .remove(&transition)
             .expect("adjacency map desynchronization detected");
         for &p in &preset {
@@ -364,7 +374,8 @@ impl NetBuilder {
             Arc::PlaceToTransition(p, t) => {
                 let removed = self.preset_t.get_mut(&t).is_some_and(|s| s.remove(&p));
                 if removed {
-                    self.postset_p.get_mut(&p)
+                    self.postset_p
+                        .get_mut(&p)
                         .expect("adjacency map desynchronization detected")
                         .remove(&t);
                 }
@@ -373,7 +384,8 @@ impl NetBuilder {
             Arc::TransitionToPlace(t, p) => {
                 let removed = self.postset_t.get_mut(&t).is_some_and(|s| s.remove(&p));
                 if removed {
-                    self.preset_p.get_mut(&p)
+                    self.preset_p
+                        .get_mut(&p)
                         .expect("adjacency map desynchronization detected")
                         .remove(&t);
                 }
@@ -416,10 +428,10 @@ impl NetBuilder {
         iter::chain(
             self.preset_t
                 .iter()
-                .flat_map(|(t, preset)| preset.iter().map(move |&p| Arc::PlaceToTransition(p, *t))),
+                .flat_map(|(&t, preset)| preset.iter().map(move |&p| Arc::PlaceToTransition(p, t))),
             self.postset_t
                 .iter()
-                .flat_map(|(t, post)| post.iter().map(move |&p| Arc::TransitionToPlace(*t, p))),
+                .flat_map(|(&t, post)| post.iter().map(move |&p| Arc::TransitionToPlace(t, p))),
         )
     }
 
@@ -477,7 +489,8 @@ impl NetBuilder {
 
         let graph = {
             let node_count = ordered_places.len() + ordered_transitions.len();
-            let mut graph = petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
+            let mut graph =
+                petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
             let p_indices: Vec<NodeIndex> = (0..ordered_places.len())
                 .map(|p_idx| graph.add_node(IdxNode::Place(p_idx)))
                 .collect();
@@ -488,10 +501,12 @@ impl NetBuilder {
                 .zip(preset_t.iter().zip(postset_t.iter()))
                 .flat_map(|(t_idx, (preset, postset))| {
                     let transition_node = t_indices[t_idx];
-                    let preset = preset.iter()
+                    let preset = preset
+                        .iter()
                         .map(|&p_idx| p_indices[p_idx])
                         .map(move |place_node| (place_node, transition_node));
-                    let postset = postset.iter()
+                    let postset = postset
+                        .iter()
                         .map(|&p_idx| p_indices[p_idx])
                         .map(move |place_node| (transition_node, place_node));
                     iter::chain(preset, postset)
@@ -1045,7 +1060,10 @@ mod tests {
         b.add_arc((t1, p2));
 
         assert!(b.remove_place(p1));
-        assert!(!b.arcs().any(|a| matches!(a, Arc::PlaceToTransition(p, _) if p == p1)));
+        assert!(
+            !b.arcs()
+                .any(|a| matches!(a, Arc::PlaceToTransition(p, _) if p == p1))
+        );
     }
 
     #[test]

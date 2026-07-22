@@ -59,11 +59,11 @@
 //! ```
 
 pub mod boundedness;
+pub mod chc;
 pub mod coverability;
-pub mod reachability;
 pub mod deadlock_freedom;
 pub mod liveness;
-pub mod chc;
+pub mod reachability;
 
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::ExplorationOrder;
@@ -152,13 +152,21 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn new(net: N, initial_marking: impl Into<Marking<u32>>) -> Self {
         let initial_marking = net.as_ref().mapping.decode(initial_marking.into());
         let reset_marking = initial_marking.clone();
-        Self { net, marking: initial_marking, reset_marking }
+        Self {
+            net,
+            marking: initial_marking,
+            reset_marking,
+        }
     }
 
     /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
     #[must_use]
     pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
-        let PetriNet { net, marking, reset_marking: reset } = self;
+        let PetriNet {
+            net,
+            marking,
+            reset_marking: reset,
+        } = self;
         let marking = net.as_ref().mapping.encode(marking);
         let reset = net.as_ref().mapping.encode(reset);
         (net, marking, reset)
@@ -183,10 +191,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Resets the current marking to the initial marking.
     /// Returns the marking before the reset.
     pub fn reset(&mut self) -> Marking<u32> {
-        let previous = std::mem::replace(
-            &mut self.marking,
-            self.reset_marking.clone()
-        );
+        let previous = std::mem::replace(&mut self.marking, self.reset_marking.clone());
         self.mapping.encode(previous)
     }
 
@@ -300,7 +305,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ///
     /// Warning! This may be a HUGE structure!
     pub fn build_coverability_graph(&self) -> CoverabilityGraph<'_> {
-        self.explore_coverability(ExplorationOrder::BreadthFirst).build_graph()
+        self.explore_coverability(ExplorationOrder::BreadthFirst)
+            .build_graph()
     }
 
     /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
@@ -326,8 +332,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns `Err(partial_explorer)` as soon as any explored marking
     /// contains ω. The frontier is preserved, so callers may resume.
     #[allow(clippy::result_large_err)]
-    pub fn try_build_reachability_graph(&self) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
-        self.explore_coverability(ExplorationOrder::BreadthFirst).try_build_reachability_graph()
+    pub fn try_build_reachability_graph(
+        &self,
+    ) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
+        self.explore_coverability(ExplorationOrder::BreadthFirst)
+            .try_build_reachability_graph()
     }
 
     /// Returns a [`ReachabilityExplorer`] for this system
@@ -340,14 +349,15 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ///
     /// WARNING! For unbounded nets, this will not terminate!
     pub fn build_reachability_graph(&self) -> ReachabilityGraph<'_> {
-        self.explore_reachability(ExplorationOrder::BreadthFirst).build_graph()
+        self.explore_reachability(ExplorationOrder::BreadthFirst)
+            .build_graph()
     }
 }
 
 #[cfg(feature = "pnml")]
 mod pnml {
-    use crate::pnml::convert::PnmlConversionError;
     use crate::pnml::PnmlDocument;
+    use crate::pnml::convert::PnmlConversionError;
     use crate::prelude::{Net, PetriNet};
     use std::error::Error;
     use std::fmt;
@@ -381,7 +391,8 @@ mod pnml {
         /// Returns an error if the XML failed to parse, if there were no nets in the file,
         /// or if the first petri net in the file is not a PT net, as specified by `net_type`.
         pub fn from_pnml(pnml: &str) -> Result<Self, FromPnmlError> {
-            PnmlDocument::from_xml(pnml).map_err(FromPnmlError::Syntax)
+            PnmlDocument::from_xml(pnml)
+                .map_err(FromPnmlError::Syntax)
                 .and_then(|doc| doc.nets.into_iter().next().ok_or(FromPnmlError::Empty))
                 .and_then(|net| net.to_pt_system().map_err(FromPnmlError::Conversion))
         }

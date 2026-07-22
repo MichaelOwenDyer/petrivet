@@ -17,7 +17,10 @@ fn main() {
     println!("Marking count: {}", rg.marking_count());
     println!("Transition count: {}", rg.transition_count());
     for marking in rg.markings() {
-        println!("Marking: {}", Display(marking, system.labels.as_ref().unwrap()));
+        println!(
+            "Marking: {}",
+            Display(marking, system.labels.as_ref().unwrap())
+        );
     }
     println!("Max tokens per place: {}", rg.max_token_in_any_place());
     println!("Max tokens per marking: {}", rg.max_token_per_marking());

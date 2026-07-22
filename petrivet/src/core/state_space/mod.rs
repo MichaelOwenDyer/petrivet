@@ -1,5 +1,5 @@
-pub mod reachability;
 pub mod coverability;
+pub mod reachability;
 
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
@@ -72,11 +72,7 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     /// Seeds the frontier with source transitions (empty preset, always
     /// enabled) plus transitions whose presets overlap with the support
     /// of the initial marking.
-    pub fn new(
-        net: &'a DenseNet,
-        initial_marking: IdxMarking<T>,
-        order: ExplorationOrder
-    ) -> Self {
+    pub fn new(net: &'a DenseNet, initial_marking: IdxMarking<T>, order: ExplorationOrder) -> Self {
         let mut graph = petgraph::Graph::new();
         let initial_idx = graph.add_node(initial_marking.clone());
 
@@ -85,22 +81,31 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
             .filter(|&t| net.preset_t[t].is_empty())
             .collect();
 
-        let frontier: VecDeque<_> =
-            Self::potentially_enabled_transitions(
-                &initial_marking,
-                &net.postset_p,
-                &source_transitions,
-            )
-            .into_iter()
-            .map(|t_idx| (initial_idx, t_idx))
-            .collect();
+        let frontier: VecDeque<_> = Self::potentially_enabled_transitions(
+            &initial_marking,
+            &net.postset_p,
+            &source_transitions,
+        )
+        .into_iter()
+        .map(|t_idx| (initial_idx, t_idx))
+        .collect();
 
         let mut seen = HashMap::new();
         seen.insert(initial_marking, initial_idx);
 
-        let state_space = DenseStateGraph { net, initial_idx, graph, seen };
+        let state_space = DenseStateGraph {
+            net,
+            initial_idx,
+            graph,
+            seen,
+        };
 
-        Self { state_space, order, frontier, source_transitions }
+        Self {
+            state_space,
+            order,
+            frontier,
+            source_transitions,
+        }
     }
 
     /// Compute the transitions which could possibly be enabled at a marking, based on
@@ -147,7 +152,9 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     /// Whether a transition is enabled at the marking stored in `node`.
     pub fn is_enabled(&self, marking_idx: NodeIndex, t_idx: TransitionIdx) -> bool {
         let marking = &self.state_space.graph[marking_idx];
-        self.state_space.net.preset_t[t_idx].iter().all(|&p| marking[p].at_least_one())
+        self.state_space.net.preset_t[t_idx]
+            .iter()
+            .all(|&p| marking[p].at_least_one())
     }
 
     /// Compute the marking that results from firing `t` at `node`.
@@ -207,7 +214,9 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         &self,
         mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
     ) -> Option<&IdxMarking<T>> {
-        self.state_space.seen.values()
+        self.state_space
+            .seen
+            .values()
             .map(|&node| self.state_space.marking_at(node))
             .find(|marking| predicate(marking))
     }
@@ -349,7 +358,9 @@ impl<T: TokenOps> DenseStateGraph<'_, T> {
         let firing_sequence = node_path
             .array_windows()
             .map(|&[m1_idx, m2_idx]| {
-                self.graph.find_edge(m1_idx, m2_idx).expect("edge must exist")
+                self.graph
+                    .find_edge(m1_idx, m2_idx)
+                    .expect("edge must exist")
             })
             .map(|edge_idx| self.graph[edge_idx])
             .collect();

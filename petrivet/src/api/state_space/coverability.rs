@@ -30,7 +30,6 @@
 //! assert!(!cg.is_bounded());
 //! ```
 
-use ahash::HashMap;
 use crate::boundedness::{Boundedness, K};
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::coverability::IdxOmegaMarking;
@@ -40,6 +39,7 @@ use crate::marking::Marking;
 use crate::net::Place;
 use crate::state_space::reachability::ReachabilityGraph;
 use crate::state_space::{StateGraph, StateGraphExplorer};
+use ahash::HashMap;
 
 /// An ω-marking: a marking where token counts can either be a finite number or `ω`.
 ///
@@ -65,7 +65,8 @@ impl OmegaMarking {
 
 impl From<Marking<u32>> for OmegaMarking {
     fn from(value: Marking<u32>) -> Self {
-        value.into_iter()
+        value
+            .into_iter()
             .map(|(p, t)| (p, Omega::Finite(t)))
             .collect()
     }
@@ -100,7 +101,8 @@ impl<'a> CoverabilityExplorer<'a> {
         ReachabilityGraph::try_from(CoverabilityGraph {
             state_space: self.core.state_space,
             mapping: self.mapping,
-        }).map_err(|_| {
+        })
+        .map_err(|_| {
             unreachable!("ω-free CG must promote successfully; ω would have been detected above")
         })
     }
@@ -125,7 +127,10 @@ impl<'a> CoverabilityGraph<'a> {
     /// If this returns `true`, the system is unbounded and the [`ReachabilityGraph`] is infinite.
     #[must_use]
     pub fn has_omega_marking(&self) -> bool {
-        self.state_space.graph.node_weights().any(IdxOmegaMarking::has_omega)
+        self.state_space
+            .graph
+            .node_weights()
+            .any(IdxOmegaMarking::has_omega)
     }
 
     /// Returns true if every marking in the coverability graph is finite (contains no ω).
@@ -136,7 +141,11 @@ impl<'a> CoverabilityGraph<'a> {
     /// If this returns `false`, the system is unbounded and the reachability graph is infinite.
     #[must_use]
     pub fn is_bounded(&self) -> bool {
-        !self.state_space.graph.node_weights().any(IdxOmegaMarking::has_omega)
+        !self
+            .state_space
+            .graph
+            .node_weights()
+            .any(IdxOmegaMarking::has_omega)
     }
 
     /// Promote to a [`ReachabilityGraph`] if the system is bounded.
@@ -158,21 +167,27 @@ impl<'a> CoverabilityGraph<'a> {
     #[must_use]
     pub fn place_bounds(&self) -> HashMap<Place, Boundedness> {
         let mut markings = self.state_space.markings();
-        let initial_marking = markings.next().expect("always at least one marking in the graph");
-        let bounds = markings.fold(
-            initial_marking.iter().copied().collect::<Vec<_>>(),
-            |mut bounds_so_far, next_marking| {
-                bounds_so_far.iter_mut()
-                    .zip(next_marking.iter())
-                    .for_each(|(bound, &next)| {
-                        *bound = core::cmp::max(*bound, next);
-                    });
-                bounds_so_far
-            },
-        ).into_iter().map(|o| match o {
-            Omega::Finite(tokens) => Boundedness::Bounded(tokens as K),
-            Omega::Unbounded => Boundedness::Unbounded,
-        });
+        let initial_marking = markings
+            .next()
+            .expect("always at least one marking in the graph");
+        let bounds = markings
+            .fold(
+                initial_marking.iter().copied().collect::<Vec<_>>(),
+                |mut bounds_so_far, next_marking| {
+                    bounds_so_far
+                        .iter_mut()
+                        .zip(next_marking.iter())
+                        .for_each(|(bound, &next)| {
+                            *bound = core::cmp::max(*bound, next);
+                        });
+                    bounds_so_far
+                },
+            )
+            .into_iter()
+            .map(|o| match o {
+                Omega::Finite(tokens) => Boundedness::Bounded(tokens as K),
+                Omega::Unbounded => Boundedness::Unbounded,
+            });
         self.mapping.places().zip(bounds).collect()
     }
 }
@@ -200,11 +215,11 @@ impl<'a> TryFrom<CoverabilityGraph<'a>> for ReachabilityGraph<'a> {
             |_idx, omega_marking| unwrap_omega_marking_to_u32(omega_marking.clone()),
             |_src, &t| t,
         );
-        let seen = cg.state_space.seen
+        let seen = cg
+            .state_space
+            .seen
             .into_iter()
-            .map(|(marking, idx)| {
-                (unwrap_omega_marking_to_u32(marking), idx)
-            })
+            .map(|(marking, idx)| (unwrap_omega_marking_to_u32(marking), idx))
             .collect();
         let reachable_state_space = DenseStateGraph {
             net: cg.state_space.net,
@@ -291,7 +306,10 @@ mod tests {
 
         assert!(cg.cover([(p0, Finite(1))].into()).is_some());
         assert!(cg.cover([(p1, Finite(1))].into()).is_some());
-        assert!(cg.cover([(p0, Finite(1)), (p1, Finite(1))].into()).is_none());
+        assert!(
+            cg.cover([(p0, Finite(1)), (p1, Finite(1))].into())
+                .is_none()
+        );
     }
 
     #[test]
@@ -364,7 +382,8 @@ mod tests {
     #[test]
     fn rg_or_cg_completes_for_bounded() {
         let (sys, _p0, _p1) = two_place_cycle();
-        let rg = sys.try_build_reachability_graph()
+        let rg = sys
+            .try_build_reachability_graph()
             .expect("bounded net must yield reachability graph");
         assert_eq!(rg.marking_count(), 2);
     }
@@ -472,15 +491,22 @@ mod tests {
         assert_eq!(cg.place_bound(p2), Omega::Unbounded);
 
         // use Omega::Finite;
-        assert!(cg.cover([(p0, 1.into()), (p1, 100.into()), (p2, 100.into())].into()).is_some());
+        assert!(
+            cg.cover([(p0, 1.into()), (p1, 100.into()), (p2, 100.into())].into())
+                .is_some()
+        );
     }
 
     /// BFS and DFS produce same coverability results for bounded nets.
     #[test]
     fn bfs_dfs_same_coverability() {
         let (sys, _p0, _p1) = two_place_cycle();
-        let cg_bfs = sys.explore_coverability(ExplorationOrder::BreadthFirst).build_graph();
-        let cg_dfs = sys.explore_coverability(ExplorationOrder::DepthFirst).build_graph();
+        let cg_bfs = sys
+            .explore_coverability(ExplorationOrder::BreadthFirst)
+            .build_graph();
+        let cg_dfs = sys
+            .explore_coverability(ExplorationOrder::DepthFirst)
+            .build_graph();
 
         assert_eq!(cg_bfs.marking_count(), cg_dfs.marking_count());
         assert_eq!(cg_bfs.is_bounded(), cg_dfs.is_bounded());
@@ -522,7 +548,10 @@ mod tests {
             );
         }
 
-        assert!(cg.cover([(crit1, 1.into()), (crit2, 1.into())].into()).is_none());
+        assert!(
+            cg.cover([(crit1, 1.into()), (crit2, 1.into())].into())
+                .is_none()
+        );
 
         let rg = cg.try_into_reachability_graph().expect("bounded");
         assert_eq!(rg.marking_count(), 8);

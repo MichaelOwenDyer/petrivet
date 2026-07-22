@@ -1,9 +1,9 @@
 use crate::core::net::{DenseNet, IdxNode, PlaceIdx, TransitionIdx};
 use crate::net::Net;
 use crate::system::PetriNet;
+use fixedbitset::FixedBitSet;
 use graph_cycles::Cycles;
 use std::ops::Deref;
-use fixedbitset::FixedBitSet;
 use tap::TryConv;
 
 /// A path through the directed bipartite graph of a Petri net.
@@ -22,22 +22,18 @@ pub struct IdxPath {
 impl IdxPath {
     /// Returns an iterator over all [`Places`](Place) in the path.
     pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
-        self.nodes
-            .iter()
-            .filter_map(|node| match node {
-                IdxNode::Place(p_idx) => Some(*p_idx),
-                _ => None,
-            })
+        self.nodes.iter().filter_map(|node| match node {
+            IdxNode::Place(p_idx) => Some(*p_idx),
+            _ => None,
+        })
     }
 
     /// Returns an iterator over all [`Transitions`](Transition) in the path.
     pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
-        self.nodes
-            .iter()
-            .filter_map(|node| match node {
-                IdxNode::Transition(t_idx) => Some(*t_idx),
-                _ => None,
-            })
+        self.nodes.iter().filter_map(|node| match node {
+            IdxNode::Transition(t_idx) => Some(*t_idx),
+            _ => None,
+        })
     }
 }
 
@@ -53,11 +49,13 @@ impl TryFrom<Vec<IdxNode>> for IdxPath {
     type Error = ();
 
     fn try_from(nodes: Vec<IdxNode>) -> Result<Self, Self::Error> {
-        nodes.array_windows::<2>().try_for_each(|neighbors| match neighbors {
-            [IdxNode::Place(_), IdxNode::Transition(_)] => Ok(()),
-            [IdxNode::Transition(_), IdxNode::Place(_)] => Ok(()),
-            _ => Err(()),
-        })?;
+        nodes
+            .array_windows::<2>()
+            .try_for_each(|neighbors| match neighbors {
+                [IdxNode::Place(_), IdxNode::Transition(_)] => Ok(()),
+                [IdxNode::Transition(_), IdxNode::Place(_)] => Ok(()),
+                _ => Err(()),
+            })?;
         Ok(Self { nodes })
     }
 }
@@ -102,22 +100,21 @@ impl Deref for IdxCircuit {
 impl Net {
     /// Returns an iterator over all circuits in the net.
     pub(crate) fn circuits(&self) -> impl Iterator<Item = IdxCircuit> + '_ {
-        self.graph
-            .cycles()
-            .into_iter()
-            .map(|cycle| {
-                cycle.into_iter()
-                    .map(|node_index| {
-                        *self.graph
-                            .node_weight(node_index)
-                            .expect("the cycle should only contain valid node indices")
-                    })
-                    .collect::<Vec<_>>()
-                    .try_conv::<IdxPath>()
-                    .expect("crate graph_cycles should return a path with alternating node types")
-                    .try_conv::<IdxCircuit>()
-                    .expect("crate graph_cycles should return a cycle with even length")
-            })
+        self.graph.cycles().into_iter().map(|cycle| {
+            cycle
+                .into_iter()
+                .map(|node_index| {
+                    *self
+                        .graph
+                        .node_weight(node_index)
+                        .expect("the cycle should only contain valid node indices")
+                })
+                .collect::<Vec<_>>()
+                .try_conv::<IdxPath>()
+                .expect("crate graph_cycles should return a path with alternating node types")
+                .try_conv::<IdxCircuit>()
+                .expect("crate graph_cycles should return a cycle with even length")
+        })
     }
 }
 
@@ -125,7 +122,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns an iterator over all unmarked circuits in the Petri net.
     pub(crate) fn unmarked_circuits(&self) -> impl Iterator<Item = IdxCircuit> {
         self.circuits().filter(|circuit| {
-            circuit.place_indices().all(|p_idx| self.marking[p_idx] == 0)
+            circuit
+                .place_indices()
+                .all(|p_idx| self.marking[p_idx] == 0)
         })
     }
 
@@ -153,8 +152,15 @@ impl<N: AsRef<Net>> PetriNet<N> {
         let mut in_stack = FixedBitSet::with_capacity(place_count);
 
         for start in self.dense_net.place_indices() {
-            if unmarked_places[start] && !visited[start]
-                && dfs_zero_circuit(start, &unmarked_places, &self.dense_net, &mut visited, &mut in_stack)
+            if unmarked_places[start]
+                && !visited[start]
+                && dfs_zero_circuit(
+                    start,
+                    &unmarked_places,
+                    &self.dense_net,
+                    &mut visited,
+                    &mut in_stack,
+                )
             {
                 return true;
             }
@@ -178,10 +184,13 @@ fn dfs_zero_circuit(
     in_circuit.insert(p_idx);
     for &t in &dense_net.postset_p[p_idx] {
         for &next_p in &dense_net.postset_t[t] {
-            if !is_zero[next_p] { continue; }
-            if in_circuit[next_p] { return true; }
-            if !visited[next_p]
-                && dfs_zero_circuit(next_p, is_zero, dense_net, visited, in_circuit)
+            if !is_zero[next_p] {
+                continue;
+            }
+            if in_circuit[next_p] {
+                return true;
+            }
+            if !visited[next_p] && dfs_zero_circuit(next_p, is_zero, dense_net, visited, in_circuit)
             {
                 return true;
             }

@@ -24,7 +24,6 @@ pub enum IdxArc {
     TransitionToPlace(TransitionIdx, PlaceIdx),
 }
 
-
 /// Node using internal dense indices for places and transitions.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum IdxNode {
@@ -94,8 +93,12 @@ impl DenseNet {
             .zip(self.preset_p.iter().zip(self.postset_p.iter()))
             .flat_map(|(p_idx, (preset, postset))| {
                 std::iter::chain(
-                    preset.iter().map(move |&t_idx| IdxArc::TransitionToPlace(t_idx, p_idx)),
-                    postset.iter().map(move |&t_idx| IdxArc::PlaceToTransition(p_idx, t_idx)),
+                    preset
+                        .iter()
+                        .map(move |&t_idx| IdxArc::TransitionToPlace(t_idx, p_idx)),
+                    postset
+                        .iter()
+                        .map(move |&t_idx| IdxArc::PlaceToTransition(p_idx, t_idx)),
                 )
             })
     }
@@ -108,7 +111,8 @@ impl DenseNet {
 
     /// Returns true if the given marking enables no transitions in the net.
     pub fn is_deadlock(&self, marking: &IdxMarking<u32>) -> bool {
-        self.transition_indices().all(|t| !self.is_enabled_in(t, marking))
+        self.transition_indices()
+            .all(|t| !self.is_enabled_in(t, marking))
     }
 
     /// Computes the incidence matrix N of the net.
@@ -130,9 +134,6 @@ impl DenseNet {
     /// which would cause this place to become unbounded.
     #[must_use]
     pub fn is_place_structurally_bounded(&self, place: PlaceIdx) -> bool {
-        semi_decision::find_semipositive_place_subvariant(
-            self,
-            |&p| p == place
-        ).is_some()
+        semi_decision::find_semipositive_place_subvariant(self, |&p| p == place).is_some()
     }
 }

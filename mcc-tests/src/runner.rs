@@ -39,81 +39,63 @@ impl std::fmt::Display for Mismatch {
 #[must_use]
 pub fn run_analysis(sys: &PetriNet, examination: Examination) -> RunResult {
     match examination {
-        Examination::StateSpace => {
-            match sys.try_build_reachability_graph() {
-                Ok(rg) => {
-                    RunResult::Verdicts(Box::new([
-                        Verdict::StateSpace {
-                            name: "STATES".to_string(),
-                            value: Some(rg.marking_count() as u64),
-                        },
-                        Verdict::StateSpace {
-                            name: "TRANSITIONS".to_string(),
-                            value: Some(rg.transition_count() as u64),
-                        },
-                        Verdict::StateSpace {
-                            name: "MAX_TOKEN_PER_MARKING".to_string(),
-                            value: Some(u64::from(rg.max_token_per_marking())),
-                        },
-                        Verdict::StateSpace {
-                            name: "MAX_TOKEN_IN_PLACE".to_string(),
-                            value: Some(u64::from(rg.max_token_in_any_place())),
-                        },
-                    ]))
+        Examination::StateSpace => match sys.try_build_reachability_graph() {
+            Ok(rg) => RunResult::Verdicts(Box::new([
+                Verdict::StateSpace {
+                    name: "STATES".to_string(),
+                    value: Some(rg.marking_count() as u64),
                 },
-                Err(_cg) => RunResult::Verdicts(Box::new([])),
-            }
+                Verdict::StateSpace {
+                    name: "TRANSITIONS".to_string(),
+                    value: Some(rg.transition_count() as u64),
+                },
+                Verdict::StateSpace {
+                    name: "MAX_TOKEN_PER_MARKING".to_string(),
+                    value: Some(u64::from(rg.max_token_per_marking())),
+                },
+                Verdict::StateSpace {
+                    name: "MAX_TOKEN_IN_PLACE".to_string(),
+                    value: Some(u64::from(rg.max_token_in_any_place())),
+                },
+            ])),
+            Err(_cg) => RunResult::Verdicts(Box::new([])),
         },
 
-        Examination::ReachabilityDeadlock => {
-            RunResult::Verdicts(Box::new([
-                Verdict::Formula {
-                    name: examination.to_string(),
-                    value: Some(sys.deadlocks().next().is_some()),
-                }
-            ]))
-        },
+        Examination::ReachabilityDeadlock => RunResult::Verdicts(Box::new([Verdict::Formula {
+            name: examination.to_string(),
+            value: Some(sys.deadlocks().next().is_some()),
+        }])),
 
         Examination::OneSafe => {
             let result = sys.boundedness().is_safe();
-            RunResult::Verdicts(Box::new([
-                Verdict::Formula {
-                    name: examination.to_string(),
-                    value: Some(result),
-                }
-            ]))
+            RunResult::Verdicts(Box::new([Verdict::Formula {
+                name: examination.to_string(),
+                value: Some(result),
+            }]))
         }
 
         Examination::QuasiLiveness => match sys.try_build_reachability_graph() {
-            Ok(rg) => {
-                RunResult::Verdicts(Box::new([
-                    Verdict::Formula {
-                        name: examination.to_string(),
-                        value: Some(rg.transition_liveness().is_quasi_live()),
-                    }
-                ]))
-            },
+            Ok(rg) => RunResult::Verdicts(Box::new([Verdict::Formula {
+                name: examination.to_string(),
+                value: Some(rg.transition_liveness().is_quasi_live()),
+            }])),
             Err(_) => RunResult::DoNotCompete,
         },
 
         Examination::StableMarking => match sys.try_build_reachability_graph() {
-            Ok(rg) => RunResult::Verdicts(Box::new([
-                Verdict::Formula {
-                    name: examination.to_string(),
-                    value: Some(rg.has_stable_place()),
-                }
-            ])),
+            Ok(rg) => RunResult::Verdicts(Box::new([Verdict::Formula {
+                name: examination.to_string(),
+                value: Some(rg.has_stable_place()),
+            }])),
             Err(_) => RunResult::DoNotCompete,
         },
 
         Examination::Liveness => {
             let liveness = sys.is_live();
-            RunResult::Verdicts(Box::new([
-                Verdict::Formula {
-                    name: examination.to_string(),
-                    value: Some(liveness),
-                }
-            ]))
+            RunResult::Verdicts(Box::new([Verdict::Formula {
+                name: examination.to_string(),
+                value: Some(liveness),
+            }]))
         }
 
         // Examinations not yet implemented by petrivet.
@@ -161,7 +143,7 @@ pub fn compare_verdicts(
                             name: name.clone(),
                             expected: exp_val.to_string(),
                             actual: "missing".to_string(),
-                        })
+                        }),
                     }
                 }
                 Verdict::Formula {
@@ -215,14 +197,15 @@ mod tests {
             value: Some(false),
         }];
         let sys = tiny_system();
-        let RunResult::Verdicts(actual) = run_analysis(&sys, Examination::ReachabilityDeadlock) else {
+        let RunResult::Verdicts(actual) = run_analysis(&sys, Examination::ReachabilityDeadlock)
+        else {
             panic!("expected Verdicts, got something else");
         };
         let mismatches = compare_verdicts(
             "M-PT-01",
             Examination::ReachabilityDeadlock,
             &expected,
-            &actual
+            &actual,
         );
         assert!(
             mismatches.is_empty(),

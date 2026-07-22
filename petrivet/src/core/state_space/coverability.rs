@@ -123,10 +123,14 @@ impl TokenOps for Omega {
         }
     }
     fn increment(&mut self) {
-        if let Omega::Finite(n) = self { *n += 1; }
+        if let Omega::Finite(n) = self {
+            *n += 1;
+        }
     }
     fn decrement(&mut self) {
-        if let Omega::Finite(n) = self { *n -= 1; }
+        if let Omega::Finite(n) = self {
+            *n -= 1;
+        }
     }
 }
 
@@ -157,7 +161,8 @@ impl From<IdxMarking<u32>> for IdxMarking<Omega> {
 impl TryFrom<IdxMarking<Omega>> for IdxMarking<u32> {
     type Error = ();
     fn try_from(omega_marking: IdxMarking<Omega>) -> Result<Self, ()> {
-        omega_marking.into_iter()
+        omega_marking
+            .into_iter()
             .map(|o| o.finite().ok_or(()))
             .collect()
     }
@@ -188,7 +193,8 @@ impl ExploreNext<Omega> for DenseStateGraphExplorer<'_, Omega> {
         /// TODO: Find a more efficient algorithm for this if possible
         fn omega_accelerate(
             state_space: &DenseStateGraph<'_, Omega>,
-            new_marking: &mut IdxOmegaMarking, src: NodeIndex
+            new_marking: &mut IdxOmegaMarking,
+            src: NodeIndex,
         ) {
             let mut stack = vec![src];
             let mut visited = FixedBitSet::with_capacity(state_space.graph.node_count());
@@ -205,10 +211,10 @@ impl ExploreNext<Omega> for DenseStateGraphExplorer<'_, Omega> {
                         }
                     }
                 }
-                for incoming_edge in state_space.graph.edges_directed(
-                    predecessor_node,
-                    petgraph::Direction::Incoming
-                ) {
+                for incoming_edge in state_space
+                    .graph
+                    .edges_directed(predecessor_node, petgraph::Direction::Incoming)
+                {
                     stack.push(incoming_edge.source());
                 }
             }

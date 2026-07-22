@@ -8,22 +8,19 @@
 
 #![cfg(feature = "pnml")]
 
+use petrivet::pnml::PnmlDocument;
 use petrivet::pnml::convert::PetriNetKind;
 use petrivet::pnml::labels::NetLabels;
-use petrivet::pnml::PnmlDocument;
 use petrivet::prelude::{Net, PetriNet};
 
 fn load(path: &str) -> PnmlDocument {
     let xml = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("could not read fixture {path}: {e}"));
-    PnmlDocument::from_xml(&xml)
-        .unwrap_or_else(|e| panic!("could not parse fixture {path}: {e}"))
+    PnmlDocument::from_xml(&xml).unwrap_or_else(|e| panic!("could not parse fixture {path}: {e}"))
 }
 
 fn first_pt_net(doc: &PnmlDocument) -> (PetriNet<Net>, Box<NetLabels>) {
-    let sys = doc.nets[0]
-        .to_pt_system()
-        .expect("conversion failed");
+    let sys = doc.nets[0].to_pt_system().expect("conversion failed");
     let labels = sys.labels.as_ref().unwrap().clone();
     (sys, labels)
 }
@@ -77,7 +74,10 @@ fn philo_is_bounded() {
     let (sys, _) = first_pt_net(&doc);
     // The philosophers net is structurally bounded (no place can accumulate
     // tokens indefinitely given any firing sequence).
-    assert!(sys.is_structurally_bounded(), "philosophers net should be structurally bounded");
+    assert!(
+        sys.is_structurally_bounded(),
+        "philosophers net should be structurally bounded"
+    );
 }
 
 // ── Token ring (token-ring.pnml) ──────────────────────────────────────────────
@@ -113,7 +113,10 @@ fn token_ring_net_id_preserved() {
     let doc = load("tests/fixtures/token-ring.pnml");
     let (_, labels) = first_pt_net(&doc);
     // The net id in the file is a long opaque string; we just check it's present.
-    assert!(labels.net_id().is_some(), "net id should be preserved in labels");
+    assert!(
+        labels.net_id().is_some(),
+        "net id should be preserved in labels"
+    );
 }
 
 #[test]
@@ -127,7 +130,10 @@ fn token_ring_is_not_structurally_bounded() {
     // structural one.
     let doc = load("tests/fixtures/token-ring.pnml");
     let (sys, _) = first_pt_net(&doc);
-    assert!(!sys.is_structurally_bounded(), "token-ring has source places; not structurally bounded");
+    assert!(
+        !sys.is_structurally_bounded(),
+        "token-ring has source places; not structurally bounded"
+    );
 }
 
 // ── Swimming pool (swimming-pool.pnml / Piscine) ──────────────────────────────
@@ -164,14 +170,20 @@ fn pool_initial_marking() {
 fn pool_is_structurally_bounded() {
     let doc = load("tests/fixtures/swimming-pool.pnml");
     let (sys, _) = first_pt_net(&doc);
-    assert!(sys.is_structurally_bounded(), "swimming pool should be structurally bounded");
+    assert!(
+        sys.is_structurally_bounded(),
+        "swimming pool should be structurally bounded"
+    );
 }
 
 #[test]
 fn pool_is_bounded() {
     let doc = load("tests/fixtures/swimming-pool.pnml");
     let (sys, _) = first_pt_net(&doc);
-    assert!(sys.is_bounded(), "swimming pool should be bounded under initial marking");
+    assert!(
+        sys.is_bounded(),
+        "swimming pool should be bounded under initial marking"
+    );
 }
 
 #[test]

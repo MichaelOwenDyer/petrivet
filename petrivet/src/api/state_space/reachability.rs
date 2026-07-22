@@ -74,7 +74,8 @@ impl ReachabilityGraph<'_> {
     /// Returns all transitions in the Petri net with their associated liveness levels.
     #[must_use]
     pub fn transition_liveness(&self) -> LivenessAnalysis {
-        let levels = self.mapping
+        let levels = self
+            .mapping
             .transitions()
             .zip(self.state_space.liveness_levels())
             .collect();
@@ -86,18 +87,24 @@ impl ReachabilityGraph<'_> {
     #[must_use]
     pub fn place_bounds(&self) -> HashMap<Place, Boundedness> {
         let mut markings = self.state_space.markings();
-        let initial_marking = markings.next().expect("always at least one marking in the graph");
-        let bounds = markings.fold(
-            initial_marking.iter().copied().collect::<Vec<_>>(),
-            |mut bounds_so_far, next_marking| {
-                bounds_so_far.iter_mut()
-                    .zip(next_marking.iter())
-                    .for_each(|(bound, &next)| {
-                        *bound = core::cmp::max(*bound, next);
-                    });
-                bounds_so_far
-            },
-        ).into_iter().map(|max| Boundedness::Bounded(max as K));
+        let initial_marking = markings
+            .next()
+            .expect("always at least one marking in the graph");
+        let bounds = markings
+            .fold(
+                initial_marking.iter().copied().collect::<Vec<_>>(),
+                |mut bounds_so_far, next_marking| {
+                    bounds_so_far
+                        .iter_mut()
+                        .zip(next_marking.iter())
+                        .for_each(|(bound, &next)| {
+                            *bound = core::cmp::max(*bound, next);
+                        });
+                    bounds_so_far
+                },
+            )
+            .into_iter()
+            .map(|max| Boundedness::Bounded(max as K));
         self.mapping.places().zip(bounds).collect()
     }
 }

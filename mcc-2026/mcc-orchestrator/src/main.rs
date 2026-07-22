@@ -61,7 +61,9 @@ impl Paths {
             runtime_cache_dir: runtime_cache_dir.clone(),
             runtime_work_image: runtime_cache_dir.join("petrivet-2026-runtime.vmdk"),
             benchkit_head: runtime_cache_dir.join("BenchKit_head.sh"),
-            smoke_input_archive: runtime_cache_dir.join(SMOKE_INPUT_NAME).with_extension("tgz"),
+            smoke_input_archive: runtime_cache_dir
+                .join(SMOKE_INPUT_NAME)
+                .with_extension("tgz"),
             artifacts_dir: artifacts_dir.clone(),
             submission_image: artifacts_dir.join("petrivet-2026.vmdk"),
         })
@@ -89,9 +91,12 @@ impl Paths {
             .join("..")
             .join("..")
             .join("petrivet/tests/fixtures/producer_consumer.pnml");
-        let pnml_source = pnml_source
-            .canonicalize()
-            .map_err(|err| format!("failed to locate smoke PNML at {}: {err}", pnml_source.display()))?;
+        let pnml_source = pnml_source.canonicalize().map_err(|err| {
+            format!(
+                "failed to locate smoke PNML at {}: {err}",
+                pnml_source.display()
+            )
+        })?;
 
         let stage_dir = self.runtime_cache_dir.join(SMOKE_INPUT_NAME);
         if stage_dir.exists() {
@@ -209,7 +214,8 @@ fn cleanup_runtime_guest(paths: &Paths) {
     if paths.runtime_cache_dir.join("runtime.qemu.pid").exists() {
         cleanup_attempted = true;
         if let Ok(pid_text) = fs::read_to_string(paths.runtime_cache_dir.join("runtime.qemu.pid"))
-            && let Ok(pid) = pid_text.trim().parse::<i32>() {
+            && let Ok(pid) = pid_text.trim().parse::<i32>()
+        {
             let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
         }
         let _ = fs::remove_file(paths.runtime_cache_dir.join("runtime.qemu.pid"));
@@ -439,7 +445,13 @@ fn run_ssh_as(key: &PathBuf, port: u16, user: &str, command: &str) -> Result<(),
     ensure_success(&format!("ssh command as {user} on port {port}"), status)
 }
 
-fn run_scp_as(key: &PathBuf, port: u16, user: &str, local: &Path, remote: &str) -> Result<(), String> {
+fn run_scp_as(
+    key: &PathBuf,
+    port: u16,
+    user: &str,
+    local: &Path,
+    remote: &str,
+) -> Result<(), String> {
     let status = Command::new("scp")
         .arg("-q")
         .arg("-o")
@@ -532,9 +544,8 @@ fn host_command(program: &str, nix_packages: &[&str]) -> Command {
 }
 
 fn program_on_path(program: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|paths| {
-        std::env::split_paths(&paths).any(|dir| dir.join(program).is_file())
-    })
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(program).is_file()))
 }
 
 fn run_command_streaming_stdout(mut command: Command, label: &str) -> Result<String, String> {

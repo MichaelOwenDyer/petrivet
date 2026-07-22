@@ -23,7 +23,8 @@ impl BoundednessAnalysis {
     /// Returns the bound of the system as a whole: the maximum over all places.
     #[must_use]
     pub fn global_bound(&self) -> Boundedness {
-        self.bounds.values()
+        self.bounds
+            .values()
             .copied()
             .max()
             .unwrap_or(Boundedness::Bounded(0))
@@ -34,10 +35,9 @@ impl BoundednessAnalysis {
     /// Returns `None` if the place does not belong to the analysed net.
     #[must_use]
     pub fn place_bound(&self, place: Place) -> Boundedness {
-        self.bounds.get(&place).map_or(
-            Boundedness::Bounded(0),
-            |&bound| bound,
-        )
+        self.bounds
+            .get(&place)
+            .map_or(Boundedness::Bounded(0), |&bound| bound)
     }
 }
 
@@ -77,13 +77,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
             // A place in a marked graph is bounded iff it belongs to some circuit
             NetClass::MarkedGraph => {
                 // todo: optimize by only constructing circuits which contain the place
-                self.mapping.place_idx(place).map_or(
-                    Some(true),
-                    |p_idx| {
-                        Some(self.circuits().any(|circuit| circuit.contains(&IdxNode::Place(p_idx))))
-                    }
-                )
-            },
+                self.mapping.place_idx(place).map_or(Some(true), |p_idx| {
+                    Some(
+                        self.circuits()
+                            .any(|circuit| circuit.contains(&IdxNode::Place(p_idx))),
+                    )
+                })
+            }
             _ => None,
         }
     }
@@ -92,9 +92,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn efficient_boundedness(&self) -> Option<Boundedness> {
         match self.class() {
-            NetClass::Circuit => {
-                Some(Boundedness::Bounded(self.marking.sum() as K))
-            },
+            NetClass::Circuit => Some(Boundedness::Bounded(self.marking.sum() as K)),
             NetClass::StateMachine => {
                 if self.is_strongly_connected() {
                     Some(Boundedness::Bounded(self.marking.sum() as K))
@@ -115,9 +113,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     pub fn efficient_place_boundedness(&self, place: Place) -> Option<Boundedness> {
         match self.class() {
-            NetClass::Circuit => {
-                Some(Boundedness::Bounded(self.marking.sum() as K))
-            },
+            NetClass::Circuit => Some(Boundedness::Bounded(self.marking.sum() as K)),
             NetClass::StateMachine => {
                 if self.is_strongly_connected() {
                     Some(Boundedness::Bounded(self.marking.sum() as K))
@@ -126,21 +122,23 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 }
             }
             NetClass::MarkedGraph => {
-                self.mapping.place_idx(place).map_or(
-                    Some(Boundedness::Bounded(0)),
-                    |p_idx| Some(
-                        self.circuits()
-                            .filter(|circuit| circuit.contains(&IdxNode::Place(p_idx)))
-                            .map(|circuit| {
-                                circuit.place_indices()
-                                    .map(|p_idx| self.marking[p_idx])
-                                    .sum::<u32>() as K
-                            })
-                            .min()
-                            .map_or(Boundedness::Unbounded, Boundedness::Bounded)
-                    )
-                )
-            },
+                self.mapping
+                    .place_idx(place)
+                    .map_or(Some(Boundedness::Bounded(0)), |p_idx| {
+                        Some(
+                            self.circuits()
+                                .filter(|circuit| circuit.contains(&IdxNode::Place(p_idx)))
+                                .map(|circuit| {
+                                    circuit
+                                        .place_indices()
+                                        .map(|p_idx| self.marking[p_idx])
+                                        .sum::<u32>() as K
+                                })
+                                .min()
+                                .map_or(Boundedness::Unbounded, Boundedness::Bounded),
+                        )
+                    })
+            }
             _ => None,
         }
     }
@@ -150,7 +148,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn is_bounded(&self) -> bool {
         self.is_efficiently_bounded().unwrap_or_else(|| {
             self.net.as_ref().is_structurally_bounded()
-                || self.boundedness_via_coverability_graph().global_bound().is_bounded()
+                || self
+                    .boundedness_via_coverability_graph()
+                    .global_bound()
+                    .is_bounded()
         })
     }
 
@@ -158,21 +159,22 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn is_place_bounded(&self, place: Place) -> bool {
         self.is_place_efficiently_bounded(place).unwrap_or_else(|| {
             self.net.as_ref().is_place_structurally_bounded(place)
-                || self.boundedness_via_coverability_graph().place_bound(place).is_bounded()
+                || self
+                    .boundedness_via_coverability_graph()
+                    .place_bound(place)
+                    .is_bounded()
         })
     }
 
     /// Returns the boundedness of the entire system.
     pub fn boundedness(&self) -> Boundedness {
-        self.efficient_boundedness().unwrap_or_else(|| {
-            self.boundedness_via_coverability_graph().global_bound()
-        })
+        self.efficient_boundedness()
+            .unwrap_or_else(|| self.boundedness_via_coverability_graph().global_bound())
     }
 
     pub fn place_boundedness(&self, place: Place) -> Boundedness {
-        self.efficient_place_boundedness(place).unwrap_or_else(|| {
-            self.boundedness_via_coverability_graph().place_bound(place)
-        })
+        self.efficient_place_boundedness(place)
+            .unwrap_or_else(|| self.boundedness_via_coverability_graph().place_bound(place))
     }
 
     /// Returns true if some reachable marking puts more than one token in any place.

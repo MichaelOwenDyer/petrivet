@@ -21,7 +21,7 @@ fn place_count_by_tag_scan(pnml: &str) -> u32 {
     pnml.match_indices("<place").count() as u32
 }
 
-#[must_use] 
+#[must_use]
 pub fn place_count(pnml: &str) -> u32 {
     place_count_from_nupn(pnml).unwrap_or_else(|| place_count_by_tag_scan(pnml))
 }

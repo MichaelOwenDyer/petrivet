@@ -17,16 +17,16 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use petrivet::NetBuilder;
+use petrivet::NetClass;
 use petrivet::model::{
     BoundednessAnalysisMethod, CoverabilityResult, DeadlockAnalysisMethod, LivenessMethod,
     NonCoverabilityProof, ReachabilityProof, ReachabilityResult, UnreachabilityProof,
 };
+use petrivet::pnml::PnmlDocument;
 use petrivet::pnml::graphics::PnmlGraphics;
 use petrivet::pnml::labels::NetLabels;
-use petrivet::pnml::PnmlDocument;
 use petrivet::state_space::Omega;
-use petrivet::NetBuilder;
-use petrivet::NetClass;
 use petrivet::{Marking, Net, PetriNet, Place, Transition};
 use wasm_bindgen::prelude::*;
 
@@ -65,8 +65,7 @@ impl WasmSystem {
     /// contains no P/T net, or the net topology is invalid.
     #[wasm_bindgen(js_name = parsePnml)]
     pub fn parse_pnml(xml: &str) -> Result<WasmSystem, JsError> {
-        let doc = PnmlDocument::from_xml(xml)
-            .map_err(|e| JsError::new(&e.to_string()))?;
+        let doc = PnmlDocument::from_xml(xml).map_err(|e| JsError::new(&e.to_string()))?;
 
         let system = doc
             .nets
@@ -100,7 +99,14 @@ impl WasmSystem {
     ) -> Self {
         let place_keys: Vec<Place> = system.places().collect();
         let transition_keys: Vec<Transition> = system.transitions().collect();
-        Self { system, initial_marking, labels, graphics, place_keys, transition_keys }
+        Self {
+            system,
+            initial_marking,
+            labels,
+            graphics,
+            place_keys,
+            transition_keys,
+        }
     }
 }
 
@@ -148,7 +154,8 @@ impl WasmSystem {
             }
         }
 
-        let initial_tokens: HashMap<u32, u32> = self.initial_marking
+        let initial_tokens: HashMap<u32, u32> = self
+            .initial_marking
             .support()
             .enumerate()
             .filter(|(_, (_, t))| **t > 0)
@@ -176,7 +183,11 @@ impl WasmSystem {
 
         WasmNetBuilder {
             builder,
-            net_name: self.labels.as_ref().and_then(|l| l.net_name()).map(str::to_string),
+            net_name: self
+                .labels
+                .as_ref()
+                .and_then(|l| l.net_name())
+                .map(str::to_string),
             place_names,
             transition_names,
             place_positions,
@@ -203,12 +214,14 @@ impl WasmSystem {
         let n_transitions = net.transition_count();
 
         // Build a reverse lookup from Place/Transition to dense index.
-        let pk_to_dense: HashMap<Place, u32> = self.place_keys
+        let pk_to_dense: HashMap<Place, u32> = self
+            .place_keys
             .iter()
             .enumerate()
             .map(|(i, &pk)| (pk, i as u32))
             .collect();
-        let tk_to_dense: HashMap<Transition, u32> = self.transition_keys
+        let tk_to_dense: HashMap<Transition, u32> = self
+            .transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i as u32))
@@ -254,7 +267,9 @@ impl WasmSystem {
             })
             .collect();
 
-        let place_names = self.place_keys.iter()
+        let place_names = self
+            .place_keys
+            .iter()
             .map(|&pk| {
                 self.labels
                     .as_ref()
@@ -263,7 +278,9 @@ impl WasmSystem {
             })
             .collect();
 
-        let transition_names = self.transition_keys.iter()
+        let transition_names = self
+            .transition_keys
+            .iter()
             .map(|&tk| {
                 self.labels
                     .as_ref()
@@ -313,7 +330,8 @@ impl WasmSystem {
     /// Indices of transitions that are currently enabled.
     #[wasm_bindgen(js_name = enabledTransitions)]
     pub fn enabled_transitions(&self) -> Vec<u32> {
-        let tk_to_dense: HashMap<Transition, u32> = self.transition_keys
+        let tk_to_dense: HashMap<Transition, u32> = self
+            .transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i as u32))
@@ -388,11 +406,17 @@ impl WasmSystem {
             BoundednessAnalysisMethod::PositivePlaceSubvariant(..) => {
                 WasmBoundednessMethod::PositivePlaceSubvariant
             }
-            BoundednessAnalysisMethod::CoverabilityGraph => WasmBoundednessMethod::CoverabilityGraph,
+            BoundednessAnalysisMethod::CoverabilityGraph => {
+                WasmBoundednessMethod::CoverabilityGraph
+            }
             _ => WasmBoundednessMethod::CoverabilityGraph,
         };
 
-        WasmBoundednessAnalysis { is_bounded, place_bounds, method }
+        WasmBoundednessAnalysis {
+            is_bounded,
+            place_bounds,
+            method,
+        }
     }
 
     /// Full liveness analysis with per-transition levels and proof method.
@@ -417,7 +441,11 @@ impl WasmSystem {
             _ => WasmLivenessMethod::Inconclusive,
         };
 
-        WasmLivenessAnalysis { net_level, levels, method }
+        WasmLivenessAnalysis {
+            net_level,
+            levels,
+            method,
+        }
     }
 
     /// Full deadlock-freedom analysis with reachable deadlock witnesses.
@@ -428,7 +456,8 @@ impl WasmSystem {
         let is_deadlock_free = result.is_deadlock_free();
 
         // Build Transition → dense index map for firing sequence conversion.
-        let tk_to_idx: HashMap<Transition, u32> = self.transition_keys
+        let tk_to_idx: HashMap<Transition, u32> = self
+            .transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i as u32))
@@ -439,7 +468,8 @@ impl WasmSystem {
             .into_iter()
             .map(|d| WasmDeadlock {
                 marking: d.marking.iter().copied().collect(),
-                firing_sequence: d.firing_sequence
+                firing_sequence: d
+                    .firing_sequence
                     .iter()
                     .map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX))
                     .collect(),
@@ -453,7 +483,11 @@ impl WasmSystem {
             _ => WasmDeadlockMethod::Inconclusive,
         };
 
-        WasmDeadlockAnalysis { is_deadlock_free, deadlocks, method }
+        WasmDeadlockAnalysis {
+            is_deadlock_free,
+            deadlocks,
+            method,
+        }
     }
 
     /// Analyze whether `target` (a token count per place) is reachable from
@@ -465,26 +499,30 @@ impl WasmSystem {
     pub fn analyze_reachability(&self, target: Vec<u32>) -> WasmReachabilityResult {
         let target = Marking::from(target);
         // Build Transition → dense index map for firing sequence conversion.
-        let tk_to_idx: HashMap<Transition, u32> = self.transition_keys
+        let tk_to_idx: HashMap<Transition, u32> = self
+            .transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i as u32))
             .collect();
         let keys_to_indices = |keys: &[Transition]| -> Vec<u32> {
-            keys.iter().map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX)).collect()
+            keys.iter()
+                .map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX))
+                .collect()
         };
         match self.system.analyze_reachability(&target) {
             ReachabilityResult::Reachable(proof) => {
-                let firing_sequence = proof.firing_sequence()
+                let firing_sequence = proof
+                    .firing_sequence()
                     .map(keys_to_indices)
                     .unwrap_or_default();
                 let wasm_proof = match &proof {
-                    ReachabilityProof::FiringSequence(..) => {
-                        WasmReachabilityProof::FiringSequence
+                    ReachabilityProof::FiringSequence(..) => WasmReachabilityProof::FiringSequence,
+                    ReachabilityProof::StronglyConnectedStateMachine { marking_sum } => {
+                        WasmReachabilityProof::SNetTokenConservation {
+                            marking_sum: *marking_sum,
+                        }
                     }
-                    ReachabilityProof::StronglyConnectedStateMachine {
-                        marking_sum,
-                    } => WasmReachabilityProof::SNetTokenConservation { marking_sum: *marking_sum },
                     ReachabilityProof::StateMachineMarkingEquationRationalSolution(..) => {
                         WasmReachabilityProof::SNetMarkingEquation
                     }
@@ -492,7 +530,10 @@ impl WasmSystem {
                         WasmReachabilityProof::TNetMarkingEquation
                     }
                 };
-                WasmReachabilityResult::Reachable { firing_sequence, proof: wasm_proof }
+                WasmReachabilityResult::Reachable {
+                    firing_sequence,
+                    proof: wasm_proof,
+                }
             }
             ReachabilityResult::Unreachable(proof) => {
                 let wasm_proof = match proof {
@@ -528,20 +569,29 @@ impl WasmSystem {
     pub fn analyze_coverability(&self, target: Vec<u32>) -> WasmCoverabilityResult {
         let target = Marking::from(target);
         // Build Transition → dense index map for firing sequence conversion.
-        let tk_to_idx: HashMap<Transition, u32> = self.transition_keys
+        let tk_to_idx: HashMap<Transition, u32> = self
+            .transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i as u32))
             .collect();
         match self.system.analyze_coverability(&target) {
             CoverabilityResult::Coverable(proof) => {
-                let firing_sequence: Vec<u32> = proof.firing_sequence
+                let firing_sequence: Vec<u32> = proof
+                    .firing_sequence
                     .iter()
                     .map(|&tk| *tk_to_idx.get(&tk).unwrap_or(&u32::MAX))
                     .collect();
-                let covering_marking =
-                    proof.covering_marking.support().copied().map(omega_to_wasm).collect();
-                WasmCoverabilityResult::Coverable { firing_sequence, covering_marking }
+                let covering_marking = proof
+                    .covering_marking
+                    .support()
+                    .copied()
+                    .map(omega_to_wasm)
+                    .collect();
+                WasmCoverabilityResult::Coverable {
+                    firing_sequence,
+                    covering_marking,
+                }
             }
             CoverabilityResult::Uncoverable(proof) => {
                 let wasm_proof = match proof {
@@ -611,18 +661,17 @@ impl WasmSystem {
             } else {
                 label.to_string()
             };
-            out.push_str(&format!(
-                "  t{i} [shape=box label={}];\n",
-                dot_id(&display)
-            ));
+            out.push_str(&format!("  t{i} [shape=box label={}];\n", dot_id(&display)));
         }
 
-        let pk_to_dense: HashMap<Place, usize> = self.place_keys
+        let pk_to_dense: HashMap<Place, usize> = self
+            .place_keys
             .iter()
             .enumerate()
             .map(|(i, &pk)| (pk, i))
             .collect();
-        let tk_to_dense: HashMap<Transition, usize> = self.transition_keys
+        let tk_to_dense: HashMap<Transition, usize> = self
+            .transition_keys
             .iter()
             .enumerate()
             .map(|(i, &tk)| (tk, i))
@@ -774,32 +823,48 @@ impl WasmNetBuilder {
     /// Add a place→transition arc. Returns `true` if the arc was newly added.
     #[wasm_bindgen(js_name = addArcPT)]
     pub fn add_arc_pt(&mut self, place_id: u32, transition_id: u32) -> bool {
-        let Some(&pk) = self.place_key_map.get(&place_id) else { return false };
-        let Some(&tk) = self.transition_key_map.get(&transition_id) else { return false };
+        let Some(&pk) = self.place_key_map.get(&place_id) else {
+            return false;
+        };
+        let Some(&tk) = self.transition_key_map.get(&transition_id) else {
+            return false;
+        };
         self.builder.add_arc((pk, tk))
     }
 
     /// Add a transition→place arc. Returns `true` if the arc was newly added.
     #[wasm_bindgen(js_name = addArcTP)]
     pub fn add_arc_tp(&mut self, transition_id: u32, place_id: u32) -> bool {
-        let Some(&tk) = self.transition_key_map.get(&transition_id) else { return false };
-        let Some(&pk) = self.place_key_map.get(&place_id) else { return false };
+        let Some(&tk) = self.transition_key_map.get(&transition_id) else {
+            return false;
+        };
+        let Some(&pk) = self.place_key_map.get(&place_id) else {
+            return false;
+        };
         self.builder.add_arc((tk, pk))
     }
 
     /// Remove a place→transition arc. Returns `true` if it was present.
     #[wasm_bindgen(js_name = removeArcPT)]
     pub fn remove_arc_pt(&mut self, place_id: u32, transition_id: u32) -> bool {
-        let Some(&pk) = self.place_key_map.get(&place_id) else { return false };
-        let Some(&tk) = self.transition_key_map.get(&transition_id) else { return false };
+        let Some(&pk) = self.place_key_map.get(&place_id) else {
+            return false;
+        };
+        let Some(&tk) = self.transition_key_map.get(&transition_id) else {
+            return false;
+        };
         self.builder.remove_arc((pk, tk))
     }
 
     /// Remove a transition→place arc. Returns `true` if it was present.
     #[wasm_bindgen(js_name = removeArcTP)]
     pub fn remove_arc_tp(&mut self, transition_id: u32, place_id: u32) -> bool {
-        let Some(&tk) = self.transition_key_map.get(&transition_id) else { return false };
-        let Some(&pk) = self.place_key_map.get(&place_id) else { return false };
+        let Some(&tk) = self.transition_key_map.get(&transition_id) else {
+            return false;
+        };
+        let Some(&pk) = self.place_key_map.get(&place_id) else {
+            return false;
+        };
         self.builder.remove_arc((tk, pk))
     }
 
@@ -860,11 +925,13 @@ impl WasmNetBuilder {
     /// `id` field of each node as the Cytoscape element ID.
     pub fn structure(&self) -> WasmBuilderStructure {
         // Build reverse maps: Place → JS ID, Transition → JS ID.
-        let pk_to_js: HashMap<Place, u32> = self.place_key_map
+        let pk_to_js: HashMap<Place, u32> = self
+            .place_key_map
             .iter()
             .map(|(&id, &pk)| (pk, id))
             .collect();
-        let tk_to_js: HashMap<Transition, u32> = self.transition_key_map
+        let tk_to_js: HashMap<Transition, u32> = self
+            .transition_key_map
             .iter()
             .map(|(&id, &tk)| (tk, id))
             .collect();
@@ -891,7 +958,11 @@ impl WasmNetBuilder {
             .iter()
             .map(|tk| {
                 let id = tk_to_js[tk];
-                let (x, y) = self.transition_positions.get(&id).copied().unwrap_or((0.0, 0.0));
+                let (x, y) = self
+                    .transition_positions
+                    .get(&id)
+                    .copied()
+                    .unwrap_or((0.0, 0.0));
                 WasmBuilderTransition {
                     id,
                     name: self.transition_names.get(&id).cloned(),
@@ -947,11 +1018,13 @@ impl WasmNetBuilder {
         let sorted_trans_ids: Vec<Transition> = self.builder.transitions().collect();
 
         // Reverse map: Place → JS ID.
-        let pk_to_js: HashMap<Place, u32> = self.place_key_map
+        let pk_to_js: HashMap<Place, u32> = self
+            .place_key_map
             .iter()
             .map(|(&id, &pk)| (pk, id))
             .collect();
-        let tk_to_js: HashMap<Transition, u32> = self.transition_key_map
+        let tk_to_js: HashMap<Transition, u32> = self
+            .transition_key_map
             .iter()
             .map(|(&id, &tk)| (tk, id))
             .collect();
@@ -964,7 +1037,10 @@ impl WasmNetBuilder {
             })
             .collect();
 
-        let net = self.builder.clone().build()
+        let net = self
+            .builder
+            .clone()
+            .build()
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let mut labels = NetLabels::new();
@@ -991,7 +1067,12 @@ impl WasmNetBuilder {
         let initial_marking = Marking::from(marking_vec.clone());
         let system = PetriNet::new(Rc::new(net), marking_vec);
 
-        Ok(WasmSystem::from_parts(system, initial_marking, Some(labels), graphics))
+        Ok(WasmSystem::from_parts(
+            system,
+            initial_marking,
+            Some(labels),
+            graphics,
+        ))
     }
 }
 
@@ -1009,9 +1090,7 @@ fn omega_to_wasm(omega: Omega) -> WasmOmega {
     }
 }
 
-fn liveness_level_to_wasm(
-    level: petrivet::model::LivenessLevel,
-) -> WasmLivenessLevel {
+fn liveness_level_to_wasm(level: petrivet::model::LivenessLevel) -> WasmLivenessLevel {
     use petrivet::model::LivenessLevel;
     match level {
         LivenessLevel::L0 => WasmLivenessLevel::L0,

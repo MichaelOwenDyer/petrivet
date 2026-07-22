@@ -87,8 +87,7 @@ impl RunContext {
             .ok()
             .and_then(|value| Examination::parse(&value))
             .ok_or_else(|| "missing or invalid BK_EXAMINATION".to_string())?;
-        let input_name = std::env::var("BK_INPUT")
-            .map_err(|_| "missing BK_INPUT".to_string())?;
+        let input_name = std::env::var("BK_INPUT").map_err(|_| "missing BK_INPUT".to_string())?;
 
         Ok(Self {
             examination,
@@ -138,9 +137,21 @@ impl fmt::Display for StateSpaceReport<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let techs = format_techniques(self.techniques);
         writeln!(f, "STATE_SPACE STATES {} TECHNIQUES {techs}", self.states)?;
-        writeln!(f, "STATE_SPACE TRANSITIONS {} TECHNIQUES {techs}", self.transitions)?;
-        writeln!(f, "STATE_SPACE MAX_TOKEN_PER_MARKING {} TECHNIQUES {techs}", self.max_tokens_per_marking)?;
-        write!(f, "STATE_SPACE MAX_TOKEN_IN_PLACE {} TECHNIQUES {techs}", self.max_tokens_in_place)
+        writeln!(
+            f,
+            "STATE_SPACE TRANSITIONS {} TECHNIQUES {techs}",
+            self.transitions
+        )?;
+        writeln!(
+            f,
+            "STATE_SPACE MAX_TOKEN_PER_MARKING {} TECHNIQUES {techs}",
+            self.max_tokens_per_marking
+        )?;
+        write!(
+            f,
+            "STATE_SPACE MAX_TOKEN_IN_PLACE {} TECHNIQUES {techs}",
+            self.max_tokens_in_place
+        )
     }
 }
 
@@ -178,4 +189,3 @@ impl fmt::Display for BooleanFormulaReport<'_> {
         }
     }
 }
-

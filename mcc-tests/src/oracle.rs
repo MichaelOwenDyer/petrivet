@@ -57,7 +57,8 @@ impl Display for Examination {
             Self::CTLCardinality => "CTLCardinality",
             Self::LTLFireability => "LTLFireability",
             Self::LTLCardinality => "LTLCardinality",
-        }.fmt(f)
+        }
+        .fmt(f)
     }
 }
 

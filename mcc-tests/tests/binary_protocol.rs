@@ -11,7 +11,7 @@
 //!   cargo build -p petrivet-mcc
 
 use assert_cmd::Command;
-use mcc_tests::oracle::{parse_oracle_file, Examination, OracleEntry, Verdict};
+use mcc_tests::oracle::{Examination, OracleEntry, Verdict, parse_oracle_file};
 use std::path::{Path, PathBuf};
 
 fn has_definitive_verdict(v: &Verdict) -> bool {
@@ -34,7 +34,8 @@ fn find_model_for_exam(models_dir: &Path, exam_suffix: &str) -> Option<(PathBuf,
             let pnml_path = model_dir.join("model.pnml");
             let pnml_size = std::fs::metadata(&pnml_path).ok()?.len();
             if let Ok(c) = std::fs::read_to_string(model_dir.join("iscolored"))
-                && c.trim().eq_ignore_ascii_case("TRUE") {
+                && c.trim().eq_ignore_ascii_case("TRUE")
+            {
                 return None;
             }
             if model_dir.join("unfinite").exists() || model_dir.join("large_marking").exists() {
@@ -47,12 +48,19 @@ fn find_model_for_exam(models_dir: &Path, exam_suffix: &str) -> Option<(PathBuf,
                 .find(|p| p.to_str().is_some_and(|s| s.ends_with(exam_suffix)))?;
             let content = std::fs::read_to_string(&out_path).ok()?;
             let entry = parse_oracle_file(&content)?;
-            entry.verdicts.iter().any(has_definitive_verdict).then_some((pnml_size, model_dir, entry))
+            entry
+                .verdicts
+                .iter()
+                .any(has_definitive_verdict)
+                .then_some((pnml_size, model_dir, entry))
         })
         .collect();
 
     candidates.sort_by_key(|(size, _, _)| *size);
-    candidates.into_iter().next().map(|(_, dir, entry)| (dir, entry))
+    candidates
+        .into_iter()
+        .next()
+        .map(|(_, dir, entry)| (dir, entry))
 }
 
 fn run_protocol_test(exam: Examination, exam_suffix: &str) {
@@ -91,8 +99,14 @@ fn run_protocol_test(exam: Examination, exam_suffix: &str) {
 
     for verdict in &entry.verdicts {
         let expected = match verdict {
-            Verdict::StateSpace { name, value: Some(v) } => format!("STATE_SPACE {name} {v}"),
-            Verdict::Formula { name, value: Some(v) } => {
+            Verdict::StateSpace {
+                name,
+                value: Some(v),
+            } => format!("STATE_SPACE {name} {v}"),
+            Verdict::Formula {
+                name,
+                value: Some(v),
+            } => {
                 format!("FORMULA {name} {}", if *v { "TRUE" } else { "FALSE" })
             }
             _ => continue,

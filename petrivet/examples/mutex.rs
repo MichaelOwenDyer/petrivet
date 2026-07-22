@@ -36,5 +36,7 @@ fn main() {
         !PetriNet::new(&net, initial_marking).is_coverable(dangerous),
         "Mutual exclusion failed: both processes can be in critical section simultaneously."
     );
-    println!("Mutual exclusion verified: both processes cannot be in critical section simultaneously.");
+    println!(
+        "Mutual exclusion verified: both processes cannot be in critical section simultaneously."
+    );
 }

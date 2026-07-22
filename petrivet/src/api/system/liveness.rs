@@ -4,9 +4,9 @@ use crate::liveness::LivenessLevel;
 use crate::net::{Net, Transition};
 use crate::prelude::PetriNet;
 use ahash::HashMap;
+use petgraph::Graph;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::IntoNodeReferences;
-use petgraph::Graph;
 
 /// Result of liveness analysis.
 /// When proved via Commoner's theorem (free-choice nets), all transitions are L4.
@@ -73,7 +73,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns true if the Petri net is [`live`](LivenessLevel::L4).
     #[must_use]
     pub fn is_live(&self) -> bool {
-        self.is_efficiently_live().unwrap_or_else(|| self.liveness().is_live())
+        self.is_efficiently_live()
+            .unwrap_or_else(|| self.liveness().is_live())
     }
 
     pub fn efficient_liveness(&self) -> Option<LivenessAnalysis> {
@@ -81,23 +82,16 @@ impl<N: AsRef<Net>> PetriNet<N> {
             NetClass::Circuit | NetClass::StateMachine if self.marking.sum() == 0 => {
                 Some(self.transitions().map(|t| (t, LivenessLevel::L0)).collect())
             }
-            NetClass::Circuit => {
-                Some(self.transitions().map(|t| (t, LivenessLevel::L4)).collect())
-            },
+            NetClass::Circuit => Some(self.transitions().map(|t| (t, LivenessLevel::L4)).collect()),
             NetClass::StateMachine if self.is_strongly_connected() => {
                 Some(self.transitions().map(|t| (t, LivenessLevel::L4)).collect())
-            },
-            NetClass::StateMachine => {
-                Some(self.liveness_via_state_machine_marked_sccs())
-            },
-            NetClass::MarkedGraph => {
-                Some(self.liveness_via_marked_graph_unmarked_circuits())
-            },
-            NetClass::FreeChoice => {
-                self.commoner_hack_criterion().ok().map(|_| {
-                    self.transitions().map(|t| (t, LivenessLevel::L4)).collect()
-                })
-            },
+            }
+            NetClass::StateMachine => Some(self.liveness_via_state_machine_marked_sccs()),
+            NetClass::MarkedGraph => Some(self.liveness_via_marked_graph_unmarked_circuits()),
+            NetClass::FreeChoice => self
+                .commoner_hack_criterion()
+                .ok()
+                .map(|_| self.transitions().map(|t| (t, LivenessLevel::L4)).collect()),
             _ => None,
         };
         levels.map(|levels| LivenessAnalysis { levels })
@@ -106,7 +100,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Analyses liveness, dispatching to the cheapest known procedure first.
     #[must_use]
     pub fn liveness(&self) -> LivenessAnalysis {
-        self.efficient_liveness().unwrap_or_else(|| self.liveness_via_reachability_graph())
+        self.efficient_liveness()
+            .unwrap_or_else(|| self.liveness_via_reachability_graph())
     }
 
     /// SCC analysis on the full reachability graph. Only called as a fallback
@@ -120,7 +115,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
                     levels: self.transitions().map(|t| (t, LivenessLevel::L0)).collect(),
                 }
             },
-            |rg| rg.transition_liveness()
+            |rg| rg.transition_liveness(),
         )
     }
 }
@@ -174,7 +169,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
             let mut neighbors = condensation_graph.neighbors(scc).peekable();
             if neighbors.peek().is_some() {
                 for neighbor in neighbors {
-                    dfs_from_markable_scc(condensation_graph, neighbor, liveness, reachable_sinks, visited);
+                    dfs_from_markable_scc(
+                        condensation_graph,
+                        neighbor,
+                        liveness,
+                        reachable_sinks,
+                        visited,
+                    );
                 }
             } else {
                 // we have reached a terminal SCC.
@@ -192,13 +193,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
         let mut liveness = vec![LivenessLevel::L0; condensation_graph.node_count()];
         let mut visited = vec![false; condensation_graph.node_count()];
         // perform the depth-first search from each marked SCC
-        for (marked_scc, _) in condensation_graph
-            .node_references()
-            .filter(|(_, scc)| {
-                scc.iter().any(|node| {
-                    matches!(node, &IdxNode::Place(p_idx) if self.marking[p_idx] > 0)
-                })
-            }) {
+        for (marked_scc, _) in condensation_graph.node_references().filter(|(_, scc)| {
+            scc.iter()
+                .any(|node| matches!(node, &IdxNode::Place(p_idx) if self.marking[p_idx] > 0))
+        }) {
             let mut reachable_sinks = ReachableSinks::NoneYet;
             visited.fill(false);
             dfs_from_markable_scc(
@@ -209,7 +207,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 &mut visited,
             );
             if let ReachableSinks::One(sink) = reachable_sinks
-                && condensation_graph[sink].len() > 1 {
+                && condensation_graph[sink].len() > 1
+            {
                 // any token from this source SCC is guaranteed to end up in
                 // this non-trivial terminal SCC, making it L4-live
                 liveness[sink.index()] = LivenessLevel::L4;
@@ -252,8 +251,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 LivenessLevel::L0 => return,
                 LivenessLevel::L1 if marked => return,
                 _ => {
-                    liveness[t_idx] = if marked { LivenessLevel::L1 } else { LivenessLevel::L0 };
-                },
+                    liveness[t_idx] = if marked {
+                        LivenessLevel::L1
+                    } else {
+                        LivenessLevel::L0
+                    };
+                }
             }
             for &p_idx in &pn.dense_net.postset_t[t_idx] {
                 let marked = marked || pn.marking[p_idx] > 0;
@@ -267,7 +270,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
         // all transitions in an unmarked circuit are L0,
         // and all transitions downstream from them are at most L1. the rest are L4.
         let unmarked_circuits: Vec<IdxCircuit> = self.unmarked_circuits().collect();
-        let mut dead_transition_indices = unmarked_circuits.iter()
+        let mut dead_transition_indices = unmarked_circuits
+            .iter()
             .flat_map(|circuit| circuit.transition_indices())
             .collect::<Vec<_>>();
         dead_transition_indices.sort_unstable();
@@ -346,8 +350,10 @@ mod tests {
         let mut b = NetBuilder::new();
         let [p0, p1] = b.add_places();
         let [t0, t1] = b.add_transitions();
-        b.add_arc((p0, t0)); b.add_arc((t0, p1));
-        b.add_arc((p1, t1)); b.add_arc((t1, p0));
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p1));
+        b.add_arc((p1, t1));
+        b.add_arc((t1, p0));
         let net = b.build().unwrap();
         let sys = PetriNet::new(net, [(p0, 1), (p1, 0)]);
         let analysis = sys.liveness();
@@ -524,33 +530,46 @@ mod tests {
         let [s1, s2, s3, s4, s5, s6, s7, s8] = b.add_places();
         let [t1, t2, t3, t4, t5, t6, t7] = b.add_transitions();
         // Choice: •t1 = •t2 = {s1, s2}
-        b.add_arc((s1, t1)); b.add_arc((s2, t1));
-        b.add_arc((s1, t2)); b.add_arc((s2, t2));
+        b.add_arc((s1, t1));
+        b.add_arc((s2, t1));
+        b.add_arc((s1, t2));
+        b.add_arc((s2, t2));
         // Fork from t1 and t2
-        b.add_arc((t1, s3)); b.add_arc((t1, s4));
-        b.add_arc((t2, s5)); b.add_arc((t2, s6));
+        b.add_arc((t1, s3));
+        b.add_arc((t1, s4));
+        b.add_arc((t2, s5));
+        b.add_arc((t2, s6));
         // Independent paths
-        b.add_arc((s3, t3)); b.add_arc((t3, s7));
-        b.add_arc((s4, t4)); b.add_arc((t4, s8));
-        b.add_arc((s5, t5)); b.add_arc((t5, s7));
-        b.add_arc((s6, t6)); b.add_arc((t6, s8));
+        b.add_arc((s3, t3));
+        b.add_arc((t3, s7));
+        b.add_arc((s4, t4));
+        b.add_arc((t4, s8));
+        b.add_arc((s5, t5));
+        b.add_arc((t5, s7));
+        b.add_arc((s6, t6));
+        b.add_arc((t6, s8));
         // Join: •t7 = {s7, s8}
-        b.add_arc((s7, t7)); b.add_arc((s8, t7));
-        b.add_arc((t7, s1)); b.add_arc((t7, s2));
+        b.add_arc((s7, t7));
+        b.add_arc((s8, t7));
+        b.add_arc((t7, s1));
+        b.add_arc((t7, s2));
 
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::FreeChoice);
 
-        let sys = PetriNet::new(net, [
-            (s1, 1),
-            (s2, 1),
-            (s3, 0),
-            (s4, 0),
-            (s5, 0),
-            (s6, 0),
-            (s7, 0),
-            (s8, 0)
-        ]);
+        let sys = PetriNet::new(
+            net,
+            [
+                (s1, 1),
+                (s2, 1),
+                (s3, 0),
+                (s4, 0),
+                (s5, 0),
+                (s6, 0),
+                (s7, 0),
+                (s8, 0),
+            ],
+        );
         let analysis = sys.liveness();
         assert_eq!(analysis.global_level(), LivenessLevel::L4);
     }

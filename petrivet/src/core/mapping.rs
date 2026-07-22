@@ -73,7 +73,8 @@ impl DenseMapping {
     /// Returns the number of places in the net.
     #[must_use]
     pub fn place_count(&self) -> u32 {
-        u32::try_from(self.ordered_places.len()).expect("cannot be built with more than u32::MAX places")
+        u32::try_from(self.ordered_places.len())
+            .expect("cannot be built with more than u32::MAX places")
     }
 
     /// Returns the dense index for `transition` if it exists in this net, or `None` if it does not.
@@ -98,7 +99,8 @@ impl DenseMapping {
     /// Returns the number of transitions in the net.
     #[must_use]
     pub fn transition_count(&self) -> u32 {
-        u32::try_from(self.ordered_transitions.len()).expect("cannot be built with more than u32::MAX transitions")
+        u32::try_from(self.ordered_transitions.len())
+            .expect("cannot be built with more than u32::MAX transitions")
     }
 
     /// Convert an internal index marking to a public marking.
@@ -109,7 +111,7 @@ impl DenseMapping {
     /// Convert a public marking to an internal index marking.
     ///
     /// If the provided marking contains places that do not exist in this net, those places will be ignored.
-    /// 
+    ///
     /// todo: accept any IntoIterator<Item=(Place, T)> instead of a Marking<T> to avoid unnecessary
     ///  intermediate allocations when the caller already has an iterator over the marking's support.
     pub fn decode<T: TokenOps>(&self, marking: Marking<T>) -> IdxMarking<T> {

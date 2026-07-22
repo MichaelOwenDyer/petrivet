@@ -1,13 +1,13 @@
 //! The static topology of a Petri net.
 
-pub mod siphon_trap;
 pub mod boundedness;
+pub mod siphon_trap;
 
 use crate::core::mapping::DenseMapping;
 use crate::core::net::{DenseNet, IdxArc, IdxNode};
 use crate::prelude::{Marking, NetBuilder, NetClass, PetriNet};
-use std::num::NonZeroU32;
 use petgraph::Graph;
+use std::num::NonZeroU32;
 
 /// A *place* is one of the two types of nodes in a Petri net,
 /// often represented visually by a circle.
@@ -94,7 +94,7 @@ pub struct Net {
     /// The visual properties of the net.
     /// Boxed so that it only adds a single pointer's worth of overhead to the Net struct.
     #[cfg(feature = "pnml")]
-    pub graphics: Option<Box<crate::pnml::graphics::PnmlGraphics>>
+    pub graphics: Option<Box<crate::pnml::graphics::PnmlGraphics>>,
 }
 
 #[cfg(feature = "pnml")]
@@ -116,7 +116,10 @@ impl Net {
     }
 
     /// Creates a [`PetriNet`] by combining a reference to this net with the given marking.
-    pub fn with_initial_marking(&self, initial_marking: impl Into<Marking<u32>>) -> PetriNet<&Self> {
+    pub fn with_initial_marking(
+        &self,
+        initial_marking: impl Into<Marking<u32>>,
+    ) -> PetriNet<&Self> {
         PetriNet::new(self, initial_marking)
     }
 
@@ -181,14 +184,11 @@ impl Net {
     ///
     /// If the provided place does not exist in the net, this method returns an empty iterator.
     pub fn place_preset(&self, place: &Place) -> impl Iterator<Item = Transition> + '_ {
-        self.mapping
-            .place_idx(*place)
-            .into_iter()
-            .flat_map(|idx| {
-                self.dense_net.preset_p[idx]
-                    .iter()
-                    .map(|&t_idx| self.mapping.transition(t_idx))
-            })
+        self.mapping.place_idx(*place).into_iter().flat_map(|idx| {
+            self.dense_net.preset_p[idx]
+                .iter()
+                .map(|&t_idx| self.mapping.transition(t_idx))
+        })
     }
 
     /// Iterates over all [`Transition`]s in the *postset* `(p•)` of the provided [`Place`] =.
@@ -198,14 +198,11 @@ impl Net {
     ///
     /// If the provided place does not exist in the net, this method returns an empty iterator.
     pub fn place_postset(&self, place: &Place) -> impl Iterator<Item = Transition> + '_ {
-        self.mapping
-            .place_idx(*place)
-            .into_iter()
-            .flat_map(|idx| {
-                self.dense_net.postset_p[idx]
-                    .iter()
-                    .map(|&t_idx| self.mapping.transition(t_idx))
-            })
+        self.mapping.place_idx(*place).into_iter().flat_map(|idx| {
+            self.dense_net.postset_p[idx]
+                .iter()
+                .map(|&t_idx| self.mapping.transition(t_idx))
+        })
     }
 
     /// Iterates over all [`Place`]s in the *preset* `(•t)` of the provided [`Transition`].
@@ -249,12 +246,12 @@ impl Net {
                 let place = self.mapping.place(p_idx);
                 let transition = self.mapping.transition(t_idx);
                 Arc::PlaceToTransition(place, transition)
-            },
+            }
             IdxArc::TransitionToPlace(t_idx, p_idx) => {
                 let transition = self.mapping.transition(t_idx);
                 let place = self.mapping.place(p_idx);
                 Arc::TransitionToPlace(transition, place)
-            },
+            }
         })
     }
 
