@@ -223,6 +223,41 @@ impl<N: AsRef<Net>> PetriNet<N> {
         self.enabled_transitions().next().is_none()
     }
 
+    /// Renders the net together with its current marking in Graphviz DOT format:
+    /// places as circles labelled `p<id> (<tokens>)`, transitions as boxes (drawn
+    /// bold when currently enabled), and arcs as directed edges. Pipe the output
+    /// to e.g. `dot -Tsvg` to visualise. See [`Net::to_dot`](crate::net::Net::to_dot)
+    /// for the structure alone.
+    #[must_use]
+    pub fn to_dot(&self) -> String {
+        use crate::net::Arc;
+        use std::fmt::Write as _;
+
+        let mut out = String::from("digraph petri_net {\n");
+        for p in self.places() {
+            let id = p.0.get();
+            let tokens = self.tokens_in(p);
+            let _ = writeln!(out, "    p{id} [shape=circle, label=\"p{id} ({tokens})\"];");
+        }
+        for t in self.transitions() {
+            let id = t.0.get();
+            let style = if self.is_enabled(t) { ", style=bold" } else { "" };
+            let _ = writeln!(out, "    t{id} [shape=box, label=\"t{id}\"{style}];");
+        }
+        for arc in self.arcs() {
+            match arc {
+                Arc::PlaceToTransition(p, t) => {
+                    let _ = writeln!(out, "    p{} -> t{};", p.0.get(), t.0.get());
+                }
+                Arc::TransitionToPlace(t, p) => {
+                    let _ = writeln!(out, "    t{} -> p{};", t.0.get(), p.0.get());
+                }
+            }
+        }
+        out.push_str("}\n");
+        out
+    }
+
     /// Check-and-fire a specific transition `t`.
     ///
     /// Returns `Ok(t)` if the transition was enabled and has been fired.
@@ -470,5 +505,27 @@ mod tests {
         let parts = sys.into_parts();
         assert_eq!(parts.1, Marking::from([(p1, 1)]));
         assert_eq!(parts.2, Marking::from([(p0, 1)]));
+    }
+
+    #[test]
+    fn net_to_dot_is_well_formed() {
+        let (net, _p0, _t0, _p1, _t1) = two_place_cycle();
+        let dot = net.to_dot();
+        assert!(dot.starts_with("digraph"), "{dot}");
+        assert!(dot.trim_end().ends_with('}'), "{dot}");
+        assert!(dot.contains("shape=circle"), "places are circles: {dot}");
+        assert!(dot.contains("shape=box"), "transitions are boxes: {dot}");
+        assert!(dot.contains("->"), "arcs are edges: {dot}");
+    }
+
+    #[test]
+    fn petri_net_to_dot_shows_marking_and_enabled() {
+        let (net, p0, _t0, _p1, _t1) = two_place_cycle();
+        let sys = net.with_initial_marking([(p0, 1)]);
+        let dot = sys.to_dot();
+        assert!(dot.starts_with("digraph"), "{dot}");
+        assert!(dot.contains("(1)"), "the marked place shows its token count: {dot}");
+        assert!(dot.contains("(0)"), "the empty place shows zero: {dot}");
+        assert!(dot.contains("style=bold"), "an enabled transition is bold: {dot}");
     }
 }
