@@ -3,6 +3,7 @@ use crate::core::net::{DenseNet, PlaceIdx};
 use fixedbitset::FixedBitSet;
 use good_lp::Variable;
 use std::collections::HashSet;
+use crate::core::siphon_trap::{IdxSiphon, IdxTrap};
 
 /// Computes the maximal siphon contained in a given set of places.
 ///
@@ -304,28 +305,15 @@ pub fn minimal_traps_ilp(net: &DenseNet) -> Box<[FixedBitSet]> {
     results.into_boxed_slice()
 }
 
-/// A siphon is a set of places D such that •D ⊆ D•.
-///
-/// In other words, every transition that produces to D also consumes from D.
-/// This is significant because it means once a siphon is unmarked,
-/// it can never be marked again (all transitions which could mark it are dead).
-pub type Siphon = FixedBitSet;
-
-/// A trap is a set of places Q such that Q• ⊆ •Q.
-///
-/// In other words, every transition that consumes from Q also produces to Q.
-/// This is significant because it means once a trap is marked, it can never be unmarked again.
-pub type Trap = FixedBitSet;
-
 /// A minimal siphon and the maximal trap found within it,
 /// and whether that trap is marked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiphonTrapPair {
     /// The minimal siphon (a set of places D with •D ⊆ D•).
-    pub siphon: Siphon,
+    pub siphon: IdxSiphon,
     /// The maximal trap contained in this siphon (a set of places Q with Q• ⊆ •Q).
     /// Empty if no trap was found.
-    pub trap: Trap,
+    pub trap: IdxTrap,
 }
 
 /// Result of the Commoner/Hack criterion check.

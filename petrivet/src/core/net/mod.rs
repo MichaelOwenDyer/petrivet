@@ -1,7 +1,11 @@
 use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::analysis::semi_decision;
+use crate::core::cegar::cegar::CegarProblem;
+use crate::core::cegar::solver::DefaultSolver;
+use crate::core::cegar::{CegarProperty, CegarResult, cegar_decide};
 use crate::core::class::NetClass;
 use crate::core::marking::IdxMarking;
+use crate::core::state_space::TokenOps;
 
 pub mod path;
 
@@ -105,12 +109,34 @@ impl DenseNet {
 
     /// Returns true if the provided transition is enabled at the given marking,
     /// i.e. if all places in its preset have at least one token in the marking.
-    pub fn is_enabled_in(&self, t: TransitionIdx, marking: &IdxMarking<u32>) -> bool {
-        self.preset_t[t].iter().all(|&p| marking[p] >= 1)
+    pub fn is_enabled_in<T: TokenOps>(&self, t: TransitionIdx, marking: &IdxMarking<T>) -> bool {
+        self.preset_t[t].iter().all(|&p| marking[p].at_least_one())
+    }
+
+    /// Applies the net effect of a transition to the given marking in-place.
+    /// Assumes the transition is enabled.
+    pub fn fire<T: TokenOps>(&self, t: TransitionIdx, marking: &mut IdxMarking<T>) {
+        for &p in &self.preset_t[t] {
+            marking[p].decrement();
+        }
+        for &p in &self.postset_t[t] {
+            marking[p].increment();
+        }
+    }
+
+    /// Reverts the net effect of a transition on the given marking in-place.
+    /// Assumes the transition is backwards enabled.
+    pub fn unfire<T: TokenOps>(&self, t: TransitionIdx, marking: &mut IdxMarking<T>) {
+        for &p in &self.postset_t[t] {
+            marking[p].decrement();
+        }
+        for &p in &self.preset_t[t] {
+            marking[p].increment();
+        }
     }
 
     /// Returns true if the given marking enables no transitions in the net.
-    pub fn is_deadlock(&self, marking: &IdxMarking<u32>) -> bool {
+    pub fn is_deadlock<T: TokenOps>(&self, marking: &IdxMarking<T>) -> bool {
         self.transition_indices()
             .all(|t| !self.is_enabled_in(t, marking))
     }
@@ -135,5 +161,33 @@ impl DenseNet {
     #[must_use]
     pub fn is_place_structurally_bounded(&self, place: PlaceIdx) -> bool {
         semi_decision::find_semipositive_place_subvariant(self, |&p| p == place).is_some()
+    }
+
+    pub fn cegar_coverability(
+        &self,
+        m0: &IdxMarking<u32>,
+        target: &IdxMarking<u32>,
+    ) -> CegarResult {
+        let problem = CegarProblem {
+            net: self,
+            m0,
+            target,
+            incidence_matrix: self.incidence_matrix(),
+        };
+        cegar_decide::<DefaultSolver>(problem, CegarProperty::Coverability, None)
+    }
+
+    pub fn cegar_reachability(
+        &self,
+        m0: &IdxMarking<u32>,
+        target: &IdxMarking<u32>,
+    ) -> CegarResult {
+        let problem = CegarProblem {
+            net: self,
+            m0,
+            target,
+            incidence_matrix: self.incidence_matrix(),
+        };
+        cegar_decide::<DefaultSolver>(problem, CegarProperty::Reachability, None)
     }
 }

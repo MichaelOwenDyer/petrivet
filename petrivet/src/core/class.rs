@@ -504,7 +504,8 @@ fn is_connected<S: std::hash::BuildHasher>(
     true
 }
 
-/// Classify a net based on its structural properties.
+/// Classify a net as one of the structural classes defined in [`NetClass`].
+///
 /// Returns the most specific class of net that it belongs to.
 /// If the net is not connected, returns None (since this library only supports connected nets).
 /// It is expected that these maps are symmetrically consistent

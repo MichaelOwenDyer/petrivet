@@ -119,7 +119,7 @@ fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
     let constraints = net.place_indices().map(|p| {
         let lhs: Expression = net
             .transition_indices()
-            .map(|t| f64::from(incidence.get(p, t)) * firing_counts[t])
+            .map(|t| f64::from(incidence.get_effect(t, p)) * firing_counts[t])
             .sum();
         let rhs = f64::from(target[p]) - f64::from(initial[p]);
         constraint!(lhs == rhs)
@@ -203,7 +203,7 @@ pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
     let constraints = net.transition_indices().map(|t| {
         let token_delta: Expression = net
             .place_indices()
-            .map(|p| f64::from(incidence.get(p, t)) * place_weights[p])
+            .map(|p| f64::from(incidence.get_effect(t, p)) * place_weights[p])
             .sum();
         constraint!(token_delta <= 0.0)
     });
