@@ -2,6 +2,7 @@
 
 pub mod boundedness;
 pub mod siphon_trap;
+pub mod invariant;
 
 use crate::core::mapping::DenseMapping;
 use crate::core::net::{DenseNet, IdxArc, IdxNode};
@@ -67,7 +68,7 @@ impl From<Transition> for Node {
 /// - `S` is a finite, nonempty set of [`Places`](Place),
 /// - `T` is a finite, nonempty set of [`Transitions`](Transition) disjoint from `S`,
 /// - `F` is a set containing elements from (S × T) ∪ (T × S), called the *flow relation*,
-///    which defines directed [`Arcs`](Arc) between places and transitions.
+///   which defines directed [`Arcs`](Arc) between places and transitions.
 #[derive(Debug, Clone)]
 pub struct Net {
     /// Inner net structure, optimized for efficient analysis algorithms.

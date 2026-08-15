@@ -91,8 +91,18 @@ fn main() {
     // dangerous situation: both processes in critical section at the same time
     let dangerous = [(p4, 1), (q4, 1)];
 
+    dbg!(m1f, m1t, m2f, m2t, hold1, hold2, p1, p2, p3, p4, q1, q2, q3, q4);
+    dbg!(u1, u2, u3, u4, u5, u6, v1, v2, v3, v4, v5, v6);
+    dbg!(initial_marking);
+    dbg!(dangerous);
+
+    let pn = PetriNet::new(&net, initial_marking);
+    let coverability_analysis = pn.analyze_coverability(dangerous);
+
+    dbg!(&coverability_analysis);
+
     assert!(
-        !PetriNet::new(&net, initial_marking).is_coverable(dangerous),
+        coverability_analysis.is_uncoverable(),
         "Peterson's mutual exclusion algorithm failed: both processes can be in critical section simultaneously."
     );
     println!(

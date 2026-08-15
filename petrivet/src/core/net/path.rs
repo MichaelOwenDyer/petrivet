@@ -24,7 +24,7 @@ impl IdxPath {
     pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
         self.nodes.iter().filter_map(|node| match node {
             IdxNode::Place(p_idx) => Some(*p_idx),
-            _ => None,
+            IdxNode::Transition(_) => None,
         })
     }
 
@@ -32,7 +32,7 @@ impl IdxPath {
     pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
         self.nodes.iter().filter_map(|node| match node {
             IdxNode::Transition(t_idx) => Some(*t_idx),
-            _ => None,
+            IdxNode::Place(_) => None,
         })
     }
 }
@@ -52,8 +52,8 @@ impl TryFrom<Vec<IdxNode>> for IdxPath {
         nodes
             .array_windows::<2>()
             .try_for_each(|neighbors| match neighbors {
-                [IdxNode::Place(_), IdxNode::Transition(_)] => Ok(()),
-                [IdxNode::Transition(_), IdxNode::Place(_)] => Ok(()),
+                [IdxNode::Place(_), IdxNode::Transition(_)]
+                | [IdxNode::Transition(_), IdxNode::Place(_)] => Ok(()),
                 _ => Err(()),
             })?;
         Ok(Self { nodes })

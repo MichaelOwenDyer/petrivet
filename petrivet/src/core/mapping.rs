@@ -14,7 +14,11 @@ use crate::core::marking::IdxMarking;
 use crate::core::net::{PlaceIdx, TransitionIdx};
 use crate::core::state_space::TokenOps;
 use crate::prelude::{Marking, Place, Transition};
-use ahash::HashMap;
+use ahash::{HashMap, HashSet};
+use fixedbitset::FixedBitSet;
+use crate::core::cegar::lemma::IdxLemma;
+use crate::net::invariant::PInvariant;
+use crate::system::lemma::Lemma;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DenseMapping {
@@ -112,7 +116,7 @@ impl DenseMapping {
     ///
     /// If the provided marking contains places that do not exist in this net, those places will be ignored.
     ///
-    /// todo: accept any IntoIterator<Item=(Place, T)> instead of a Marking<T> to avoid unnecessary
+    /// todo: accept any `IntoIterator<Item=(Place, T)>` instead of a `Marking<T>` to avoid unnecessary
     ///  intermediate allocations when the caller already has an iterator over the marking's support.
     pub fn decode<T: TokenOps>(&self, marking: Marking<T>) -> IdxMarking<T> {
         let mut idx_marking = IdxMarking::zeros(self.place_count());
@@ -122,6 +126,63 @@ impl DenseMapping {
             }
         });
         idx_marking
+    }
+
+    /// Convert a set of internal indices to a HashSet<Place>.
+    pub fn place_set(&self, places: &FixedBitSet) -> HashSet<Place> {
+        places.ones().map(|p_idx| self.place(p_idx)).collect()
+    }
+
+    /// Convert a set of internal indices to a HashSet<Transition>.
+    pub fn transition_set(&self, transitions: &FixedBitSet) -> HashSet<Transition> {
+        transitions.ones().map(|p_idx| self.transition(p_idx)).collect()
+    }
+
+    /// Convert a sequence of internal transition indices to a Vec<Transition>.
+    pub fn firing_sequence(&self, transitions: Vec<TransitionIdx>) -> Vec<Transition> {
+        transitions.into_iter().map(|t_idx| self.transition(t_idx)).collect()
+    }
+
+    /// Convert an internal lemma to a public lemma.
+    pub fn lemma(&self, lemma: IdxLemma) -> Lemma {
+        match lemma {
+            IdxLemma::PInvariant(p_inv) => Lemma::PInvariant(PInvariant {
+                weights: p_inv.weights.into_iter()
+                    .map(|(p_idx, w)| (self.place(p_idx), w))
+                    .collect(),
+                value: p_inv.value,
+            }),
+            IdxLemma::InitiallyMarkedTrap(trap) => Lemma::InitiallyMarkedTrap(
+                self.place_set(&trap)
+            ),
+            IdxLemma::MarkingEquation {
+                place, initial_marking, net_effects,
+            } => Lemma::MarkingEquation {
+                place: self.place(place),
+                initial_marking,
+                net_effects: net_effects.into_iter()
+                    .map(|(t_idx, effect)| (self.transition(t_idx), effect))
+                    .collect(),
+            },
+            IdxLemma::TrapBecomesMarked { feeder, trap } => Lemma::TrapBecomesMarked {
+                feeder: self.transition(feeder),
+                trap: self.place_set(&trap),
+            },
+            IdxLemma::CausalOrdering { t_idx, p_idx, feeders } => Lemma::CausalOrdering {
+                transition: self.transition(t_idx),
+                place: self.place(p_idx),
+                feeders: feeders.into_iter().map(|t_idx| self.transition(t_idx)).collect(),
+            },
+            IdxLemma::Increment {
+                component_places,
+                component_transitions,
+                firing_sequence,
+            } => Lemma::Increment {
+                component_places: self.place_set(&component_places),
+                component_transitions: self.transition_set(&component_transitions),
+                firing_sequence: self.firing_sequence(firing_sequence),
+            },
+        }
     }
 }
 

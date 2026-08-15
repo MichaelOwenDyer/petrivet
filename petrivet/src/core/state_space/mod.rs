@@ -162,12 +162,7 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     /// Caller must ensure the transition is enabled.
     pub fn fire(&self, node: NodeIndex, t: TransitionIdx) -> IdxMarking<T> {
         let mut result = self.state_space.graph[node].clone();
-        for &p in &self.state_space.net.preset_t[t] {
-            result[p].decrement();
-        }
-        for &p in &self.state_space.net.postset_t[t] {
-            result[p].increment();
-        }
+        self.state_space.net.fire(t, &mut result);
         result
     }
 

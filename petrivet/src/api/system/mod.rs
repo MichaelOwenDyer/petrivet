@@ -64,6 +64,7 @@ pub mod coverability;
 pub mod deadlock_freedom;
 pub mod liveness;
 pub mod reachability;
+pub mod lemma;
 
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::ExplorationOrder;
@@ -265,16 +266,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// or if any token count would overflow `u32::MAX`.
     pub fn fire_unchecked(&mut self, t: Transition) {
         if let Some(t_idx) = self.mapping.transition_idx(t) {
-            for &p_idx in &self.net.as_ref().dense_net.preset_t[t_idx] {
-                self.marking[p_idx] = self.marking[p_idx]
-                    .checked_sub(1)
-                    .expect("fire_unchecked: token underflow");
-            }
-            for &p_idx in &self.net.as_ref().dense_net.postset_t[t_idx] {
-                self.marking[p_idx] = self.marking[p_idx]
-                    .checked_add(1)
-                    .expect("fire_unchecked: token overflow");
-            }
+            self.net.as_ref().dense_net.fire(t_idx, &mut self.marking);
         }
     }
 }

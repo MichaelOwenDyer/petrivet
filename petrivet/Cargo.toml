@@ -14,11 +14,12 @@ graph-cycles = "0.3.0"
 quick-xml = { version = "0.40.1", features = ["serialize"], optional = true }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 tap = "1.0.1"
-oxiz = { git = "https://github.com/MichaelOwenDyer/oxiz.git", branch = "fix/distinct-and-neq" }
 fixedbitset = "0.5.7"
+oxiz = { git = "https://github.com/MichaelOwenDyer/oxiz.git", branch = "pub-assertions", optional = true }
+z3 = { version = "0.20.2", optional = true }
 
 [features]
-default = ["pnml"]
+default = ["pnml", "z3"]
 pnml = ["serde", "quick-xml"]
 
 [dev-dependencies]
