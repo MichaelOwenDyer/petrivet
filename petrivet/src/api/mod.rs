@@ -5,3 +5,4 @@ pub mod net;
 pub mod pnml;
 pub mod state_space;
 pub mod system;
+pub mod parikh_vector;

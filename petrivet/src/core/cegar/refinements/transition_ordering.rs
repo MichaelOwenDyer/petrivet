@@ -72,7 +72,7 @@ impl TransitionOrderingRule {
             if scc_id[&src] == scc_id[&dst]
                 && let IdxNode::Place(p_idx) = graph[src]
                 && let IdxNode::Transition(t_idx) = graph[dst] {
-                dependencies.push(TransitionDependency { t_idx, p_idx });
+                dependencies.push(CyclicTransitionDependency { t_idx, p_idx });
             }
         }
         (!dependencies.is_empty()).then_some(TransitionOrderingRefinement { dependencies })
@@ -82,7 +82,7 @@ impl TransitionOrderingRule {
 /// A `(transition, place)` pair where `transition` consumes more of `place` than `m0` provides,
 /// and that dependency is part of a cycle in the graph of all such dependencies.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TransitionDependency {
+pub struct CyclicTransitionDependency {
     /// The transition that needs more tokens from `place` than `m0` provides.
     t_idx: TransitionIdx,
     /// At least one feeder of this place must fire before `transition` can fire.
@@ -93,7 +93,7 @@ pub struct TransitionDependency {
 /// could ever form an unrealizable "ouroboros" cycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransitionOrderingRefinement {
-    dependencies: Vec<TransitionDependency>,
+    dependencies: Vec<CyclicTransitionDependency>,
 }
 
 impl TransitionOrderingRefinement {
@@ -105,7 +105,7 @@ impl TransitionOrderingRefinement {
     ) {
         let mut order_terms = HashMap::new();
 
-        for TransitionDependency { t_idx, p_idx } in self.dependencies {
+        for CyclicTransitionDependency { t_idx, p_idx } in self.dependencies {
             let feeders: Vec<TransitionIdx> = problem.net.preset_p[p_idx]
                 .iter()
                 .copied()
@@ -170,11 +170,11 @@ mod tests {
         ).expect("cycle should be detected");
 
         assert_eq!(refinement.dependencies.len(), 2, "exactly two dependencies should be reported");
-        assert!(refinement.dependencies.contains(&TransitionDependency {
+        assert!(refinement.dependencies.contains(&CyclicTransitionDependency {
             t_idx: net.mapping.transition_idx(t1).expect("transition in built net"),
             p_idx: net.mapping.place_idx(s2).expect("place in built net")
         }));
-        assert!(refinement.dependencies.contains(&TransitionDependency {
+        assert!(refinement.dependencies.contains(&CyclicTransitionDependency {
             t_idx: net.mapping.transition_idx(t2).expect("transition in built net"),
             p_idx: net.mapping.place_idx(s1).expect("place in built net")
         }));
