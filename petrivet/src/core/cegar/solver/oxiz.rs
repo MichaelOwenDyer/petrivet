@@ -3,12 +3,15 @@
 use crate::core::cegar::refinements::IdxLemma;
 use crate::core::cegar::solver::{SmtSolver, Satisfiability};
 use ahash::{HashMap, HashMapExt};
+use crate::core::cegar::lemma::IdxLemma;
 
 /// Owns an `oxiz` solver and term manager, plus the bookkeeping needed to translate an unsat
 /// core (a list of assertion indices, in `oxiz`'s API) back into the [`IdxLemma`]s that were
 /// asserted via [`SmtSolver::assert_tracked`].
 pub struct OxiZ {
+    /// The `oxiz` SMT solver.
     smt: Box<oxiz::Solver>,
+    /// The `oxiz` term manager, which owns all terms and sorts.
     terms: Box<oxiz::TermManager>,
     /// Maps a tracking literal to the refinement it was tagged with, so that it can be
     /// recovered when the literal is later found in an unsat core.

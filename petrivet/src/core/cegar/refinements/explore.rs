@@ -451,60 +451,6 @@ fn estimate_needed_tokens(
     }
 }
 
-/// Wimmel & Wolf 2011, Corollary 4: encode the increment constraint for one bottleneck
-/// component. `Ti` here is Corollary 4's `Ti` (transitions outside the remainder that are net
-/// producers of the component), distinct from - and unrelated to - Part 1's `Ti` (the
-/// component's own internal remainder transitions).
-fn encode_component<S: SmtSolver>(
-    problem: &CegarProblem,
-    solver: &mut S,
-    transition_terms: &[S::Int],
-    firing_sequence: &[TransitionIdx],
-    remaining_budget: &TransitionFiringBudget,
-    component_places: &FixedBitSet,
-    component_transitions: &FixedBitSet,
-    needed_tokens: u32,
-) {
-    let mut lhs_terms = Vec::new();
-    let mut tokens_already_produced: u32 = 0;
-
-    for t in problem.net.transition_indices() {
-        if remaining_budget.by_transition[t] == 0 {
-            let net_production: i32 = component_places
-                .ones()
-                .map(|p| i32::from(problem.incidence_matrix.get_effect(t, p)))
-                .sum();
-
-            if net_production > 0 {
-                let weight_term = solver.mk_int(i64::from(net_production));
-                let t_term = transition_terms[t].clone();
-                lhs_terms.push(solver.mul([weight_term, t_term]));
-
-                let fired_count = firing_sequence.iter().filter(|&&fired_t| fired_t == t).count() as u32;
-                tokens_already_produced += (net_production as u32) * fired_count;
-            }
-        }
-    }
-
-    if lhs_terms.is_empty() {
-        return;
-    }
-
-    let lhs = solver.add(lhs_terms);
-    let rhs_val = needed_tokens + tokens_already_produced;
-    let rhs = solver.mk_int(i64::from(rhs_val));
-    let constraint = solver.ge(&lhs, &rhs);
-
-    solver.assert_tracked(
-        &constraint,
-        IdxLemma::Increment {
-            component_places: component_places.clone(),
-            component_transitions: component_transitions.clone(),
-            firing_sequence: firing_sequence.to_vec(),
-        },
-    );
-}
-
 impl IncrementRefinement {
     /// Encodes an increment constraint (Wimmel & Wolf 2011, Section 4) for every independent
     /// bottleneck component found in this dead end - see `find_bottleneck_components`.
@@ -513,6 +459,7 @@ impl IncrementRefinement {
         problem: &CegarProblem,
         solver: &mut S,
         transition_terms: &[S::Int],
+        callback: Option<impl Fn(IdxLemma)>,
     ) {
         for (component_places, component_transitions) in
             find_bottleneck_components(problem, &self.marking, &self.remaining_budget)
@@ -531,16 +478,47 @@ impl IncrementRefinement {
                 &component_transitions,
                 &xi,
             );
-            encode_component(
-                problem,
-                solver,
-                transition_terms,
-                &self.firing_sequence,
-                &self.remaining_budget,
-                &component_places,
-                &component_transitions,
-                needed_tokens,
-            );
+
+            // Wimmel & Wolf 2011, Corollary 4: encode the increment constraint for one bottleneck
+            // component. `Ti` here is Corollary 4's `Ti` (transitions outside the remainder that are net
+            // producers of the component), distinct from - and unrelated to - Part 1's `Ti` (the
+            // component's own internal remainder transitions).
+            let mut lhs_terms = Vec::new();
+            let mut tokens_already_produced: u32 = 0;
+
+            for t in problem.net.transition_indices() {
+                if self.remaining_budget.by_transition[t] == 0 {
+                    let net_production: i32 = component_places
+                        .ones()
+                        .map(|p| i32::from(problem.incidence_matrix.get_effect(t, p)))
+                        .sum();
+
+                    if net_production > 0 {
+                        let weight_term = solver.mk_int(i64::from(net_production));
+                        let t_term = transition_terms[t].clone();
+                        lhs_terms.push(solver.mul([weight_term, t_term]));
+
+                        let fired_count = self.firing_sequence.iter().filter(|&&fired_t| fired_t == t).count() as u32;
+                        tokens_already_produced += (net_production as u32) * fired_count;
+                    }
+                }
+            }
+
+            if lhs_terms.is_empty() {
+                return;
+            }
+
+            let lhs = solver.add(lhs_terms);
+            let rhs_val = needed_tokens + tokens_already_produced;
+            let rhs = solver.mk_int(i64::from(rhs_val));
+            let constraint = solver.ge(&lhs, &rhs);
+            let lemma = IdxLemma::Increment {
+                component_places: component_places.clone(),
+                component_transitions: component_transitions.clone(),
+                firing_sequence: self.firing_sequence.clone(),
+            };
+            callback.as_ref().map(|callback| callback(lemma.clone()));
+            solver.assert_tracked(&constraint, lemma);
         }
     }
 }

@@ -1,11 +1,10 @@
+use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::cegar::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::cegar::solver::{SmtSolver, Satisfiability};
+use crate::core::cegar::solver::{Satisfiability, SmtSolver};
 use crate::core::marking::IdxMarking;
 use crate::core::net::PlaceIdx;
-use std::fmt::Display;
 use tap::TapOptional;
-use crate::core::analysis::incidence::IncidenceMatrix;
 
 /// Ensures that the SMT solver respects the P-Invariants of the net.
 pub struct PInvariantRule<S: SmtSolver> {
@@ -143,30 +142,15 @@ pub struct IdxPInvariant {
 #[derive(Debug, Clone)]
 pub struct PInvariantRefinement(pub IdxPInvariant);
 
-impl Display for PInvariantRefinement {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (i, &(p_idx, weight)) in self.0.weights.iter().enumerate() {
-            if i > 0 {
-                write!(f, " + ")?;
-            }
-            if weight == 1 {
-                write!(f, "p{p_idx}")?;
-            } else {
-                write!(f, "{weight}*p{p_idx}")?;
-            }
-        }
-        write!(f, " = {}", self.0.value)
-    }
-}
-
 impl PInvariantRefinement {
-    pub fn encode_into<S: SmtSolver>(
+    pub fn encode_into<S: SmtSolver, F: FnOnce(IdxLemma)>(
         self,
         solver: &mut S,
-        place_terms: &[S::Int]
+        place_terms: &[S::Int],
+        callback: Option<F>,
     ) {
-        let weighted_places: Vec<S::Int> = self
-            .0
+        let Self(p_invariant) = self;
+        let weighted_places: Vec<S::Int> = p_invariant
             .weights
             .iter()
             .map(|&(p_idx, weight)| {
@@ -179,8 +163,9 @@ impl PInvariantRefinement {
             })
             .collect();
         let weighted_sum = solver.add(weighted_places);
-        let value = solver.mk_int(i64::from(self.0.value));
-        let p_invariant = solver.eq(&weighted_sum, &value);
-        solver.assert_tracked(&p_invariant, IdxLemma::PInvariant(self.0));
+        let value = solver.mk_int(i64::from(p_invariant.value));
+        let eq = solver.eq(&weighted_sum, &value);
+        callback.map(|callback| callback(IdxLemma::PInvariant(p_invariant.clone())));
+        solver.assert_tracked(&eq, IdxLemma::PInvariant(p_invariant));
     }
 }

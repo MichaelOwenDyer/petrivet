@@ -86,11 +86,12 @@ pub struct TrapBecomesMarkedRefinement {
 }
 
 impl TrapBecomesMarkedRefinement {
-    pub fn encode_into<S: SmtSolver>(
+    pub fn encode_into<S: SmtSolver, F: FnMut(IdxLemma)>(
         self,
         solver: &mut S,
         place_terms: &[S::Int],
         transition_terms: &[S::Int],
+        mut observer: Option<F>,
     ) {
         let trap_sum = solver.add(self.trap.ones().map(|p| place_terms[p].clone()));
         let zero = solver.mk_int(0);
@@ -98,10 +99,9 @@ impl TrapBecomesMarkedRefinement {
         for t_idx in self.feeders.ones() {
             let fires = solver.gt(&transition_terms[t_idx], &zero);
             let implication = solver.implies(&fires, &trap_marked);
-            solver.assert_tracked(
-                &implication,
-                IdxLemma::TrapBecomesMarked { feeder: t_idx, trap: self.trap.clone() },
-            );
+            let lemma = IdxLemma::TrapBecomesMarked { feeder: t_idx, trap: self.trap.clone() };
+            observer.as_mut().map(|observer| observer(lemma.clone()));
+            solver.assert_tracked(&implication, lemma);
         }
     }
 }

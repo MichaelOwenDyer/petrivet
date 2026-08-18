@@ -1,7 +1,7 @@
 use crate::core::analysis::incidence::IncidenceMatrix;
+use crate::core::cegar::CegarProperty;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::observe::CegarEvent;
-use crate::core::cegar::refinements::IdxRefinement;
 use crate::core::cegar::refinements::explore::GuidedExplorer;
 use crate::core::cegar::refinements::initially_marked_trap::InitiallyMarkedTrapRule;
 use crate::core::cegar::refinements::marking_equation::MarkingEquationRefinement;
@@ -9,7 +9,6 @@ use crate::core::cegar::refinements::p_invariant::PInvariantRule;
 use crate::core::cegar::refinements::transition_ordering::TransitionOrderingRule;
 use crate::core::cegar::refinements::trap_becomes_marked::TrapBecomesMarkedRule;
 use crate::core::cegar::solver::{Satisfiability, SmtSolver};
-use crate::core::cegar::CegarProperty;
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
 use crate::core::parikh::IdxParikhVector;
@@ -55,15 +54,7 @@ pub struct Cegar<'a, T, S: SmtSolver> {
     /// The current phase of the CEGAR analysis.
     pub context: T,
     /// A MPSC channel for sending CEGAR events to an observer, if one is provided.
-    pub observer: Option<mpsc::Sender<CegarEvent>>,
-}
-
-impl<T, S: SmtSolver> Cegar<'_, T, S> {
-    pub fn notify(&self, event: impl FnOnce() -> CegarEvent) {
-        if let Some(obs) = &self.observer {
-            let _ = obs.send(event());
-        }
-    }
+    pub observer: CegarObserver,
 }
 
 pub struct CegarProblem<'a> {
@@ -75,6 +66,33 @@ pub struct CegarProblem<'a> {
     pub target: &'a IdxMarking<u32>,
     /// The net's incidence matrix.
     pub incidence_matrix: IncidenceMatrix,
+}
+
+/// A wrapper for an MPSC observability channel of CEGAR events.
+pub struct CegarObserver {
+    sender: Option<mpsc::Sender<CegarEvent>>,
+}
+
+impl CegarObserver {
+    /// Return a closure which sends a CEGAR event to the observer, if one is provided.
+    pub fn with_context(
+        &self,
+        marking: Option<IdxMarking<u32>>,
+        parikh_vector: Option<IdxParikhVector<u32>>,
+    ) -> Option<impl Fn(IdxLemma)> {
+        self.sender.as_ref().map(|observer| {
+            // todo: convert IdxMarking and IdxParikhVector and IdxLemma to API equivalents here?
+            //  would need access to the net's DenseMapping. One more degree of coupling,
+            //  but not necessarily a big deal.
+            move |lemma| {
+                let _ = observer.send(CegarEvent {
+                    spurious_marking: marking.clone(),
+                    spurious_parikh_vector: parikh_vector.clone(),
+                    lemma,
+                });
+            }
+        })
+    }
 }
 
 /// Read the model value of every term in `place_terms` into an [`IdxMarking`].
@@ -130,6 +148,7 @@ impl<'a, S: SmtSolver + Default> Cegar<'a, Structural<S>, S> {
         let places = encode_place_terms(&mut solver, &problem, property);
         let p_invariant_rule = PInvariantRule::new(&problem.incidence_matrix);
         let context = Structural { places, p_invariant_rule };
+        let observer = CegarObserver { sender: observer };
 
         Self {
             problem,
@@ -189,21 +208,19 @@ impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
             Satisfiability::Unsat => return StructuralStep::Unsat(self.solver.unsat_core()),
         };
         if let Some(p_invariant_refinement) = self.context.p_invariant_rule.check(&self.problem, &candidate_marking) {
-            self.notify(|| CegarEvent {
-                spurious_marking: candidate_marking,
-                spurious_parikh_vector: None,
-                refinement: IdxRefinement::PInvariant(p_invariant_refinement.clone()),
-            });
-            p_invariant_refinement.encode_into(&mut self.solver, &self.context.places);
+            p_invariant_refinement.encode_into(
+                &mut self.solver,
+                &self.context.places,
+                self.observer.with_context(Some(candidate_marking), None)
+            );
             return StructuralStep::Refined(self);
         }
         if let Some(trap_refinement) = InitiallyMarkedTrapRule::check(&self.problem, &candidate_marking) {
-            self.notify(|| CegarEvent {
-                spurious_marking: candidate_marking,
-                spurious_parikh_vector: None,
-                refinement: IdxRefinement::InitiallyMarkedTrap(trap_refinement.clone()),
-            });
-            trap_refinement.encode_into(&mut self.solver, &self.context.places);
+            trap_refinement.encode_into(
+                &mut self.solver,
+                &self.context.places,
+                self.observer.with_context(Some(candidate_marking), None)
+            );
             return StructuralStep::Refined(self);
         }
         StructuralStep::Advanced(Cegar::<Behavioral<S>, S>::from(self))
@@ -314,23 +331,21 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
         if let Some(p_invariant_refinement) =
             self.context.p_invariant_rule.check(&self.problem, &candidate_marking)
         {
-            self.notify(|| CegarEvent {
-                spurious_marking: candidate_marking,
-                spurious_parikh_vector: Some(candidate_parikh_vector),
-                refinement: IdxRefinement::PInvariant(p_invariant_refinement.clone()),
-            });
-            p_invariant_refinement.encode_into(&mut self.solver, &self.context.places);
+            p_invariant_refinement.encode_into(
+                &mut self.solver,
+                &self.context.places,
+                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector))
+            );
             return BehavioralStep::Refined(self);
         }
         if let Some(trap_refinement) =
             InitiallyMarkedTrapRule::check(&self.problem, &candidate_marking)
         {
-            self.notify(|| CegarEvent {
-                spurious_marking: candidate_marking,
-                spurious_parikh_vector: Some(candidate_parikh_vector),
-                refinement: IdxRefinement::InitiallyMarkedTrap(trap_refinement.clone()),
-            });
-            trap_refinement.encode_into(&mut self.solver, &self.context.places);
+            trap_refinement.encode_into(
+                &mut self.solver,
+                &self.context.places,
+                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector)),
+            );
             return BehavioralStep::Refined(self);
         }
         if let Some(trap_refinement) = TrapBecomesMarkedRule::check(
@@ -338,15 +353,11 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
             &candidate_marking,
             &candidate_parikh_vector,
         ) {
-            self.notify(|| CegarEvent {
-                spurious_marking: candidate_marking,
-                spurious_parikh_vector: Some(candidate_parikh_vector),
-                refinement: IdxRefinement::TrapBecomesMarked(trap_refinement.clone()),
-            });
             trap_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
                 &self.context.transitions,
+                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector))
             );
             return BehavioralStep::Refined(self);
         }
@@ -360,17 +371,17 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                 BehavioralStep::Witnessed(marking, firing_sequence)
             },
             Err(increment_refinements) => {
-                for increment_refinement in increment_refinements {
-                    self.notify(|| CegarEvent {
-                        spurious_marking: candidate_marking.clone(),
-                        spurious_parikh_vector: Some(candidate_parikh_vector.clone()),
-                        refinement: IdxRefinement::Increment(increment_refinement.clone()),
-                    });
-                    increment_refinement.encode_into(
-                        &self.problem,
-                        &mut self.solver,
-                        &self.context.transitions,
-                    );
+                {
+                    let callback = self.observer
+                        .with_context(Some(candidate_marking), Some(candidate_parikh_vector));
+                    for increment_refinement in increment_refinements {
+                        increment_refinement.encode_into(
+                            &self.problem,
+                            &mut self.solver,
+                            &self.context.transitions,
+                            callback.as_ref()
+                        );
+                    }
                 }
                 BehavioralStep::Refined(self)
             }

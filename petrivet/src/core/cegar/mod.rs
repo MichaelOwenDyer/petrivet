@@ -1,7 +1,7 @@
 pub mod cegar;
 pub mod observe;
 pub mod refinements;
-pub mod solver;
+pub(crate) mod solver;
 pub mod lemma;
 
 use crate::core::cegar::cegar::CegarProblem;
