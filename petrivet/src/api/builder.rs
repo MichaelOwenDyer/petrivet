@@ -528,12 +528,12 @@ impl NetBuilder {
             postset_p,
         };
 
-        let mapping = DenseMapping::new(
+        let mapping = std::sync::Arc::new(DenseMapping::new(
             place_to_index,
             transition_to_index,
             ordered_places,
             ordered_transitions,
-        );
+        ));
 
         Ok(Net {
             dense_net: core_net,

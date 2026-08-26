@@ -10,15 +10,22 @@
 //!
 //! This module provides a bidirectional mapping between the public handles and the internal dense indices.
 
+use crate::core::cegar::lemma::IdxLemma;
+use crate::core::cegar::observe::IdxCegarEvent as IdxCegarEvent;
 use crate::core::marking::IdxMarking;
 use crate::core::net::{PlaceIdx, TransitionIdx};
+use crate::core::parikh::IdxParikhVector;
 use crate::core::state_space::TokenOps;
+use crate::net::invariant::PInvariant;
+use crate::parikh_vector::ParikhVector;
 use crate::prelude::{Marking, Place, Transition};
+use crate::system::lemma::Lemma;
+use crate::system::observe::CegarEvent;
 use ahash::{HashMap, HashSet};
 use fixedbitset::FixedBitSet;
-use crate::core::cegar::lemma::IdxLemma;
-use crate::net::invariant::PInvariant;
-use crate::system::lemma::Lemma;
+use crate::core::cegar::CegarResult;
+use crate::system::coverability::CoverabilityResult;
+use crate::system::reachability::Reachability;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DenseMapping {
@@ -141,6 +148,48 @@ impl DenseMapping {
     /// Convert a sequence of internal transition indices to a Vec<Transition>.
     pub fn firing_sequence(&self, transitions: Vec<TransitionIdx>) -> Vec<Transition> {
         transitions.into_iter().map(|t_idx| self.transition(t_idx)).collect()
+    }
+
+    /// Convert an internal Parikh vector to a public one.
+    pub fn parikh_vector(&self, parikh_vector: IdxParikhVector<u32>) -> ParikhVector<u32> {
+        parikh_vector
+            .into_inner()
+            .into_iter()
+            .enumerate()
+            .map(|(t_idx, count)| (self.transition(t_idx), count))
+            .collect()
+    }
+
+    /// Translates an internal dense-indexed [`IdxCegarEvent`](IdxCegarEvent) to its public equivalent.
+    pub fn cegar_event(&self, event: IdxCegarEvent) -> CegarEvent {
+        CegarEvent {
+            spurious_marking: event.spurious_marking.map(|m| self.encode(m)),
+            spurious_parikh_vector: event.spurious_parikh_vector.map(|pv| self.parikh_vector(pv)),
+            lemma: self.lemma(event.lemma),
+        }
+    }
+
+    pub fn reachability_result(&self, result: CegarResult) -> Reachability {
+        match result {
+            CegarResult::Satisfiable { marking: _, firing_sequence } => Reachability::Reachable {
+                firing_sequence: self.firing_sequence(firing_sequence),
+            },
+            CegarResult::Unsatisfiable { contradiction } => Reachability::Unreachable {
+                contradiction: contradiction.into_iter().map(|lemma| self.lemma(lemma)).collect(),
+            },
+        }
+    }
+
+    pub fn coverability_result(&self, result: CegarResult) -> CoverabilityResult {
+        match result {
+            CegarResult::Satisfiable { marking, firing_sequence } => CoverabilityResult::Coverable {
+                marking: self.encode(marking),
+                firing_sequence: self.firing_sequence(firing_sequence),
+            },
+            CegarResult::Unsatisfiable { contradiction } => CoverabilityResult::Uncoverable {
+                contradiction: contradiction.into_iter().map(|lemma| self.lemma(lemma)).collect(),
+            },
+        }
     }
 
     /// Convert an internal lemma to a public lemma.

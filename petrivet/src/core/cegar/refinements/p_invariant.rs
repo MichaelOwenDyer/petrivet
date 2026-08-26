@@ -143,11 +143,11 @@ pub struct IdxPInvariant {
 pub struct PInvariantRefinement(pub IdxPInvariant);
 
 impl PInvariantRefinement {
-    pub fn encode_into<S: SmtSolver, F: FnOnce(IdxLemma)>(
+    pub fn encode_into<S: SmtSolver>(
         self,
         solver: &mut S,
         place_terms: &[S::Int],
-        callback: Option<F>,
+        callback: Option<&dyn Fn(IdxLemma)>,
     ) {
         let Self(p_invariant) = self;
         let weighted_places: Vec<S::Int> = p_invariant
@@ -165,7 +165,9 @@ impl PInvariantRefinement {
         let weighted_sum = solver.add(weighted_places);
         let value = solver.mk_int(i64::from(p_invariant.value));
         let eq = solver.eq(&weighted_sum, &value);
-        callback.map(|callback| callback(IdxLemma::PInvariant(p_invariant.clone())));
+        if let Some(callback) = callback {
+            callback(IdxLemma::PInvariant(p_invariant.clone()));
+        }
         solver.assert_tracked(&eq, IdxLemma::PInvariant(p_invariant));
     }
 }

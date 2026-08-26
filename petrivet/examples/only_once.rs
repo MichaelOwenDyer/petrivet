@@ -1,6 +1,6 @@
 use petrivet::builder::NetBuilder;
 use petrivet::prelude::PetriNet;
-use petrivet::system::coverability::{Coverability, Lemma};
+use petrivet::system::coverability::{CoverabilityResult, Lemma};
 
 fn main() {
     let mut b = NetBuilder::new();
@@ -23,9 +23,9 @@ fn main() {
     let target = dbg!([(s2, 1), (s5, 1), (s6, 1), (count_t1, 2)]);
 
     let pn = PetriNet::new(&net, initial_marking);
-    let coverability = dbg!(pn.analyze_coverability(target));
+    let coverability = dbg!(pn.analyze_coverability(target, None));
 
-    let Coverability::Uncoverable { contradiction: lemmas } = coverability else {
+    let CoverabilityResult::Uncoverable { contradiction: lemmas } = coverability else {
         panic!("expected the target marking to be uncoverable from the initial marking, but it was coverable.");
     };
     assert_eq!(lemmas.len(), 9, "expected 9 contradictory lemmas, found {}", lemmas.len());

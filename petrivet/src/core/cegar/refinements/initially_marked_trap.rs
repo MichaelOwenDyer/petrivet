@@ -56,16 +56,18 @@ pub struct InitiallyMarkedTrapRefinement {
 }
 
 impl InitiallyMarkedTrapRefinement {
-    pub fn encode_into<S: SmtSolver, F: FnOnce(IdxLemma)>(
+    pub fn encode_into<S: SmtSolver>(
         self,
         solver: &mut S,
         place_terms: &[S::Int],
-        callback: Option<F>,
+        callback: Option<&dyn Fn(IdxLemma)>,
     ) {
         let trap_sum = solver.add(self.trap.ones().map(|p| place_terms[p].clone()));
         let zero = solver.mk_int(0);
         let constraint = solver.gt(&trap_sum, &zero);
-        callback.map(|callback| callback(IdxLemma::InitiallyMarkedTrap(self.trap.clone())));
+        if let Some(callback) = callback {
+            callback(IdxLemma::InitiallyMarkedTrap(self.trap.clone()));
+        }
         solver.assert_tracked(&constraint, IdxLemma::InitiallyMarkedTrap(self.trap));
     }
 }

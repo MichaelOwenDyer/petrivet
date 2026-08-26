@@ -459,7 +459,7 @@ impl IncrementRefinement {
         problem: &CegarProblem,
         solver: &mut S,
         transition_terms: &[S::Int],
-        callback: Option<impl Fn(IdxLemma)>,
+        callback: Option<&dyn Fn(IdxLemma)>,
     ) {
         for (component_places, component_transitions) in
             find_bottleneck_components(problem, &self.marking, &self.remaining_budget)
@@ -517,7 +517,9 @@ impl IncrementRefinement {
                 component_transitions: component_transitions.clone(),
                 firing_sequence: self.firing_sequence.clone(),
             };
-            callback.as_ref().map(|callback| callback(lemma.clone()));
+            if let Some(callback) = callback {
+                callback(lemma.clone());
+            }
             solver.assert_tracked(&constraint, lemma);
         }
     }

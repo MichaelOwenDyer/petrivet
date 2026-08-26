@@ -1,9 +1,8 @@
 //! [`SmtSolver`] backed by the pure-Rust `oxiz` SMT solver.
 
-use crate::core::cegar::refinements::IdxLemma;
+use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::{SmtSolver, Satisfiability};
 use ahash::{HashMap, HashMapExt};
-use crate::core::cegar::lemma::IdxLemma;
 
 /// Owns an `oxiz` solver and term manager, plus the bookkeeping needed to translate an unsat
 /// core (a list of assertion indices, in `oxiz`'s API) back into the [`IdxLemma`]s that were

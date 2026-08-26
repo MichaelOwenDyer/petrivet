@@ -1,5 +1,5 @@
 use petrivet::prelude::{NetBuilder, PetriNet};
-use petrivet::system::coverability::Coverability;
+use petrivet::system::coverability::CoverabilityResult;
 
 fn main() {
     let mut b = NetBuilder::new();
@@ -21,7 +21,7 @@ fn main() {
     let dangerous = dbg!([(s4, 1), (s5, 1)]);
 
     let pn = PetriNet::new(&net, initial_marking);
-    let Coverability::Uncoverable { contradiction } = dbg!(pn.analyze_coverability(dangerous)) else {
+    let CoverabilityResult::Uncoverable { contradiction: _ } = dbg!(pn.analyze_coverability(dangerous, None)) else {
         panic!("expected the target marking to be uncoverable from the initial marking, but it was coverable.");
     };
 }
