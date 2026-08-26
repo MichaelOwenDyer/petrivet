@@ -65,6 +65,7 @@ pub mod deadlock_freedom;
 pub mod liveness;
 pub mod reachability;
 pub mod lemma;
+pub mod observe;
 
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::ExplorationOrder;

@@ -2,6 +2,7 @@ use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::analysis::semi_decision;
 use crate::core::cegar::cegar::CegarProblem;
 use crate::core::cegar::solver::DefaultSolver;
+use crate::core::cegar::observe::CegarObserverFn;
 use crate::core::cegar::{CegarProperty, CegarResult, cegar_decide};
 use crate::core::class::NetClass;
 use crate::core::marking::IdxMarking;
@@ -163,10 +164,13 @@ impl DenseNet {
         semi_decision::find_semipositive_place_subvariant(self, |&p| p == place).is_some()
     }
 
-    pub fn cegar_coverability(
+    /// Decide the given problem using the CEGAR approach with the default solver.
+    pub fn cegar_decide(
         &self,
         m0: &IdxMarking<u32>,
         target: &IdxMarking<u32>,
+        property: CegarProperty,
+        observer: Option<CegarObserverFn>,
     ) -> CegarResult {
         let problem = CegarProblem {
             net: self,
@@ -174,20 +178,6 @@ impl DenseNet {
             target,
             incidence_matrix: self.incidence_matrix(),
         };
-        cegar_decide::<DefaultSolver>(problem, CegarProperty::Coverability, None)
-    }
-
-    pub fn cegar_reachability(
-        &self,
-        m0: &IdxMarking<u32>,
-        target: &IdxMarking<u32>,
-    ) -> CegarResult {
-        let problem = CegarProblem {
-            net: self,
-            m0,
-            target,
-            incidence_matrix: self.incidence_matrix(),
-        };
-        cegar_decide::<DefaultSolver>(problem, CegarProperty::Reachability, None)
+        cegar_decide::<DefaultSolver>(problem, property, observer)
     }
 }

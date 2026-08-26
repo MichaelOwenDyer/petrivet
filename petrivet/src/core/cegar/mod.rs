@@ -10,8 +10,7 @@ use crate::core::cegar::solver::SmtSolver;
 use crate::core::marking::IdxMarking;
 use crate::core::net::TransitionIdx;
 use cegar::{BehavioralStep, Cegar, Structural, StructuralStep};
-use observe::CegarEvent;
-use std::sync::mpsc::Sender;
+use observe::CegarObserverFn;
 
 /// The result of the CEGAR algorithm.
 pub enum CegarResult {
@@ -44,7 +43,7 @@ pub enum CegarProperty {
 pub fn cegar_decide<S: SmtSolver>(
     problem: CegarProblem,
     op: CegarProperty,
-    observer: Option<Sender<CegarEvent>>,
+    observer: Option<CegarObserverFn>,
 ) -> CegarResult {
     let mut structural_cegar = Cegar::<Structural<S>, S>::new(problem, op, observer);
 

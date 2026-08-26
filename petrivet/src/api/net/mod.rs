@@ -74,8 +74,7 @@ pub struct Net {
     /// Inner net structure, optimized for efficient analysis algorithms.
     #[allow(clippy::struct_field_names)]
     pub(crate) dense_net: DenseNet,
-
-    /// The bipartite graph structure of the Petri net.
+    /// The bipartite graph structure of the net.
     pub(crate) graph: Graph<IdxNode, ()>,
 
     /// Monotonic counter used when converting this [`Net`] back to a [`builder::NetBuilder`]
@@ -85,7 +84,7 @@ pub struct Net {
     /// so new nodes continue to receive unused ids. Ids are never reused for removed nodes.
     pub(crate) next_transition_id: NonZeroU32,
     /// Bidirectional mapping between public handles and dense ranks for this snapshot.
-    pub(crate) mapping: DenseMapping,
+    pub(crate) mapping: std::sync::Arc<DenseMapping>,
 
     /// The annotations on the net.
     /// Boxed so that it only adds a single pointer's worth of overhead to the Net struct.

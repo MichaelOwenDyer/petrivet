@@ -1,7 +1,7 @@
 use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::cegar::CegarProperty;
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::cegar::observe::CegarEvent;
+use crate::core::cegar::observe::{IdxCegarEvent, CegarObserverFn};
 use crate::core::cegar::refinements::explore::GuidedExplorer;
 use crate::core::cegar::refinements::initially_marked_trap::InitiallyMarkedTrapRule;
 use crate::core::cegar::refinements::marking_equation::MarkingEquationRefinement;
@@ -12,7 +12,6 @@ use crate::core::cegar::solver::{Satisfiability, SmtSolver};
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
 use crate::core::parikh::IdxParikhVector;
-use std::sync::mpsc;
 
 /// CEGAR ("Counterexample-Guided Abstraction Refinement"), was first described by Clarke et al. (2000).
 /// It is a general framework for solving verification problems by iteratively refining an
@@ -53,7 +52,7 @@ pub struct Cegar<'a, T, S: SmtSolver> {
     pub solver: S,
     /// The current phase of the CEGAR analysis.
     pub context: T,
-    /// A MPSC channel for sending CEGAR events to an observer, if one is provided.
+    /// A sink for CEGAR events, if an observer is provided.
     pub observer: CegarObserver,
 }
 
@@ -68,29 +67,35 @@ pub struct CegarProblem<'a> {
     pub incidence_matrix: IncidenceMatrix,
 }
 
-/// A wrapper for an MPSC observability channel of CEGAR events.
+/// A wrapper around an optional [`CegarObserverFn`], adding the (marking, Parikh vector) context
+/// that's common to every event fired during one CEGAR step.
 pub struct CegarObserver {
-    sender: Option<mpsc::Sender<CegarEvent>>,
+    sink: Option<CegarObserverFn>,
 }
 
 impl CegarObserver {
-    /// Return a closure which sends a CEGAR event to the observer, if one is provided.
+    /// Bind (marking, Parikh vector) context for the current step, returning a callback that
+    /// refinement rules can invoke once per [`IdxLemma`] they actually assert - or `None` if no
+    /// observer is registered, so callers can skip building lemmas they'd otherwise discard.
+    ///
+    /// Returns a boxed trait object rather than `impl Fn(IdxLemma)` for the same reason
+    /// [`CegarObserverFn`] itself is boxed: refinement rules' `encode_into` methods are already
+    /// generic over the `SmtSolver` backend, and accepting this by a second generic parameter
+    /// would multiply that per distinct call site instead of erasing it once, here, where it's
+    /// cheap (one allocation per CEGAR step, not per lemma).
     pub fn with_context(
         &self,
         marking: Option<IdxMarking<u32>>,
         parikh_vector: Option<IdxParikhVector<u32>>,
-    ) -> Option<impl Fn(IdxLemma)> {
-        self.sender.as_ref().map(|observer| {
-            // todo: convert IdxMarking and IdxParikhVector and IdxLemma to API equivalents here?
-            //  would need access to the net's DenseMapping. One more degree of coupling,
-            //  but not necessarily a big deal.
-            move |lemma| {
-                let _ = observer.send(CegarEvent {
+    ) -> Option<Box<dyn Fn(IdxLemma) + '_>> {
+        self.sink.as_deref().map(|sink| {
+            Box::new(move |lemma| {
+                sink(IdxCegarEvent {
                     spurious_marking: marking.clone(),
                     spurious_parikh_vector: parikh_vector.clone(),
                     lemma,
                 });
-            }
+            }) as Box<dyn Fn(IdxLemma) + '_>
         })
     }
 }
@@ -142,13 +147,13 @@ impl<'a, S: SmtSolver + Default> Cegar<'a, Structural<S>, S> {
     pub fn new(
         problem: CegarProblem<'a>,
         property: CegarProperty,
-        observer: Option<mpsc::Sender<CegarEvent>>,
+        observer: Option<CegarObserverFn>,
     ) -> Self {
         let mut solver = S::default();
         let places = encode_place_terms(&mut solver, &problem, property);
         let p_invariant_rule = PInvariantRule::new(&problem.incidence_matrix);
         let context = Structural { places, p_invariant_rule };
-        let observer = CegarObserver { sender: observer };
+        let observer = CegarObserver { sink: observer };
 
         Self {
             problem,
@@ -211,7 +216,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
             p_invariant_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.observer.with_context(Some(candidate_marking), None)
+                self.observer.with_context(Some(candidate_marking), None).as_deref()
             );
             return StructuralStep::Refined(self);
         }
@@ -219,7 +224,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
             trap_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.observer.with_context(Some(candidate_marking), None)
+                self.observer.with_context(Some(candidate_marking), None).as_deref()
             );
             return StructuralStep::Refined(self);
         }
@@ -334,7 +339,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
             p_invariant_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector))
+                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector)).as_deref()
             );
             return BehavioralStep::Refined(self);
         }
@@ -344,7 +349,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
             trap_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector)),
+                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector)).as_deref(),
             );
             return BehavioralStep::Refined(self);
         }
@@ -357,7 +362,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                 &mut self.solver,
                 &self.context.places,
                 &self.context.transitions,
-                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector))
+                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector)).as_deref()
             );
             return BehavioralStep::Refined(self);
         }
@@ -379,7 +384,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                             &self.problem,
                             &mut self.solver,
                             &self.context.transitions,
-                            callback.as_ref()
+                            callback.as_deref()
                         );
                     }
                 }

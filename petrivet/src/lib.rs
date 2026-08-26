@@ -35,7 +35,7 @@ pub(crate) mod api;
 pub(crate) mod core;
 pub mod literature;
 
-pub use api::{builder, marking, net, pnml, state_space, system};
+pub use api::{builder, marking, net, parikh_vector, pnml, state_space, system};
 pub use core::{boundedness, class, liveness};
 
 pub mod prelude {

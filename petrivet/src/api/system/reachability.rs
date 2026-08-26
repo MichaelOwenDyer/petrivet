@@ -1,9 +1,12 @@
 use crate::class::NetClass;
-use crate::core::cegar::CegarResult;
+use crate::core::cegar::observe::IdxCegarEvent;
+use crate::core::cegar::CegarProperty;
 use crate::marking::Marking;
 use crate::net::{Net, Transition};
 use crate::prelude::PetriNet;
 use crate::system::lemma::Lemma;
+use crate::system::observe::CegarEvent;
+use std::sync::{Arc, mpsc};
 
 #[derive(Debug, Clone)]
 pub enum Reachability {
@@ -58,12 +61,20 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn is_reachable(&self, target: impl Into<Marking<u32>>) -> bool {
         let target = target.into();
         self.is_efficiently_reachable(&target)
-            .unwrap_or_else(|| self.analyze_reachability(target).is_reachable())
+            .unwrap_or_else(|| self.analyze_reachability(target, None).is_reachable())
     }
 
     /// Analyzes reachability of a target marking.
+    /// Analyzes reachability of a target marking, like [`analyze_reachability`](Self::analyze_reachability),
+    /// but additionally invokes `observer` with a [`CegarEvent`] every time the search rules out a
+    /// spurious candidate solution along the way. Useful for progress reporting on searches that
+    /// take a while - the returned [`Reachability`] is unaffected by what the observer does.
     #[must_use]
-    pub fn analyze_reachability(&self, target: impl Into<Marking<u32>>) -> Reachability {
+    pub fn analyze_reachability(
+        &self,
+        target: impl Into<Marking<u32>>,
+        observer: Option<mpsc::Sender<CegarEvent>>
+    ) -> Reachability {
         let m0 = &self.marking;
         let target = &self.mapping.decode(target.into());
 
@@ -73,24 +84,19 @@ impl<N: AsRef<Net>> PetriNet<N> {
             };
         }
 
-        match self.dense_net.cegar_reachability(m0, target) {
-            CegarResult::Satisfiable { marking: _, firing_sequence } => {
-                Reachability::Reachable {
-                    firing_sequence: firing_sequence
-                        .into_iter()
-                        .map(|t_idx| self.mapping.transition(t_idx))
-                        .collect(),
-                }
-            }
-            CegarResult::Unsatisfiable { contradiction } => {
-                Reachability::Unreachable {
-                    contradiction: contradiction
-                        .into_iter()
-                        .map(|lemma| self.mapping.lemma(lemma))
-                        .collect(),
-                }
-            }
-        }
+        let observer_fn = observer.map(|observer| {
+            let mapping = Arc::clone(&self.mapping);
+            Box::new(move |event: IdxCegarEvent| {
+                let _ = observer.send(mapping.cegar_event(event));
+            }) as Box<dyn Fn(IdxCegarEvent) + Send>
+        });
+        let cegar_result = self.dense_net.cegar_decide(
+            m0,
+            target,
+            CegarProperty::Coverability,
+            observer_fn
+        );
+        self.mapping.reachability_result(cegar_result)
     }
 }
 
