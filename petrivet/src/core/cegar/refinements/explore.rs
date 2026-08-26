@@ -237,7 +237,7 @@ impl GuidedExplorer {
                 // Rule for disabled transitions: find one insufficiently marked preset place and
                 // add all of its budgeted feeders.
                 for &p_idx in &problem.net.preset_t[t_idx] {
-                    if marking[p_idx] < u32::from(problem.incidence_matrix.get_consume(t_idx, p_idx)) {
+                    if marking[p_idx] < u32::from(problem.net.incidence_matrix.get_consume(t_idx, p_idx)) {
                         // p_idx is insufficiently marked for t_idx.
                         // Add all of its budgeted feeders to the stubborn set.
                         // If no feeder transition has remaining budget, then t_idx is permanently
@@ -319,7 +319,7 @@ fn find_bottleneck_components(
     // s -> t: t needs more of s than `marking` has. This is also exactly S0's membership test.
     for &t in &t0 {
         for &p in &problem.net.preset_t[t] {
-            if u32::from(problem.incidence_matrix.get_consume(t, p)) > marking[p] {
+            if u32::from(problem.net.incidence_matrix.get_consume(t, p)) > marking[p] {
                 let p_node = *node_index.entry(IdxNode::Place(p))
                     .or_insert_with(|| graph.add_node(IdxNode::Place(p)));
                 let t_node = *node_index.entry(IdxNode::Transition(t))
@@ -332,7 +332,7 @@ fn find_bottleneck_components(
     for &t in &t0 {
         for &p in &problem.net.postset_t[t] {
             if let Some(&p_node) = node_index.get(&IdxNode::Place(p))
-                && problem.incidence_matrix.get_effect(t, p) > 0
+                && problem.net.incidence_matrix.get_effect(t, p) > 0
             {
                 let t_node = *node_index.entry(IdxNode::Transition(t))
                     .or_insert_with(|| graph.add_node(IdxNode::Transition(t)));
@@ -381,7 +381,7 @@ fn external_consumers(
     let mut xi = FixedBitSet::with_capacity(problem.net.transition_count());
     for t_idx in component_transitions.zeroes() {
         if remaining_budget.by_transition[t_idx] > 0 && component_places.ones().any(|p_idx| {
-            u32::from(problem.incidence_matrix.get_consume(t_idx, p_idx)) > marking[p_idx]
+            u32::from(problem.net.incidence_matrix.get_consume(t_idx, p_idx)) > marking[p_idx]
         }) {
             xi.insert(t_idx);
         }
@@ -472,7 +472,7 @@ impl IncrementRefinement {
                 &component_transitions,
             );
             let needed_tokens = estimate_needed_tokens(
-                &problem.incidence_matrix,
+                &problem.net.incidence_matrix,
                 &self.marking,
                 &component_places,
                 &component_transitions,
@@ -490,7 +490,7 @@ impl IncrementRefinement {
                 if self.remaining_budget.by_transition[t] == 0 {
                     let net_production: i32 = component_places
                         .ones()
-                        .map(|p| i32::from(problem.incidence_matrix.get_effect(t, p)))
+                        .map(|p| i32::from(problem.net.incidence_matrix.get_effect(t, p)))
                         .sum();
 
                     if net_production > 0 {
@@ -542,7 +542,6 @@ mod tests {
         b.add_arcs((p, t_pq, q));
         b.add_arcs((q, t_qp, p));
         let net = b.build().unwrap().dense_net;
-        let incidence_matrix = net.incidence_matrix();
 
         let p_idx = 0;
         let q_idx = 1;
@@ -557,7 +556,7 @@ mod tests {
         let external_consumers = FixedBitSet::with_capacity(2); // unused when Ti != ∅
 
         let n = estimate_needed_tokens(
-            &incidence_matrix,
+            &net.incidence_matrix,
             &marking,
             &component_places,
             &component_transitions,
@@ -581,7 +580,6 @@ mod tests {
         b.add_arcs((s, t2, s)); // self-loop: consumes 1, produces 1 back
         b.add_arc((s, t3)); // pure sink: consumes 1, produces nothing back
         let net = b.build().unwrap().dense_net;
-        let incidence_matrix = net.incidence_matrix();
 
         let s_idx = 0;
         let marking = IdxMarking(vec![0]);
@@ -595,7 +593,7 @@ mod tests {
         external_consumers.insert(2);
 
         let n = estimate_needed_tokens(
-            &incidence_matrix,
+            &net.incidence_matrix,
             &marking,
             &component_places,
             &component_transitions,

@@ -17,7 +17,7 @@ impl MarkingEquationRefinement {
             let initial_marking = problem.m0[p_idx];
             let net_effects: Vec<(TransitionIdx, i16)> = problem.net.transition_indices()
                 .filter_map(|t_idx| {
-                    let effect = problem.incidence_matrix.get_effect(t_idx, p_idx);
+                    let effect = problem.net.incidence_matrix.get_effect(t_idx, p_idx);
                     (effect != 0).then_some((t_idx, effect))
                 })
                 .collect();

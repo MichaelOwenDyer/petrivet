@@ -44,6 +44,34 @@ impl IncidenceMatrix {
         }
     }
 
+    /// Constructs the |P| × |T| incidence matrix for a given net.
+    #[must_use]
+    pub fn from_preset_and_postset(
+        place_count: usize,
+        preset_t: &[Box<[PlaceIdx]>],
+        postset_t: &[Box<[PlaceIdx]>],
+    ) -> Self {
+        let rows = place_count;
+        let cols = preset_t.len();
+        let mut consume = vec![0; rows * cols].into_boxed_slice();
+        let mut produce = vec![0; rows * cols].into_boxed_slice();
+
+        for t in 0..cols as TransitionIdx {
+            for &p in &preset_t[t] {
+                consume[p * cols + t] += 1;
+            }
+            for &p in &postset_t[t] {
+                produce[p * cols + t] += 1;
+            }
+        }
+        IncidenceMatrix {
+            consume,
+            produce,
+            places: rows,
+            transitions: cols,
+        }
+    }
+
     /// Returns the number of tokens transition `t` consumes from place `p`.
     #[must_use]
     pub fn get_consume(&self, transition: TransitionIdx, place: PlaceIdx) -> u8 {

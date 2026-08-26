@@ -35,6 +35,7 @@ use std::error::Error;
 use std::hash::Hash;
 use std::num::NonZeroU32;
 use std::{fmt, iter};
+use crate::core::analysis::incidence::IncidenceMatrix;
 
 /// Builder for an ordinary Petri net.
 #[derive(Debug, Clone)]
@@ -497,7 +498,7 @@ impl NetBuilder {
             let t_indices: Vec<NodeIndex> = (0..ordered_transitions.len())
                 .map(|t_idx| graph.add_node(IdxNode::Transition(t_idx)))
                 .collect();
-            (0..)
+            (0 as TransitionIdx..)
                 .zip(preset_t.iter().zip(postset_t.iter()))
                 .flat_map(|(t_idx, (preset, postset))| {
                     let transition_node = t_indices[t_idx];
@@ -518,10 +519,16 @@ impl NetBuilder {
         };
 
         let is_strongly_connected = petgraph::algo::tarjan_scc(&graph).len() == 1;
+        let incidence_matrix = IncidenceMatrix::from_preset_and_postset(
+            self.places.len(),
+            &preset_t,
+            &postset_t
+        );
 
         let core_net = DenseNet {
             class,
             is_strongly_connected,
+            incidence_matrix,
             preset_t,
             postset_t,
             preset_p,

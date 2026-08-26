@@ -130,7 +130,6 @@ mod tests {
             net,
             m0,
             target,
-            incidence_matrix: net.incidence_matrix(),
         };
         cegar_decide::<S>(problem, op, None)
     }
