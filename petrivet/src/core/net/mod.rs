@@ -45,6 +45,8 @@ pub struct DenseNet {
     /// every other node. This is an important property for some algorithms,
     /// so we compute it at build time.
     pub is_strongly_connected: bool,
+    /// The incidence matrix of the net, which encodes the net effect of each transition on each place.
+    pub incidence_matrix: IncidenceMatrix,
     /// Transition presets: for each transition t, the set of places in `•t`.
     pub preset_t: Box<[Box<[PlaceIdx]>]>,
     /// Transition postsets: for each transition t, the set of places in `t•`.
@@ -176,7 +178,6 @@ impl DenseNet {
             net: self,
             m0,
             target,
-            incidence_matrix: self.incidence_matrix(),
         };
         cegar_decide::<DefaultSolver>(problem, property, observer)
     }

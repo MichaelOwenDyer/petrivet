@@ -1,12 +1,11 @@
-use crate::core::cegar::{CegarProperty, CegarResult};
-use crate::core::mapping::DenseMapping;
+use crate::core::cegar::CegarProperty;
 use crate::marking::Marking;
 use crate::net::{Net, Transition};
 use crate::prelude::PetriNet;
 pub use crate::system::lemma::Lemma;
+use crate::core::cegar::observe::IdxCegarEvent;
 use crate::system::observe::CegarEvent;
 use std::sync::{Arc, mpsc};
-use crate::core::cegar::observe::IdxCegarEvent;
 
 #[derive(Debug, Clone)]
 pub enum CoverabilityResult {
@@ -81,26 +80,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
     }
 }
 
-/// Shared by [`analyze_coverability`](PetriNet::analyze_coverability) and
-/// [`analyze_coverability_with_observer`](PetriNet::analyze_coverability_with_observer).
-fn translate(mapping: &DenseMapping, result: CegarResult) -> CoverabilityResult {
-    match result {
-        CegarResult::Satisfiable { marking, firing_sequence } => CoverabilityResult::Coverable {
-            firing_sequence: mapping.firing_sequence(firing_sequence),
-            marking: mapping.encode(marking),
-        },
-        CegarResult::Unsatisfiable { contradiction } => CoverabilityResult::Uncoverable {
-            contradiction: contradiction.into_iter().map(|lemma| mapping.lemma(lemma)).collect(),
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::builder::NetBuilder;
     use crate::marking::Marking;
     use crate::prelude::PetriNet;
-    use crate::system::coverability::CoverabilityResult;
+    use crate::system::coverability::{CoverabilityResult, Lemma};
     use std::sync::mpsc;
 
     #[test]
@@ -172,5 +157,148 @@ mod tests {
             }
             CoverabilityResult::Coverable { .. } => unreachable!("checked above"),
         }
+    }
+
+    #[test]
+    fn free_choice_uncoverable() {
+        let mut b = NetBuilder::new();
+
+        let [s1, s2, s3, s4, s5, s6, s7, s8] = dbg!(b.add_places());
+        let [t1, t2, t3, t4, t5, t6, t7] = dbg!(b.add_transitions());
+
+        b.add_arcs((s1, t1, s3, t3, s7, t7, s1));
+        b.add_arcs((s2, t1, s4, t4, s8, t7));
+        b.add_arcs((s1, t2, s5, t5, s7, t7, s2));
+        b.add_arcs((s2, t2, s6, t6, s8, t7));
+
+        let net = b.build().expect("connected and non-degenerate net");
+        println!("Structural class: {}", net.class());
+
+        // initial state: m1 = false, m2 = false, hold = 1, both processes idle
+        let initial_marking = dbg!([(s3, 1), (s6, 1)]);
+        // dangerous situation: both processes in critical section at the same time
+        let dangerous = dbg!([(s4, 1), (s5, 1)]);
+
+        let pn = PetriNet::new(&net, initial_marking);
+        let CoverabilityResult::Uncoverable { contradiction } = dbg!(pn.analyze_coverability(dangerous, None)) else {
+            panic!("expected the target marking to be uncoverable from the initial marking, but it was coverable.");
+        };
+        assert_eq!(contradiction.len(), 1);
+        assert!(contradiction.contains(&Lemma::InitiallyMarkedTrap([s1, s2, s3, s6, s7, s8].into_iter().collect())));
+    }
+
+    #[test]
+    fn causal_ordering_contradiction() {
+        let mut b = NetBuilder::new();
+
+        let [s1, s2, s3] = dbg!(b.add_places());
+        let [t1, t2] = dbg!(b.add_transitions());
+
+        b.add_arcs((s1, t1, s2, t2, s1));
+        b.add_arc((t2, s3));
+
+        let net = b.build().expect("connected and non-degenerate net");
+        println!("Structural class: {}", net.class());
+
+        let m0 = [];
+        let target = [(s3, 1)];
+
+        let pn = PetriNet::new(&net, m0);
+        let coverability = dbg!(pn.analyze_coverability(target, None));
+
+        let CoverabilityResult::Uncoverable { contradiction: lemmas } = coverability else {
+            panic!("expected the target marking to be uncoverable from the initial marking, but it was coverable.");
+        };
+        assert_eq!(lemmas.len(), 3, "expected 3 contradictory lemmas, found {}", lemmas.len());
+        assert!(lemmas.contains(&Lemma::MarkingEquation {
+            place: s3,
+            initial_marking: 0,
+            net_effects: std::iter::once((t2, 1)).collect(),
+        }));
+        assert!(lemmas.contains(&Lemma::CausalOrdering {
+            transition: t1,
+            place: s1,
+            feeders: std::iter::once(t2).collect(),
+        }));
+        assert!(lemmas.contains(&Lemma::CausalOrdering {
+            transition: t2,
+            place: s2,
+            feeders: std::iter::once(t1).collect(),
+        }));
+    }
+
+    #[test]
+    fn only_once() {
+        let mut b = NetBuilder::new();
+
+        let [s1, s2, s3, s4, s5, s6, s7, count] = dbg!(b.add_places());
+        let [t_once, t2, t3, t4, t5, t6] = dbg!(b.add_transitions());
+
+        b.add_arcs((s1, t_once, s2, t2, s1));
+        b.add_arcs((s7, t5, s5, t3, s3, t2));
+        b.add_arcs((s7, t6, s6, t4, s4, t2));
+        b.add_arc((t5, s4));
+        b.add_arc((t6, s3));
+        b.add_arc((t2, s7));
+        b.add_arc((t_once, count));
+
+        let net = b.build().expect("connected and non-degenerate net");
+        println!("Structural class: {}", net.class());
+
+        let initial_marking = dbg!([(s1, 1), (s5, 1), (s6, 1)]);
+        let target = dbg!([(s2, 1), (s5, 1), (s6, 1), (count, 2)]);
+
+        let pn = PetriNet::new(&net, initial_marking);
+        let coverability = dbg!(pn.analyze_coverability(target, None));
+
+        let CoverabilityResult::Uncoverable { contradiction: lemmas } = coverability else {
+            panic!("expected the target marking to be uncoverable from the initial marking, but it was coverable.");
+        };
+        assert_eq!(lemmas.len(), 9, "expected 9 contradictory lemmas, found {}", lemmas.len());
+        assert!(lemmas.contains(&Lemma::MarkingEquation {
+            place: s2,
+            initial_marking: 0,
+            net_effects: [(t2, -1), (t_once, 1)].into_iter().collect(),
+        }));
+        assert!(lemmas.contains(&Lemma::MarkingEquation {
+            place: s5,
+            initial_marking: 1,
+            net_effects: [(t3, -1), (t5, 1)].into_iter().collect(),
+        }));
+        assert!(lemmas.contains(&Lemma::MarkingEquation {
+            place: s6,
+            initial_marking: 1,
+            net_effects: [(t4, -1), (t6, 1)].into_iter().collect(),
+        }));
+        assert!(lemmas.contains(&Lemma::MarkingEquation {
+            place: s7,
+            initial_marking: 0,
+            net_effects: [(t2, 1), (t5, -1), (t6, -1)].into_iter().collect(),
+        }));
+        assert!(lemmas.contains(&Lemma::MarkingEquation {
+            place: count,
+            initial_marking: 0,
+            net_effects: [(t_once, 1)].into_iter().collect(),
+        }));
+        assert!(lemmas.contains(&Lemma::CausalOrdering {
+            transition: t2,
+            place: s4,
+            feeders: [t4, t5].into_iter().collect(),
+        }));
+        assert!(lemmas.contains(&Lemma::CausalOrdering {
+            transition: t2,
+            place: s3,
+            feeders: [t3, t6].into_iter().collect(),
+        }));
+        assert!(lemmas.contains(&Lemma::CausalOrdering {
+            transition: t5,
+            place: s7,
+            feeders: [t2].into_iter().collect(),
+        }));
+        assert!(lemmas.contains(&Lemma::CausalOrdering {
+            transition: t6,
+            place: s7,
+            feeders: [t2].into_iter().collect(),
+        }));
     }
 }

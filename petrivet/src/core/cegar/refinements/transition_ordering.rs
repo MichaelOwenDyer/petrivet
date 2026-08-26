@@ -1,4 +1,3 @@
-use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::cegar::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::SmtSolver;
@@ -23,7 +22,6 @@ impl TransitionOrderingRule {
     pub fn check(
         net: &DenseNet,
         m0: &IdxMarking<u32>,
-        incidence_matrix: &IncidenceMatrix,
     ) -> Option<TransitionOrderingRefinement> {
         let mut graph: Graph<IdxNode, ()> = Graph::new();
         let mut node_index: HashMap<IdxNode, NodeIndex> = HashMap::new();
@@ -31,7 +29,7 @@ impl TransitionOrderingRule {
         // place -> transition: transition needs more tokens from place than m0 provides.
         for t_idx in net.transition_indices() {
             for &p_idx in &net.preset_t[t_idx] {
-                if u32::from(incidence_matrix.get_consume(t_idx, p_idx)) > m0[p_idx] {
+                if u32::from(net.incidence_matrix.get_consume(t_idx, p_idx)) > m0[p_idx] {
                     let p_node = *node_index.entry(IdxNode::Place(p_idx))
                         .or_insert_with(|| graph.add_node(IdxNode::Place(p_idx)));
                     let t_node = *node_index.entry(IdxNode::Transition(t_idx))
@@ -45,7 +43,7 @@ impl TransitionOrderingRule {
         for t_idx in net.transition_indices() {
             for &p_idx in &net.postset_t[t_idx] {
                 if let Some(&p_node) = node_index.get(&IdxNode::Place(p_idx))
-                    && incidence_matrix.get_effect(t_idx, p_idx) > 0 {
+                    && net.incidence_matrix.get_effect(t_idx, p_idx) > 0 {
                     let t_node = *node_index.entry(IdxNode::Transition(t_idx))
                         .or_insert_with(|| graph.add_node(IdxNode::Transition(t_idx)));
                     graph.add_edge(t_node, p_node, ());
@@ -109,7 +107,7 @@ impl TransitionOrderingRefinement {
             let feeders: Vec<TransitionIdx> = problem.net.preset_p[p_idx]
                 .iter()
                 .copied()
-                .filter(|&feeder| feeder != t_idx && problem.incidence_matrix.get_effect(feeder, p_idx) > 0)
+                .filter(|&feeder| feeder != t_idx && problem.net.incidence_matrix.get_effect(feeder, p_idx) > 0)
                 .collect();
 
             if feeders.is_empty() {
@@ -166,7 +164,6 @@ mod tests {
         let refinement = TransitionOrderingRule::check(
             &net.dense_net,
             &m0,
-            &net.dense_net.incidence_matrix(),
         ).expect("cycle should be detected");
 
         assert_eq!(refinement.dependencies.len(), 2, "exactly two dependencies should be reported");
@@ -191,8 +188,7 @@ mod tests {
         b.add_arcs((p, t, q));
         let net = b.build().unwrap();
         let m0 = Marking::from([(p, 1)]); // p already sufficiently marked for t
-        let incidence_matrix = net.dense_net.incidence_matrix();
-        let refinement = TransitionOrderingRule::check(&net.dense_net, &net.mapping.decode(m0), &incidence_matrix);
+        let refinement = TransitionOrderingRule::check(&net.dense_net, &net.mapping.decode(m0));
         assert!(refinement.is_none(), "no place is insufficiently marked, so nothing qualifies");
     }
 }

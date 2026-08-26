@@ -1,7 +1,6 @@
-use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::cegar::CegarProperty;
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::cegar::observe::{IdxCegarEvent, CegarObserverFn};
+use crate::core::cegar::observe::{CegarObserverFn, IdxCegarEvent};
 use crate::core::cegar::refinements::explore::GuidedExplorer;
 use crate::core::cegar::refinements::initially_marked_trap::InitiallyMarkedTrapRule;
 use crate::core::cegar::refinements::marking_equation::MarkingEquationRefinement;
@@ -63,8 +62,6 @@ pub struct CegarProblem<'a> {
     pub m0: &'a IdxMarking<u32>,
     /// The target marking.
     pub target: &'a IdxMarking<u32>,
-    /// The net's incidence matrix.
-    pub incidence_matrix: IncidenceMatrix,
 }
 
 /// A wrapper around an optional [`CegarObserverFn`], adding the (marking, Parikh vector) context
@@ -151,7 +148,7 @@ impl<'a, S: SmtSolver + Default> Cegar<'a, Structural<S>, S> {
     ) -> Self {
         let mut solver = S::default();
         let places = encode_place_terms(&mut solver, &problem, property);
-        let p_invariant_rule = PInvariantRule::new(&problem.incidence_matrix);
+        let p_invariant_rule = PInvariantRule::new(&problem.net.incidence_matrix);
         let context = Structural { places, p_invariant_rule };
         let observer = CegarObserver { sink: observer };
 
@@ -266,7 +263,6 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
         if let Some(transition_ordering_refinement) = TransitionOrderingRule::check(
             problem.net,
             problem.m0,
-            &problem.incidence_matrix,
         ) {
             transition_ordering_refinement.encode_into(&mut solver, &problem, &transitions);
         }
