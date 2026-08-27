@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn causal_ordering_contradiction() {
+    fn transition_ordering_contradiction() {
         let mut b = NetBuilder::new();
 
         let [s1, s2, s3] = dbg!(b.add_places());

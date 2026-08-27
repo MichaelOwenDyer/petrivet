@@ -7,15 +7,15 @@ use crate::core::parikh::IdxParikhVector;
 use crate::core::siphon_trap::IdxTrap;
 use fixedbitset::FixedBitSet;
 
-/// This rule identifies spurious solutions of marking + Parikh vector where the candidate
-/// marking contains an unmarked trap that firing the Parikh vector's support would necessarily
-/// have marked.
+/// This rule identifies spurious marking + Parikh vector pairs where the candidate
+/// marking contains an unmarked trap which, after firing the Parikh vector's support,
+/// would necessarily have to have become marked.
 ///
-/// A real firing sequence realizing a Parikh vector fires *exactly* the transitions in its
-/// support `U` (every transition with a positive firing count, and no other). So if we can find
-/// a trap `Q` which is completely empty in the candidate marking, but which some transition in `U`
-/// would feed, that's a contradiction: firing `U` must put a token into `Q` at some point, and
-/// once fed, `Q` can never be emptied again, so it cannot possibly be empty in the final marking.
+/// A firing sequence realizing a Parikh vector fires the transitions in the vector's support `U`
+/// (every transition with a positive firing count) and no others.
+/// If we can find a trap `Q` which is completely empty in the candidate marking, but which some
+/// transition in `U` would feed, that is a contradiction: firing `U` must put a token into `Q`,
+/// marking `Q` forever.
 pub struct TrapBecomesMarkedRule;
 
 impl TrapBecomesMarkedRule {
@@ -32,23 +32,19 @@ impl TrapBecomesMarkedRule {
         for t_idx in net.transition_indices() {
             support.set(t_idx, candidate_parikh_vector[t_idx] > 0);
         }
-        if support.is_clear() {
-            return None;
-        }
 
-        // The places of the subnet induced by U (•U ∪ U•), restricted to those unmarked in the
-        // candidate marking - a marked place can never be part of an *unmarked* trap.
-        let mut places = FixedBitSet::with_capacity(net.place_count());
+        // The unmarked places in the subnet induced by U (•U ∪ U•)
+        let mut unmarked_places_in_subnet = FixedBitSet::with_capacity(net.place_count());
         for t_idx in support.ones() {
             for &p in net.preset_t[t_idx].iter().chain(net.postset_t[t_idx].iter()) {
                 if candidate_marking[p] == 0 {
-                    places.insert(p);
+                    unmarked_places_in_subnet.insert(p);
                 }
             }
         }
 
         // The maximal trap of the whole net contained within that subnet.
-        let trap = maximal_trap_in(net, places);
+        let trap = maximal_trap_in(net, unmarked_places_in_subnet);
         if trap.is_clear() {
             return None;
         }
@@ -62,26 +58,23 @@ impl TrapBecomesMarkedRule {
             }
         }
 
-        // Only report this if firing U is actually what would feed the trap. Otherwise `trap`
-        // is really just an unmarked trap of the whole net unrelated to this candidate - not
-        // what this rule is meant to find (and if it happens to also be marked in `m0`,
-        // `InitiallyMarkedTrapRule` already covers that case independently of any Parikh vector).
-        if feeders.is_disjoint(&support) {
-            return None;
-        }
-
-        Some(TrapBecomesMarkedRefinement {
+        // If any of the traps' feeders is in the support of the candidate Parikh vector,
+        // then the candidate marking is spurious: firing the Parikh vector would necessarily
+        // put a token into the trap, marking it forever.
+        (!feeders.is_disjoint(&support)).then_some(TrapBecomesMarkedRefinement {
             trap,
             feeders,
         })
     }
 }
 
+/// A refinement that encodes that a trap must be marked if any of its feeder transitions fire.
 #[derive(Debug, Clone)]
 pub struct TrapBecomesMarkedRefinement {
-    /// A trap of the whole net which is unmarked in the candidate marking.
+    /// A trap which is unmarked in the current candidate marking.
     trap: IdxTrap,
-    /// The transitions which produce into `trap` (i.e. •trap, over the whole net).
+    /// The transitions which produce into `trap`.
+    /// If any of these fire, the trap may not remain unmarked.
     feeders: FixedBitSet,
 }
 

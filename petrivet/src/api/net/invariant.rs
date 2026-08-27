@@ -15,8 +15,11 @@ pub enum PInvariantKind {
 /// entirely derived from the structure of the net (i.e., not dependent on any particular marking).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PInvariant {
+    /// The places and their weights that define the invariant.
     pub weights: Vec<(Place, u32)>,
+    /// The weighted sum of the initial marking's tokens over the invariant's places.
     pub value: u32,
+    /// The kind of invariant: exact, subinvariant, or surinvariant.
     pub kind: PInvariantKind,
 }
 

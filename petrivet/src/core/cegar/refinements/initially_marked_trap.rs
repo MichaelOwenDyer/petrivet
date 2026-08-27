@@ -6,8 +6,8 @@ use crate::core::net::PlaceIdx;
 use crate::core::siphon_trap::IdxTrap;
 use fixedbitset::FixedBitSet;
 
-/// Ensures that the SMT solver keeps all traps which were marked in m0
-/// also marked in the candidate solution.
+/// Ensures that the SMT solver keeps all traps which were marked in the initial marking
+/// also marked in its candidate solutions.
 pub struct InitiallyMarkedTrapRule;
 
 impl InitiallyMarkedTrapRule {
@@ -38,20 +38,18 @@ impl InitiallyMarkedTrapRule {
             }
         }
 
-        if trap.ones().any(|p| problem.m0[p] > 0) {
-            Some(InitiallyMarkedTrapRefinement { trap })
-        } else {
-            None
-        }
+        trap.ones()
+            .any(|p| problem.m0[p] > 0)
+            .then_some(InitiallyMarkedTrapRefinement { trap })
     }
 }
 
+/// A refinement that encodes an initially marked trap into the SMT solver:
+/// the SMT solver must always put at least one token in the trap.
 #[derive(Debug, Clone)]
 pub struct InitiallyMarkedTrapRefinement {
-    /// The trap (set of places represented as a bitset) which is marked in the initial marking
-    /// but not in the candidate marking.
-    /// This set of places can never collectively have zero tokens in any reachable marking,
-    /// which contradicts the candidate marking.
+    /// The trap (set of places represented as a bitset) which is marked in the initial marking.
+    /// This set of places can never collectively have zero tokens in any reachable marking.
     pub trap: IdxTrap,
 }
 

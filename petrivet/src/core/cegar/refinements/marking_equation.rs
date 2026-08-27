@@ -4,6 +4,13 @@ use crate::core::cegar::solver::SmtSolver;
 use crate::core::net::TransitionIdx;
 
 /// This refinement encodes the state equation of the net into the SMT solver.
+///
+/// The state equation is a linear equation that relates the initial marking of the net,
+/// the incidence matrix, and the firing counts of transitions to the current marking of the net.
+///
+/// The state equation is an overapproximation of the set of reachable markings:
+/// Any reachable marking is a solution to the state equation, but not all solutions are
+/// reachable markings due to the lack of any notion of firing sequence or transition enabling conditions.
 pub struct MarkingEquationRefinement;
 
 impl MarkingEquationRefinement {

@@ -1,6 +1,9 @@
 use crate::core::state_space::TokenOps;
 use crate::net::Transition;
 
+/// A Parikh vector is a mapping from transitions to firing counts.
+/// It describes how many times each transition fires in a firing sequence,
+/// but says nothing about the firing order.
 #[derive(Debug, Clone, Default, Eq, PartialEq, Hash)]
 pub struct ParikhVector<T> {
     /// The support of the marking.
@@ -11,6 +14,8 @@ pub struct ParikhVector<T> {
 }
 
 impl<T> ParikhVector<T> {
+    /// Returns an iterator over the transitions in the support of this Parikh vector,
+    /// e.g., the transitions that have non-zero firing counts.
     pub fn support(&self) -> impl Iterator<Item = Transition> + '_ {
         self.support.iter().map(|(transition, _)| *transition)
     }
@@ -32,7 +37,7 @@ impl<T: TokenOps, const N: usize> From<[(Transition, T); N]> for ParikhVector<T>
 }
 
 impl<T: TokenOps> ParikhVector<T> {
-    /// Returns the number of tokens this Parikh vector assigns to the provided [`Transition`].
+    /// Returns the firing count of the given transition in this Parikh vector.
     #[must_use]
     pub fn get(&self, transition: Transition) -> T {
         self.support
@@ -41,6 +46,8 @@ impl<T: TokenOps> ParikhVector<T> {
             .map_or(T::ZERO, |(_, t)| *t)
     }
 
+    /// Returns the total number of firings in this Parikh vector.
+    #[must_use]
     pub fn total_firings(&self) -> T {
         self.support.iter().map(|(_, t)| *t).sum()
     }
