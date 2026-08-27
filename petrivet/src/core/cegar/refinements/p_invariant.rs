@@ -7,12 +7,13 @@ use crate::core::net::PlaceIdx;
 use tap::TapOptional;
 use crate::net::invariant::PInvariantKind;
 
-/// Ensures that the SMT solver respects the P-Invariants (or sub-/sur-invariants) of the net.
+/// Ensures that the SMT solver respects the P-Invariants of the net.
 pub struct PInvariantRule<S: SmtSolver> {
     /// The SMT solver instance used to encode and check the P-Invariant constraints.
     solver: S,
-    /// The weight variables for each place in the net, representing the coefficients of the invariant.
-    weights: Vec<S::Int>,
+    /// The weight variables for each place in the net, which the SMT solver will assign values to
+    /// in order to find a P-Invariant.
+    weight_terms: Vec<S::Int>,
     /// Boolean variable indicating whether the invariant condition is being enforced
     /// (i.e., the weighted sum is always constant).
     is_invariant: S::Bool,
@@ -33,19 +34,19 @@ impl<S: SmtSolver> PInvariantRule<S> {
         let is_surinvariant = solver.mk_bool_var("surinvariant");
 
         let zero = solver.mk_int(0);
-        let weights: Vec<S::Int> = incidence_matrix
+        let weight_terms: Vec<S::Int> = incidence_matrix
             .place_indices()
             .map(|p_idx| solver.mk_int_var(&format!("p_idx_{p_idx}")))
             .collect();
-        for weight in &weights {
+        for weight in &weight_terms {
             let weight_ge_zero = solver.ge(weight, &zero);
             solver.assert(&weight_ge_zero);
         }
 
         for t_idx in incidence_matrix.transition_indices() {
-            let muls: Vec<S::Int> = incidence_matrix
+            let weighted_effects: Vec<S::Int> = incidence_matrix
                 .place_indices()
-                .zip(weights.iter())
+                .zip(weight_terms.iter())
                 .filter_map(|(p_idx, weight)| {
                     let incidence = incidence_matrix.get_effect(t_idx, p_idx);
                     (incidence != 0).then(|| {
@@ -54,37 +55,32 @@ impl<S: SmtSolver> PInvariantRule<S> {
                     })
                 })
                 .collect();
-            if !muls.is_empty() {
-                let sum = solver.add(muls);
-
-                let eq_zero = solver.eq(&sum, &zero);
-                let invariant_cond = solver.implies(&is_invariant, &eq_zero);
-                solver.assert(&invariant_cond);
-
-                let le_zero = solver.le(&sum, &zero);
-                let subinvariant_cond = solver.implies(&is_subinvariant, &le_zero);
-                solver.assert(&subinvariant_cond);
-
-                let ge_zero = solver.ge(&sum, &zero);
-                let surinvariant_cond = solver.implies(&is_surinvariant, &ge_zero);
-                solver.assert(&surinvariant_cond);
+            if !weighted_effects.is_empty() {
+                let effect = solver.add(weighted_effects);
+                let effect_eq_zero = solver.eq(&effect, &zero);
+                let effect_le_zero = solver.le(&effect, &zero);
+                let effect_ge_zero = solver.ge(&effect, &zero);
+                let seek_invariant_when_enabled = solver.implies(&is_invariant, &effect_eq_zero);
+                let seek_subinvariant_when_enabled = solver.implies(&is_subinvariant, &effect_le_zero);
+                let seek_surinvariant_when_enabled = solver.implies(&is_surinvariant, &effect_ge_zero);
+                solver.assert(&seek_invariant_when_enabled);
+                solver.assert(&seek_subinvariant_when_enabled);
+                solver.assert(&seek_surinvariant_when_enabled);
             }
         }
 
-        solver.push();
-
-        Self { solver, weights, is_invariant, is_subinvariant, is_surinvariant }
+        Self { solver, weight_terms, is_invariant, is_subinvariant, is_surinvariant }
     }
 }
 
 /// The weighted sum of `weights` over `marking`'s places, or `zero` if every place has either
 /// a zero weight or a zero token count (`solver.add` must not be called with an empty collection).
-fn dot<S: SmtSolver>(
+fn dot_product<S: SmtSolver>(
     solver: &mut S,
     weights: &[S::Int],
     marking: &IdxMarking<u32>,
 ) -> S::Int {
-    let muls: Vec<S::Int> = weights
+    let weighted_tokens: Vec<S::Int> = weights
         .iter()
         .zip(marking.iter())
         .filter(|&(_, &tokens)| tokens > 0)
@@ -93,53 +89,53 @@ fn dot<S: SmtSolver>(
             solver.mul([weight.clone(), tokens_term])
         })
         .collect();
-    if muls.is_empty() {
+    if weighted_tokens.is_empty() {
         solver.mk_int(0)
     } else {
-        solver.add(muls)
+        solver.add(weighted_tokens)
     }
 }
 
 impl<S: SmtSolver> PInvariantRule<S> {
-    /// A weighted token sum across a subset of the net's places
-    /// that is invariant under the net's transitions.
-    /// If there exists some P-Invariant that has a different value
-    /// in the initial marking than in the candidate marking,
-    /// then we know it cannot be a valid solution.
-    ///
-    /// This search is a self-contained SMT query, entirely decoupled from the main CEGAR
-    /// solver's incremental state, so it's driven by its own fresh instance of the same
-    /// backend `S` rather than sharing the caller's solver.
+    /// Checks whether the given candidate marking violates any P-Invariant of the net.
     pub fn check(
         &mut self,
         problem: &CegarProblem,
         candidate: &IdxMarking<u32>,
     ) -> Option<PInvariantRefinement> {
-        let m0_dot = dot(&mut self.solver, &self.weights, problem.m0);
-        let target_dot = dot(&mut self.solver, &self.weights, candidate);
-        let target_lt = self.solver.lt(&target_dot, &m0_dot);
-        let target_gt = self.solver.gt(&target_dot, &m0_dot);
+        let m0_value = dot_product(&mut self.solver, &self.weight_terms, problem.m0);
+        let target_value = dot_product(&mut self.solver, &self.weight_terms, candidate);
+
+        let target_lt = self.solver.lt(&target_value, &m0_value);
+        let target_gt = self.solver.gt(&target_value, &m0_value);
         let target_neq = self.solver.or([target_lt.clone(), target_gt.clone()]);
 
+        // Try to find a violated exact invariant first.
         {
-            // Try to find a violated invariant first.
             self.solver.push();
 
-            let invariant_cond = self.solver.and([self.is_invariant.clone(), target_neq]);
-            self.solver.assert(&invariant_cond);
+            // Seek a constant weighted sum in the net, such that...
+            self.solver.assert(&self.is_invariant);
+            // ...the value of the target is not equal to the value of the initial marking.
+            self.solver.assert(&target_neq);
 
             if self.solver.check() == Satisfiability::Sat {
+                // Found one
                 return self.extract_and_cleanup(problem, PInvariantKind::Invariant);
             }
 
             // Couldn't find anything.
             self.solver.pop();
         }
+        // That didn't work, so try to find a violated subinvariant or surinvariant.
         {
-            // That didn't work, so try to find a violated sub- or sur-invariant.
             self.solver.push();
 
+            // Seek a non-increasing weighted sum in the net such that the value of the target
+            // is greater than the value of the initial marking.
             let subinvariant_cond = self.solver.and([self.is_subinvariant.clone(), target_gt]);
+            // Seek a non-decreasing weighted sum in the net such that the value of the target
+            // is less than the value of the initial marking.
             let surinvariant_cond = self.solver.and([self.is_surinvariant.clone(), target_lt]);
             let either = self.solver.or([subinvariant_cond, surinvariant_cond]);
             self.solver.assert(&either);
@@ -149,6 +145,7 @@ impl<S: SmtSolver> PInvariantRule<S> {
                     self.solver.eval_bool(&self.is_subinvariant),
                     self.solver.eval_bool(&self.is_surinvariant)
                 ) {
+                    // we expect exactly one of these to be true, but not both.
                     (Some(true), Some(false)) => PInvariantKind::Subinvariant,
                     (Some(false), Some(true)) => PInvariantKind::Surinvariant,
                     (sub, sur) => panic!("unexpected model: subinvariant={sub:?}, surinvariant={sur:?}"),
@@ -162,12 +159,13 @@ impl<S: SmtSolver> PInvariantRule<S> {
         None
     }
 
+    /// Extracts the P-Invariant from the solver's model and cleans up the solver state.
     fn extract_and_cleanup(
         &mut self,
         problem: &CegarProblem,
         kind: PInvariantKind,
     ) -> Option<PInvariantRefinement> {
-        let weights: Vec<(PlaceIdx, u32)> = self.weights.iter()
+        let weights: Vec<(PlaceIdx, u32)> = self.weight_terms.iter()
             .enumerate()
             .filter_map(|(p_idx, weight_term)| {
                 let w = self.solver.eval_int(weight_term).tap_none(|| {
@@ -182,9 +180,13 @@ impl<S: SmtSolver> PInvariantRule<S> {
         self.solver.pop();
 
         if weights.is_empty() {
+            // not expected: all zero weights would be equal to 0 for every target and initial marking,
+            // so the solver should not have returned SAT in the first place.
+            eprintln!("warning! no non-zero weights found in P-Invariant model");
             return None;
         }
 
+        // The value of the invariant in the initial marking defines its domain for all reachable markings.
         let value: u32 = weights.iter().map(|&(p, w)| w * problem.m0[p]).sum();
 
         Some(PInvariantRefinement(IdxPInvariant {
@@ -195,6 +197,7 @@ impl<S: SmtSolver> PInvariantRule<S> {
     }
 }
 
+/// A P-Invariant is a weighted sum of places which is either constant, non-increasing, or non-decreasing,
 #[derive(Debug, Clone)]
 pub struct IdxPInvariant {
     /// The places and their weights that define the invariant.

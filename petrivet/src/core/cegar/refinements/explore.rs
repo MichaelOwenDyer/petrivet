@@ -54,7 +54,7 @@ impl TransitionFiringBudget {
     }
 }
 
-/// An Increment Constraint (Wimmel & Wolf 2011).
+/// An Increment Constraint (Wimmel & Wolf 2011) derived from a dead end in the guided DFS search.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncrementRefinement {
     /// The trace of transitions fired before hitting the dead end.

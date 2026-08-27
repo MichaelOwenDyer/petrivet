@@ -9,16 +9,28 @@ use petgraph::algo::tarjan_scc;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::EdgeRef;
 
+/// Checks for `(transition, place)` pairs where `transition` consumes more of `place` than
+/// `m0` provides, and that dependency is part of a cycle in the graph of all such dependencies.
+///
+/// Such dependencies allow for solutions to the marking equation that are not realizable because
+/// they would require a transition to "borrow" tokens from an insufficiently marked place,
+/// in order to enable another transition to replace those tokens.
+/// The SMT solver does not know that the original transition was not enabled since it does not
+/// understand transition firing order.
+///
+/// We resolve this by enforcing that the SMT solver assign a partial order to the involved
+/// transitions, such that for each of these `(transition, place)` pairs, at least one transition
+/// that produces into `place` must fire before `transition` can fire.
 pub struct TransitionOrderingRule;
 
 impl TransitionOrderingRule {
-    /// Checks for `(transition, place)` pairs where `transition` consumes more of `place` than `m0`
-    /// provides, and that dependency is part of a cycle in the graph of all such dependencies.
+    /// Constructs a graph which has an edge `place → transition` whenever
+    /// `consume(transition, place) > m0(place)`, and an edge `transition → place` whenever
+    /// `transition` produces into `place`.
     ///
-    /// The graph has an edge `place → transition` whenever `consume(place, transition) > m0(place)`,
-    /// and an edge `transition → place` whenever `transition` produces into `place`. A dependency is
-    /// only reported if `transition` and `place` land in the same strongly connected component of
-    /// this graph, because those pose the risk of the SMT solver creating an unrealizable "ouroboros" cycle.
+    /// Reports back all `place -> transition` edges that are part of a nontrivial strongly
+    /// connected component of this graph, which are the only ones that can lead to unrealizable
+    /// "ouroboros" cycles.
     pub fn check(
         net: &DenseNet,
         m0: &IdxMarking<u32>,
@@ -38,6 +50,7 @@ impl TransitionOrderingRule {
                 }
             }
         }
+
         // transition -> place: transition produces into place (only meaningful for a place already
         // known to be in the graph, i.e. already insufficiently marked for someone).
         for t_idx in net.transition_indices() {
@@ -61,7 +74,7 @@ impl TransitionOrderingRule {
             .flat_map(|(i, members)| members.into_iter().map(move |n| (n, i)))
             .collect();
 
-        let mut dependencies = Vec::new();
+        let mut cyclic_dependencies = Vec::new();
         for edge in graph.edge_references() {
             let src = edge.source();
             let dst = edge.target();
@@ -70,28 +83,29 @@ impl TransitionOrderingRule {
             if scc_id[&src] == scc_id[&dst]
                 && let IdxNode::Place(p_idx) = graph[src]
                 && let IdxNode::Transition(t_idx) = graph[dst] {
-                dependencies.push(CyclicTransitionDependency { t_idx, p_idx });
+                cyclic_dependencies.push(InitiallyDisabledTransition { t_idx, p_idx });
             }
         }
-        (!dependencies.is_empty()).then_some(TransitionOrderingRefinement { dependencies })
+        (!cyclic_dependencies.is_empty()).then_some(TransitionOrderingRefinement { cyclic_dependencies })
     }
 }
 
 /// A `(transition, place)` pair where `transition` consumes more of `place` than `m0` provides,
 /// and that dependency is part of a cycle in the graph of all such dependencies.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CyclicTransitionDependency {
+pub struct InitiallyDisabledTransition {
     /// The transition that needs more tokens from `place` than `m0` provides.
     t_idx: TransitionIdx,
     /// At least one feeder of this place must fire before `transition` can fire.
     p_idx: PlaceIdx,
 }
 
-/// Proactively asserts an ordering constraint for every `(transition, place)` dependency that
-/// could ever form an unrealizable "ouroboros" cycle.
+/// A refinement that informs the SMT solver of all initially disabled transitions which are part
+/// of a cycle in the dependency graph, and enforces a partial ordering on the disabled transitions
+/// and the feeder transitions of the insufficiently marked places.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransitionOrderingRefinement {
-    dependencies: Vec<CyclicTransitionDependency>,
+    cyclic_dependencies: Vec<InitiallyDisabledTransition>,
 }
 
 impl TransitionOrderingRefinement {
@@ -104,7 +118,7 @@ impl TransitionOrderingRefinement {
     ) {
         let mut order_terms = HashMap::new();
 
-        for CyclicTransitionDependency { t_idx, p_idx } in self.dependencies {
+        for InitiallyDisabledTransition { t_idx, p_idx } in self.cyclic_dependencies {
             let feeders: Vec<TransitionIdx> = problem.net.preset_p[p_idx]
                 .iter()
                 .copied()
@@ -115,10 +129,11 @@ impl TransitionOrderingRefinement {
                 // No transition can ever add more tokens to `p`, so `t` can never fire at all.
                 let zero = solver.mk_int(0);
                 let t_dead = solver.eq(&transition_terms[t_idx], &zero);
+                let lemma = IdxLemma::TransitionOrdering { t_idx, p_idx, feeders };
                 if let Some(callback) = callback {
-                    callback(IdxLemma::TransitionOrdering { t_idx, p_idx, feeders: Vec::new() });
+                    callback(lemma.clone());
                 }
-                solver.assert_tracked(&t_dead, IdxLemma::TransitionOrdering { t_idx, p_idx, feeders });
+                solver.assert_tracked(&t_dead, lemma);
                 return;
             }
 
@@ -174,12 +189,12 @@ mod tests {
             &m0,
         ).expect("cycle should be detected");
 
-        assert_eq!(refinement.dependencies.len(), 2, "exactly two dependencies should be reported");
-        assert!(refinement.dependencies.contains(&CyclicTransitionDependency {
+        assert_eq!(refinement.cyclic_dependencies.len(), 2, "exactly two dependencies should be reported");
+        assert!(refinement.cyclic_dependencies.contains(&InitiallyDisabledTransition {
             t_idx: net.mapping.transition_idx(t1).expect("transition in built net"),
             p_idx: net.mapping.place_idx(s2).expect("place in built net")
         }));
-        assert!(refinement.dependencies.contains(&CyclicTransitionDependency {
+        assert!(refinement.cyclic_dependencies.contains(&InitiallyDisabledTransition {
             t_idx: net.mapping.transition_idx(t2).expect("transition in built net"),
             p_idx: net.mapping.place_idx(s1).expect("place in built net")
         }));
