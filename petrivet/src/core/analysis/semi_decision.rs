@@ -32,7 +32,7 @@
 //! let result = sys.analyze_reachability(&Marking::from([(p1, 1)]));
 //! assert!(result.is_reachable());
 //!
-//! // Can we reach (2, 0)? Conservation law violated — definitely not
+//! // Can we reach (2, 0)? Conservation law violated, definitely not
 //! let result = sys.analyze_reachability(&Marking::from([(p0, 2)]));
 //! assert!(!result.is_reachable());
 //! ```
@@ -68,8 +68,8 @@ use good_lp::{
 /// returns the weight vector y. Given a specific initial marking M₀,
 /// per-place upper bounds can be derived: `M[p] ≤ ⌊(y·M₀) / y[p]⌋`.
 #[must_use]
-pub fn find_positive_place_subvariant(net: &DenseNet) -> Option<Box<[f64]>> {
-    find_semipositive_place_subvariant(net, |_| true)
+pub fn find_positive_place_subinvariant(net: &DenseNet) -> Option<Box<[f64]>> {
+    find_semipositive_place_subinvariant(net, |_| true)
 }
 
 /// Checks whether a set of places is structurally bounded
@@ -80,12 +80,12 @@ pub fn find_positive_place_subvariant(net: &DenseNet) -> Option<Box<[f64]>> {
 /// token count of that place cannot increase no matter what transitions fire,
 /// thus guaranteeing its boundedness.
 ///
-/// For a stronger check of the entire net, see [`find_positive_place_subvariant`].
+/// For a stronger check of the entire net, see [`find_positive_place_subinvariant`].
 ///
 /// Feasible → place is structurally bounded; Infeasible → structurally
 /// unbounded (there exists an initial marking under which it is unbounded).
 #[must_use]
-pub fn find_semipositive_place_subvariant<F: FnMut(&PlaceIdx) -> bool>(
+pub fn find_semipositive_place_subinvariant<F: FnMut(&PlaceIdx) -> bool>(
     net: &DenseNet,
     mut covering: F,
 ) -> Option<Box<[f64]>> {
@@ -141,7 +141,7 @@ mod tests {
     fn cycle_structurally_bounded() {
         let net = two_place_cycle();
         assert!(
-            find_positive_place_subvariant(&net.dense_net).is_some(),
+            find_positive_place_subinvariant(&net.dense_net).is_some(),
             "cycle should be structurally bounded"
         );
     }
@@ -157,7 +157,7 @@ mod tests {
         b.add_arc((p1, t0));
         let net = b.build().unwrap().dense_net;
         assert!(
-            find_positive_place_subvariant(&net).is_some(),
+            find_positive_place_subinvariant(&net).is_some(),
             "producer net should be proven bounded"
         );
     }
@@ -170,8 +170,8 @@ mod tests {
         b.add_arc((t0, p0));
         let net = b.build().unwrap();
         let p0 = net.mapping.place_idx(p0).expect("place in built net");
-        assert!(find_positive_place_subvariant(&net.dense_net).is_none());
-        assert!(find_semipositive_place_subvariant(&net.dense_net, |&idx| idx == p0).is_none());
+        assert!(find_positive_place_subinvariant(&net.dense_net).is_none());
+        assert!(find_semipositive_place_subinvariant(&net.dense_net, |&idx| idx == p0).is_none());
     }
 
     #[test]
@@ -186,6 +186,6 @@ mod tests {
         b.add_arc((p2, t1));
         b.add_arc((t1, p0));
         let net = b.build().unwrap().dense_net;
-        assert!(find_positive_place_subvariant(&net).is_some());
+        assert!(find_positive_place_subinvariant(&net).is_some());
     }
 }

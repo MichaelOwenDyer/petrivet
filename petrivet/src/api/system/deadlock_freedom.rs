@@ -18,7 +18,7 @@ pub type Deadlock = Marking<u32>;
 pub enum Deadlocks<'a> {
     /// The system is certified deadlock-free: no reachable marking is a deadlock.
     DeadlockFree,
-    /// The initial marking iff it is itself a deadlock — yielded first, exactly once.
+    /// The initial marking iff it is itself a deadlock - yielded first, exactly once.
     InitialDeadlock(Option<Deadlock>),
     /// The system is not certified deadlock-free: explore the reachable markings for deadlocks.
     Explorer(ReachabilityExplorer<'a>),
@@ -56,8 +56,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn deadlocks(&self) -> Deadlocks<'_> {
         if self.is_efficiently_deadlock_free() == Some(true) {
-            // Certified deadlock-free: no reachable marking — including m₀ — is a
-            // deadlock.
             Deadlocks::DeadlockFree
         } else {
             // Yield the initial marking once if it is a deadlock.
@@ -94,8 +92,6 @@ mod tests {
     #[test]
     fn initial_marking_deadlock_is_detected() {
         let (net, p0, _t0, _p1, _t1) = crate::api::system::tests::two_place_cycle();
-        // EMPTY initial marking: t0 needs p0, t1 needs p1, both empty — no
-        // transition is enabled, so m₀ is itself a reachable total deadlock.
         let dead = net.with_initial_marking([]);
         assert!(!dead.is_deadlock_free(), "an m₀ deadlock must be detected");
         assert!(

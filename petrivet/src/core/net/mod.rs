@@ -155,7 +155,7 @@ impl DenseNet {
     /// which would cause any place in the net to become unbounded.
     #[must_use]
     pub fn is_structurally_bounded(&self) -> bool {
-        semi_decision::find_positive_place_subvariant(self).is_some()
+        semi_decision::find_positive_place_subinvariant(self).is_some()
     }
 
     /// Checks if a single place is structurally bounded.
@@ -163,7 +163,7 @@ impl DenseNet {
     /// which would cause this place to become unbounded.
     #[must_use]
     pub fn is_place_structurally_bounded(&self, place: PlaceIdx) -> bool {
-        semi_decision::find_semipositive_place_subvariant(self, |&p| p == place).is_some()
+        semi_decision::find_semipositive_place_subinvariant(self, |&p| p == place).is_some()
     }
 
     /// Decide the given problem using the CEGAR approach with the default solver.
