@@ -122,7 +122,7 @@ use std::ops::Deref;
 /// To reset the system back to the marking it was initialized with,
 /// use [`reset()`](Self::reset).
 #[derive(Debug, Clone)]
-pub struct PetriNet<N = Net> {
+pub struct PetriNet<N: AsRef<Net> = Net> {
     /// The [`Net`] structure, which is immutable and can be shared across multiple
     /// Petri nets depending on the choice of `N` (e.g. `&Net`, `Arc<Net>`, ...).
     pub net: N,
@@ -152,7 +152,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Creates a new Petri net from a net and initial marking.
     #[must_use]
     pub fn new(net: N, initial_marking: impl Into<Marking<u32>>) -> Self {
-        let initial_marking = net.as_ref().mapping.decode(initial_marking.into());
+        let initial_marking = net.as_ref().mapping.idx_marking(initial_marking.into());
         let reset_marking = initial_marking.clone();
         Self {
             net,
@@ -169,8 +169,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
             marking,
             reset_marking: reset,
         } = self;
-        let marking = net.as_ref().mapping.encode(marking);
-        let reset = net.as_ref().mapping.encode(reset);
+        let marking = net.as_ref().mapping.marking(marking);
+        let reset = net.as_ref().mapping.marking(reset);
         (net, marking, reset)
     }
 
@@ -178,7 +178,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn marking(&self) -> Marking<u32> {
         let current_marking = self.marking.clone();
-        self.mapping.encode(current_marking)
+        self.mapping.marking(current_marking)
     }
 
     /// Returns the token count at a place identified by its [`Place`].
@@ -194,7 +194,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns the marking before the reset.
     pub fn reset(&mut self) -> Marking<u32> {
         let previous = std::mem::replace(&mut self.marking, self.reset_marking.clone());
-        self.mapping.encode(previous)
+        self.mapping.marking(previous)
     }
 
     /// Whether a transition is enabled under the current marking.

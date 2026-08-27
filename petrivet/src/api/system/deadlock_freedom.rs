@@ -34,7 +34,7 @@ impl Iterator for Deadlocks<'_> {
             Deadlocks::Explorer(reachability_explorer) => reachability_explorer
                 .core
                 .search(|m| reachability_explorer.core.state_space.net.is_deadlock(m))
-                .map(|m| reachability_explorer.mapping.encode(m.clone())),
+                .map(|m| reachability_explorer.mapping.marking(m.clone())),
         }
     }
 }
@@ -57,20 +57,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn deadlocks(&self) -> Deadlocks<'_> {
         if self.is_efficiently_deadlock_free() == Some(true) {
             Deadlocks::DeadlockFree
+        } else if self.dense_net.is_deadlock(&self.marking) {
+            Deadlocks::InitialDeadlock(Some(self.mapping.marking(self.marking.clone())))
         } else {
-            // Yield the initial marking once if it is a deadlock.
-            // Otherwise, explore the reachable markings for deadlocks.
-            self.dense_net
-                .is_deadlock(&self.marking)
-                .then(|| self.mapping.encode(self.marking.clone()))
-                .map_or_else(
-                    || {
-                        Deadlocks::Explorer(
-                            self.explore_reachability(ExplorationOrder::BreadthFirst),
-                        )
-                    },
-                    |deadlock| Deadlocks::InitialDeadlock(Some(deadlock)),
-                )
+            Deadlocks::Explorer(self.explore_reachability(ExplorationOrder::BreadthFirst))
         }
     }
 

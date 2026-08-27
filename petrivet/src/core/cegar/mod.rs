@@ -89,8 +89,8 @@ mod tests {
         let net = b.build().unwrap();
         (
             net.dense_net,
-            net.mapping.decode(Marking::from([(p0, 1)])),
-            net.mapping.decode(Marking::from([(p1, 1)]))
+            net.mapping.idx_marking(Marking::from([(p0, 1)])),
+            net.mapping.idx_marking(Marking::from([(p1, 1)]))
         )
     }
     
@@ -115,8 +115,8 @@ mod tests {
         let target = dbg!(Marking::from([(s2, 1), (s5, 1), (s6, 1), (x, 2)]));
         (
             net.dense_net,
-            net.mapping.decode(initial_marking),
-            net.mapping.decode(target),
+            net.mapping.idx_marking(initial_marking),
+            net.mapping.idx_marking(target),
         )
     }
 

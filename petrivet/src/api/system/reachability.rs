@@ -76,7 +76,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         observer: Option<mpsc::Sender<CegarEvent>>
     ) -> Reachability {
         let m0 = &self.marking;
-        let target = &self.mapping.decode(target.into());
+        let target = &self.mapping.idx_marking(target.into());
 
         if m0 == target {
             return Reachability::Reachable {

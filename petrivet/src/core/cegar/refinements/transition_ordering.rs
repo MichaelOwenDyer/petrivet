@@ -182,7 +182,7 @@ mod tests {
         b.add_arcs((s3, u, s2));
         b.add_arcs((s2, u_prime, s3));
         let net = b.build().unwrap();
-        let m0 = net.mapping.decode(Marking::from([(s3, 1)]));
+        let m0 = net.mapping.idx_marking(Marking::from([(s3, 1)]));
 
         let refinement = TransitionOrderingRule::check(
             &net.dense_net,
@@ -211,7 +211,7 @@ mod tests {
         b.add_arcs((p, t, q));
         let net = b.build().unwrap();
         let m0 = Marking::from([(p, 1)]); // p already sufficiently marked for t
-        let refinement = TransitionOrderingRule::check(&net.dense_net, &net.mapping.decode(m0));
+        let refinement = TransitionOrderingRule::check(&net.dense_net, &net.mapping.idx_marking(m0));
         assert!(refinement.is_none(), "no place is insufficiently marked, so nothing qualifies");
     }
 }

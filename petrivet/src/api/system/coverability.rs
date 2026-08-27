@@ -56,12 +56,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
         observer: Option<mpsc::Sender<CegarEvent>>,
     ) -> CoverabilityResult {
         let m0 = &self.marking;
-        let target = &self.mapping.decode(target.into());
+        let target = &self.mapping.idx_marking(target.into());
 
         if m0 >= target {
             return CoverabilityResult::Coverable {
                 firing_sequence: Vec::new(),
-                marking: self.mapping.encode(m0.clone()),
+                marking: self.mapping.marking(m0.clone()),
             };
         }
         let observer_fn = observer.map(|observer| {

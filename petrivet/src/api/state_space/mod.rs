@@ -78,13 +78,13 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     #[must_use]
     pub fn initial_marking(&self) -> Marking<T> {
         let marking = self.core.state_space.initial_marking().clone();
-        self.mapping.encode(marking)
+        self.mapping.marking(marking)
     }
 
     /// Returns `true` if the given marking has been discovered so far in the exploration.
     #[must_use]
     pub fn contains_marking(&self, marking: Marking<T>) -> bool {
-        let idx_marking = self.mapping.decode(marking);
+        let idx_marking = self.mapping.idx_marking(marking);
         self.core.state_space.contains_marking(&idx_marking)
     }
 
@@ -94,14 +94,14 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
             .state_space
             .deadlocks()
             .cloned()
-            .map(|marking| self.mapping.encode(marking))
+            .map(|marking| self.mapping.marking(marking))
     }
 
     /// Returns a firing sequence from the initial marking to `target`,
     /// among states discovered so far in the exploration, if one exists.
     #[must_use]
     pub fn find_path_from_initial(&self, target: Marking<T>) -> Option<Vec<Transition>> {
-        let target = self.mapping.decode(target);
+        let target = self.mapping.idx_marking(target);
         self.core.path_from_initial_to(&target).map(|path| {
             path.into_iter()
                 .map(|t_idx| self.mapping.transition(t_idx))
@@ -128,7 +128,7 @@ where
                 let idx_marking = self.core.state_space.marking_at(node_idx);
                 ExplorationStep {
                     transition: self.mapping.transition(transition_idx),
-                    marking: self.mapping.encode(idx_marking.clone()),
+                    marking: self.mapping.marking(idx_marking.clone()),
                     is_new,
                 }
             })
@@ -144,10 +144,10 @@ where
     /// Advances exploration until a marking covering `target` is found,
     /// and returns the marking and a firing sequence from the initial marking to it.
     pub fn find_cover(&mut self, target: Marking<T>) -> Option<Marking<T>> {
-        let target_idx_marking = self.mapping.decode(target);
+        let target_idx_marking = self.mapping.idx_marking(target);
         self.core
             .find(|idx_marking| *idx_marking >= target_idx_marking)
-            .map(|idx_marking| self.mapping.encode(idx_marking.clone()))
+            .map(|idx_marking| self.mapping.marking(idx_marking.clone()))
     }
 
     /// Drive exploration until the entire reachable state space is discovered,
@@ -193,7 +193,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
         self.state_space
             .markings()
             .cloned()
-            .map(|marking| self.mapping.encode(marking))
+            .map(|marking| self.mapping.marking(marking))
     }
 
     /// Whether the given marking has been discovered.
@@ -204,7 +204,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     pub fn contains_marking(&self, marking: Marking<T>) -> bool {
         self.state_space
             .seen
-            .contains_key(&self.mapping.decode(marking))
+            .contains_key(&self.mapping.idx_marking(marking))
     }
 
     /// The initial marking.
@@ -214,7 +214,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
             .state_space
             .marking_at(self.state_space.initial_idx)
             .clone();
-        self.mapping.encode(marking)
+        self.mapping.marking(marking)
     }
 
     /// Upper bound on the token count for a given place across all
@@ -234,12 +234,12 @@ impl<T: TokenOps> StateGraph<'_, T> {
     /// Tries to find a marking which covers the provided marking.
     #[must_use]
     pub fn cover(&self, target: Marking<T>) -> Option<Marking<T>> {
-        let target = self.mapping.decode(target);
+        let target = self.mapping.idx_marking(target);
         self.state_space
             .markings()
             .find(|&marking| marking >= &target)
             .cloned()
-            .map(|marking| self.mapping.encode(marking))
+            .map(|marking| self.mapping.marking(marking))
     }
 
     /// All discovered markings that have no enabled transitions.
@@ -247,7 +247,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
         self.state_space
             .deadlocks()
             .cloned()
-            .map(|marking| self.mapping.encode(marking))
+            .map(|marking| self.mapping.marking(marking))
     }
 
     /// Whether the graph contains no deadlocks.
@@ -320,7 +320,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     /// this is guaranteed to be a shortest path.
     #[must_use]
     pub fn firing_sequence_from_initial_to(&self, target: Marking<T>) -> Option<Vec<Transition>> {
-        let target = self.mapping.decode(target);
+        let target = self.mapping.idx_marking(target);
         self.state_space.path_from_initial_to(&target).map(|path| {
             path.into_iter()
                 .map(|t_idx| self.mapping.transition(t_idx))

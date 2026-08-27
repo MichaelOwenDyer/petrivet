@@ -115,7 +115,7 @@ impl DenseMapping {
     }
 
     /// Convert an internal index marking to a public marking.
-    pub fn encode<T: TokenOps>(&self, idx_marking: IdxMarking<T>) -> Marking<T> {
+    pub fn marking<T: TokenOps>(&self, idx_marking: IdxMarking<T>) -> Marking<T> {
         self.places().zip(idx_marking).collect()
     }
 
@@ -125,7 +125,7 @@ impl DenseMapping {
     ///
     /// todo: accept any `IntoIterator<Item=(Place, T)>` instead of a `Marking<T>` to avoid unnecessary
     ///  intermediate allocations when the caller already has an iterator over the marking's support.
-    pub fn decode<T: TokenOps>(&self, marking: Marking<T>) -> IdxMarking<T> {
+    pub fn idx_marking<T: TokenOps>(&self, marking: Marking<T>) -> IdxMarking<T> {
         let mut idx_marking = IdxMarking::zeros(self.place_count());
         marking.into_iter().for_each(|(place, count)| {
             if let Some(dense) = self.place_idx(place) {
@@ -163,7 +163,7 @@ impl DenseMapping {
     /// Translates an internal dense-indexed [`IdxCegarEvent`](IdxCegarEvent) to its public equivalent.
     pub fn cegar_event(&self, event: IdxCegarEvent) -> CegarEvent {
         CegarEvent {
-            spurious_marking: event.spurious_marking.map(|m| self.encode(m)),
+            spurious_marking: event.spurious_marking.map(|m| self.marking(m)),
             spurious_parikh_vector: event.spurious_parikh_vector.map(|pv| self.parikh_vector(pv)),
             lemma: self.lemma(event.lemma),
         }
@@ -183,7 +183,7 @@ impl DenseMapping {
     pub fn coverability_result(&self, result: CegarResult) -> CoverabilityResult {
         match result {
             CegarResult::Satisfiable { marking, firing_sequence } => CoverabilityResult::Coverable {
-                marking: self.encode(marking),
+                marking: self.marking(marking),
                 firing_sequence: self.firing_sequence(firing_sequence),
             },
             CegarResult::Unsatisfiable { contradiction } => CoverabilityResult::Uncoverable {
