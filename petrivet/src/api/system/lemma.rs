@@ -33,7 +33,7 @@ pub enum Lemma {
     },
     /// If `transition` fires, some producer of `place` must fire *before* it (or, if `place` has
     /// no producer at all, `transition` can never fire).
-    CausalOrdering {
+    TransitionOrdering {
         transition: Transition,
         place: Place,
         feeders: HashSet<Transition>,

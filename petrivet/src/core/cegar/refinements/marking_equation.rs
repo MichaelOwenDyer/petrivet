@@ -12,6 +12,7 @@ impl MarkingEquationRefinement {
         problem: &CegarProblem,
         place_terms: &[S::Int],
         transition_terms: &[S::Int],
+        callback: Option<&dyn Fn(IdxLemma)>
     ) {
         for p_idx in problem.net.place_indices() {
             let initial_marking = problem.m0[p_idx];
@@ -42,11 +43,15 @@ impl MarkingEquationRefinement {
                 solver.add([m0_p, effect_sum])
             };
             let constraint = solver.eq(&place_terms[p_idx], &token_expression);
-            solver.assert_tracked(&constraint, IdxLemma::MarkingEquation {
+            let lemma = IdxLemma::MarkingEquation {
                 place: p_idx,
                 initial_marking: problem.m0[p_idx],
                 net_effects
-            });
+            };
+            if let Some(callback) = callback {
+                callback(lemma.clone());
+            }
+            solver.assert_tracked(&constraint, lemma);
         }
     }
 }

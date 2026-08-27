@@ -513,8 +513,8 @@ impl IncrementRefinement {
             let rhs = solver.mk_int(i64::from(rhs_val));
             let constraint = solver.ge(&lhs, &rhs);
             let lemma = IdxLemma::Increment {
-                component_places: component_places.clone(),
-                component_transitions: component_transitions.clone(),
+                component_places,
+                component_transitions,
                 firing_sequence: self.firing_sequence.clone(),
             };
             if let Some(callback) = callback {

@@ -50,6 +50,10 @@ impl SmtSolver for OxiZ {
         self.terms.mk_int(value)
     }
 
+    fn mk_bool_var(&mut self, name: &str) -> Self::Bool {
+        self.terms.mk_var(name, self.terms.sorts.bool_sort)
+    }
+
     fn add(&mut self, terms: impl IntoIterator<Item = Self::Int>) -> Self::Int {
         self.terms.mk_add(terms)
     }
@@ -68,6 +72,10 @@ impl SmtSolver for OxiZ {
 
     fn gt(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool {
         self.terms.mk_gt(*a, *b)
+    }
+
+    fn le(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool {
+        self.terms.mk_le(*a, *b)
     }
 
     fn lt(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool {
@@ -123,16 +131,23 @@ impl SmtSolver for OxiZ {
     }
 
     fn eval_int(&self, term: &Self::Int) -> Option<u32> {
-        let model = self
-            .smt
-            .model()
-            .expect("eval_int called without a preceding Sat check result");
+        let model = self.smt.model()?;
         let value = model.get(*term)?;
         match &self.terms.get(value)?.kind {
             oxiz::core::TermKind::IntConst(n) => u32::try_from(n).ok(),
             oxiz::core::TermKind::RealConst(r) if *r.denom() == 1 => {
                 u32::try_from(*r.numer()).ok()
             }
+            _ => None,
+        }
+    }
+
+    fn eval_bool(&self, term: &Self::Bool) -> Option<bool> {
+        let model = self.smt.model()?;
+        let value = model.get(*term)?;
+        match &self.terms.get(value)?.kind {
+            oxiz::core::TermKind::True => Some(true),
+            oxiz::core::TermKind::False => Some(false),
             _ => None,
         }
     }

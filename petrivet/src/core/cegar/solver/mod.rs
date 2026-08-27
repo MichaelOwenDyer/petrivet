@@ -45,26 +45,36 @@ pub trait SmtSolver: Default {
     /// A boolean-sorted SMT term.
     type Bool: Clone;
 
-    /// Declare a fresh integer-sorted variable. `name` is used for diagnostics only backends
-    /// are not required to enforce uniqueness.
+    /// Declare an integer-sorted variable with the given name.
+    /// Multiple calls with the same name return the same variable.
     fn mk_int_var(&mut self, name: &str) -> Self::Int;
     /// Create an integer constant.
     fn mk_int(&mut self, value: i64) -> Self::Int;
+    /// Declare a boolean-sorted variable with the given name.
+    /// Multiple calls with the same name return the same variable.
+    fn mk_bool_var(&mut self, name: &str) -> Self::Bool;
 
     /// The sum of `terms`. Callers must not pass an empty collection.
     fn add(&mut self, terms: impl IntoIterator<Item = Self::Int>) -> Self::Int;
     /// The product of `terms`. Callers must not pass an empty collection.
     fn mul(&mut self, terms: impl IntoIterator<Item = Self::Int>) -> Self::Int;
 
+    /// `a == b`
     fn eq(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool;
+    /// `a >= b`
     fn ge(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool;
+    /// `a > b`
     fn gt(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool;
+    /// `a <= b`
+    fn le(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool;
+    /// `a < b`
     fn lt(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool;
 
     /// The conjunction of `terms`. Callers must not pass an empty collection.
     fn and(&mut self, terms: impl IntoIterator<Item = Self::Bool>) -> Self::Bool;
     /// The disjunction of `terms`. Callers must not pass an empty collection.
     fn or(&mut self, terms: impl IntoIterator<Item = Self::Bool>) -> Self::Bool;
+    /// The implication `a => b`. Equivalent to `!a || b`.
     fn implies(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool;
 
     /// Assert a constraint unconditionally, with no attribution in the unsat core. Reserved for
@@ -90,10 +100,11 @@ pub trait SmtSolver: Default {
     /// decidable.
     fn check(&mut self) -> Satisfiability;
     /// Read the concrete value assigned to `term` by the model of the last [`Satisfiability::Sat`]
-    /// result. Only valid to call after `check` returned `Sat`. Returns `None` if the model does
-    /// not assign `term` a non-negative integer value, which should not happen for well-formed
-    /// CEGAR problems.
+    /// result. Only valid to call after `check` returned `Sat`.
     fn eval_int(&self, term: &Self::Int) -> Option<u32>;
+    /// Read the concrete value assigned to `term` by the model of the last [`Satisfiability::Sat`]
+    /// result. Only valid to call after `check` returned `Sat`.
+    fn eval_bool(&self, term: &Self::Bool) -> Option<bool>;
     /// The [`IdxLemma`]s (tagged via [`SmtSolver::assert_tracked`]) that were used to derive
     /// unsatisfiability. Only valid to call after `check` returned [`Satisfiability::Unsat`].
     fn unsat_core(&mut self) -> Vec<IdxLemma>;

@@ -91,7 +91,7 @@ impl TrapBecomesMarkedRefinement {
         solver: &mut S,
         place_terms: &[S::Int],
         transition_terms: &[S::Int],
-        observer: Option<&dyn Fn(IdxLemma)>,
+        callback: Option<&dyn Fn(IdxLemma)>,
     ) {
         let trap_sum = solver.add(self.trap.ones().map(|p| place_terms[p].clone()));
         let zero = solver.mk_int(0);
@@ -100,8 +100,8 @@ impl TrapBecomesMarkedRefinement {
             let fires = solver.gt(&transition_terms[t_idx], &zero);
             let implication = solver.implies(&fires, &trap_marked);
             let lemma = IdxLemma::TrapBecomesMarked { feeder: t_idx, trap: self.trap.clone() };
-            if let Some(observer) = observer {
-                observer(lemma.clone());
+            if let Some(callback) = callback {
+                callback(lemma.clone());
             }
             solver.assert_tracked(&implication, lemma);
         }

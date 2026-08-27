@@ -5,27 +5,41 @@ use crate::core::cegar::solver::{Satisfiability, SmtSolver};
 use crate::core::marking::IdxMarking;
 use crate::core::net::PlaceIdx;
 use tap::TapOptional;
+use crate::net::invariant::PInvariantKind;
 
-/// Ensures that the SMT solver respects the P-Invariants of the net.
+/// Ensures that the SMT solver respects the P-Invariants (or sub-/sur-invariants) of the net.
 pub struct PInvariantRule<S: SmtSolver> {
+    /// The SMT solver instance used to encode and check the P-Invariant constraints.
     solver: S,
+    /// The weight variables for each place in the net, representing the coefficients of the invariant.
     weights: Vec<S::Int>,
+    /// Boolean variable indicating whether the invariant condition is being enforced
+    /// (i.e., the weighted sum is always constant).
+    is_invariant: S::Bool,
+    /// Boolean variable indicating whether the subinvariant condition is being enforced
+    /// (i.e., the weighted sum is non-increasing).
+    is_subvariant: S::Bool,
+    /// Boolean variable indicating whether the surinvariant condition is being enforced
+    /// (i.e., the weighted sum is non-decreasing).
+    is_survariant: S::Bool,
 }
 
 impl<S: SmtSolver> PInvariantRule<S> {
     pub fn new(incidence_matrix: &IncidenceMatrix) -> Self {
         let mut solver = S::default();
 
-        let weights: Vec<S::Int> = incidence_matrix
-            .place_indices()
-            .map(|p_idx| solver.mk_int_var(&format!("p{p_idx}")))
-            .collect();
+        let is_invariant = solver.mk_bool_var("is_invariant");
+        let is_subvariant = solver.mk_bool_var("is_subvariant");
+        let is_survariant = solver.mk_bool_var("is_survariant");
 
         let zero = solver.mk_int(0);
-
+        let weights: Vec<S::Int> = incidence_matrix
+            .place_indices()
+            .map(|p_idx| solver.mk_int_var(&format!("p_idx_{p_idx}")))
+            .collect();
         for weight in &weights {
-            let ge_zero = solver.ge(weight, &zero);
-            solver.assert(&ge_zero);
+            let weight_ge_zero = solver.ge(weight, &zero);
+            solver.assert(&weight_ge_zero);
         }
 
         for t_idx in incidence_matrix.transition_indices() {
@@ -34,25 +48,32 @@ impl<S: SmtSolver> PInvariantRule<S> {
                 .zip(weights.iter())
                 .filter_map(|(p_idx, weight)| {
                     let incidence = incidence_matrix.get_effect(t_idx, p_idx);
-                    if incidence != 0 {
+                    (incidence != 0).then(|| {
                         let incidence_term = solver.mk_int(i64::from(incidence));
-                        Some(solver.mul([weight.clone(), incidence_term]))
-                    } else {
-                        None
-                    }
+                        solver.mul([weight.clone(), incidence_term])
+                    })
                 })
                 .collect();
             if !muls.is_empty() {
                 let sum = solver.add(muls);
+
                 let eq_zero = solver.eq(&sum, &zero);
-                solver.assert(&eq_zero);
+                let invariant_cond = solver.implies(&is_invariant, &eq_zero);
+                solver.assert(&invariant_cond);
+                
+                let le_zero = solver.le(&sum, &zero);
+                let subvariant_cond = solver.implies(&is_subvariant, &le_zero);
+                solver.assert(&subvariant_cond);
+
+                let ge_zero = solver.ge(&sum, &zero);
+                let survariant_cond = solver.implies(&is_survariant, &ge_zero);
+                solver.assert(&survariant_cond);
             }
         }
 
-        // Save the current state of the solver so that we can later return to this point.
         solver.push();
 
-        Self { solver, weights }
+        Self { solver, weights, is_invariant, is_subvariant, is_survariant }
     }
 }
 
@@ -96,19 +117,57 @@ impl<S: SmtSolver> PInvariantRule<S> {
     ) -> Option<PInvariantRefinement> {
         let m0_dot = dot(&mut self.solver, &self.weights, problem.m0);
         let target_dot = dot(&mut self.solver, &self.weights, candidate);
+        let target_lt = self.solver.lt(&target_dot, &m0_dot);
+        let target_gt = self.solver.gt(&target_dot, &m0_dot);
+        let target_neq = self.solver.or([target_lt.clone(), target_gt.clone()]);
 
-        // m0_dot != target_dot
-        let lt = self.solver.lt(&m0_dot, &target_dot);
-        let gt = self.solver.gt(&m0_dot, &target_dot);
-        let distinct = self.solver.or([lt, gt]);
-        self.solver.assert(&distinct);
+        {
+            // Try to find a violated invariant first.
+            self.solver.push();
 
-        if self.solver.check() != Satisfiability::Sat {
+            let invariant_cond = self.solver.and([self.is_invariant.clone(), target_neq]);
+            self.solver.assert(&invariant_cond);
+
+            if self.solver.check() == Satisfiability::Sat {
+                return self.extract_and_cleanup(problem, PInvariantKind::Invariant);
+            }
+
+            // Couldn't find anything.
             self.solver.pop();
-            return None;
         }
+        {
+            // That didn't work, so try to find a violated sub- or sur-invariant.
+            self.solver.push();
 
-        let invariant: Vec<(PlaceIdx, u32)> = self.weights.iter()
+            let subvariant_cond = self.solver.and([self.is_subvariant.clone(), target_gt]);
+            let survariant_cond = self.solver.and([self.is_survariant.clone(), target_lt]);
+            let either = self.solver.or([subvariant_cond, survariant_cond]);
+            self.solver.assert(&either);
+
+            if self.solver.check() == Satisfiability::Sat {
+                let kind = match (
+                    self.solver.eval_bool(&self.is_subvariant),
+                    self.solver.eval_bool(&self.is_survariant)
+                ) {
+                    (Some(true), Some(false)) => PInvariantKind::Subinvariant,
+                    (Some(false), Some(true)) => PInvariantKind::Surinvariant,
+                    (sub, sur) => panic!("unexpected model: subvariant={sub:?}, survariant={sur:?}"),
+                };
+                return self.extract_and_cleanup(problem, kind);
+            }
+
+            // Couldn't find anything.
+            self.solver.pop();
+        }
+        None
+    }
+
+    fn extract_and_cleanup(
+        &mut self,
+        problem: &CegarProblem,
+        kind: PInvariantKind,
+    ) -> Option<PInvariantRefinement> {
+        let weights: Vec<(PlaceIdx, u32)> = self.weights.iter()
             .enumerate()
             .filter_map(|(p_idx, weight_term)| {
                 let w = self.solver.eval_int(weight_term).tap_none(|| {
@@ -118,25 +177,32 @@ impl<S: SmtSolver> PInvariantRule<S> {
             })
             .collect();
 
+        // Pop the solver state to remove the assertions we added for this check,
+        // so that the next check starts from a clean slate.
         self.solver.pop();
 
-        if invariant.is_empty() {
+        if weights.is_empty() {
             return None;
         }
 
-        let value: u32 = invariant.iter().map(|&(p, w)| w * problem.m0[p]).sum();
+        let value: u32 = weights.iter().map(|&(p, w)| w * problem.m0[p]).sum();
 
         Some(PInvariantRefinement(IdxPInvariant {
-            weights: invariant,
+            weights,
             value,
+            kind,
         }))
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct IdxPInvariant {
+    /// The places and their weights that define the invariant.
     pub weights: Vec<(PlaceIdx, u32)>,
+    /// The weighted sum of the initial marking's tokens over the invariant's places.
     pub value: u32,
+    /// The kind of invariant: exact, subvariant, or survariant.
+    pub kind: PInvariantKind,
 }
 
 #[derive(Debug, Clone)]
@@ -163,11 +229,16 @@ impl PInvariantRefinement {
             })
             .collect();
         let weighted_sum = solver.add(weighted_places);
-        let value = solver.mk_int(i64::from(p_invariant.value));
-        let eq = solver.eq(&weighted_sum, &value);
+        let m0_value = solver.mk_int(i64::from(p_invariant.value));
+        let domain = match p_invariant.kind {
+            PInvariantKind::Invariant => solver.eq(&weighted_sum, &m0_value),
+            PInvariantKind::Subinvariant => solver.le(&weighted_sum, &m0_value),
+            PInvariantKind::Surinvariant => solver.ge(&weighted_sum, &m0_value),
+        };
+        let lemma = IdxLemma::PInvariant(p_invariant);
         if let Some(callback) = callback {
-            callback(IdxLemma::PInvariant(p_invariant.clone()));
+            callback(lemma.clone());
         }
-        solver.assert_tracked(&eq, IdxLemma::PInvariant(p_invariant));
+        solver.assert_tracked(&domain, lemma);
     }
 }
