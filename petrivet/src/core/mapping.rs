@@ -14,6 +14,7 @@ use crate::core::cegar::CegarResult;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::observe::IdxCegarEvent as IdxCegarEvent;
 use crate::core::marking::IdxMarking;
+use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::net::{PlaceIdx, TransitionIdx};
 use crate::core::parikh::IdxParikhVector;
 use crate::core::state_space::TokenOps;
@@ -25,7 +26,6 @@ use crate::system::lemma::Lemma;
 use crate::system::observe::CegarEvent;
 use crate::system::reachability::Reachability;
 use ahash::{HashMap, HashSet};
-use fixedbitset::FixedBitSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DenseMapping {
@@ -136,13 +136,13 @@ impl DenseMapping {
     }
 
     /// Convert a set of internal indices to a HashSet<Place>.
-    pub fn place_set(&self, places: &FixedBitSet) -> HashSet<Place> {
-        places.ones().map(|p_idx| self.place(p_idx)).collect()
+    pub fn place_set(&self, places: &PlaceIdxSet) -> HashSet<Place> {
+        places.place_indices().map(|p_idx| self.place(p_idx)).collect()
     }
 
     /// Convert a set of internal indices to a HashSet<Transition>.
-    pub fn transition_set(&self, transitions: &FixedBitSet) -> HashSet<Transition> {
-        transitions.ones().map(|p_idx| self.transition(p_idx)).collect()
+    pub fn transition_set(&self, transitions: &TransitionIdxSet) -> HashSet<Transition> {
+        transitions.transition_indices().map(|p_idx| self.transition(p_idx)).collect()
     }
 
     /// Convert a sequence of internal transition indices to a Vec<Transition>.

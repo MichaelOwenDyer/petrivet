@@ -3,8 +3,8 @@ use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::SmtSolver;
 use crate::core::marking::IdxMarking;
 use crate::core::net::PlaceIdx;
+use crate::core::net::idx_set::PlaceIdxSet;
 use crate::core::siphon_trap::IdxTrap;
-use fixedbitset::FixedBitSet;
 
 /// Ensures that the SMT solver keeps all traps which were marked in the initial marking
 /// also marked in its candidate solutions.
@@ -15,7 +15,7 @@ impl InitiallyMarkedTrapRule {
         problem: &CegarProblem,
         candidate_marking: &IdxMarking<u32>,
     ) -> Option<InitiallyMarkedTrapRefinement> {
-        let mut trap: FixedBitSet = FixedBitSet::with_capacity(problem.net.place_count());
+        let mut trap = PlaceIdxSet::none_of(problem.net.place_count());
         for p_idx in problem.net.place_indices() {
             trap.set(p_idx, candidate_marking[p_idx] == 0);
         }
@@ -38,9 +38,11 @@ impl InitiallyMarkedTrapRule {
             }
         }
 
-        trap.ones()
-            .any(|p| problem.m0[p] > 0)
-            .then_some(InitiallyMarkedTrapRefinement { trap })
+        if trap.place_indices().any(|p| problem.m0[p] > 0) {
+            Some(InitiallyMarkedTrapRefinement { trap })
+        } else {
+            None
+        }
     }
 }
 
@@ -60,7 +62,7 @@ impl InitiallyMarkedTrapRefinement {
         place_terms: &[S::Int],
         callback: Option<&dyn Fn(IdxLemma)>,
     ) {
-        let trap_sum = solver.add(self.trap.ones().map(|p| place_terms[p].clone()));
+        let trap_sum = solver.add(self.trap.place_indices().map(|p| place_terms[p].clone()));
         let zero = solver.mk_int(0);
         let constraint = solver.gt(&trap_sum, &zero);
         let lemma = IdxLemma::InitiallyMarkedTrap(self.trap);

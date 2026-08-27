@@ -3,9 +3,9 @@ use crate::core::cegar::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::SmtSolver;
 use crate::core::marking::IdxMarking;
+use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::parikh::IdxParikhVector;
 use crate::core::siphon_trap::IdxTrap;
-use fixedbitset::FixedBitSet;
 
 /// This rule identifies spurious marking + Parikh vector pairs where the candidate
 /// marking contains an unmarked trap which, after firing the Parikh vector's support,
@@ -28,33 +28,33 @@ impl TrapBecomesMarkedRule {
 
         // U = support of the candidate Parikh vector: the transitions a real firing sequence
         // realizing it would actually fire.
-        let mut support = FixedBitSet::with_capacity(net.transition_count());
+        let mut support = TransitionIdxSet::none_of(net.transition_count());
         for t_idx in net.transition_indices() {
             support.set(t_idx, candidate_parikh_vector[t_idx] > 0);
         }
 
         // The unmarked places in the subnet induced by U (•U ∪ U•)
-        let mut unmarked_places_in_subnet = FixedBitSet::with_capacity(net.place_count());
-        for t_idx in support.ones() {
-            for &p in net.preset_t[t_idx].iter().chain(net.postset_t[t_idx].iter()) {
-                if candidate_marking[p] == 0 {
-                    unmarked_places_in_subnet.insert(p);
+        let mut unmarked_places_in_subnet = PlaceIdxSet::none_of(net.place_count());
+        for t_idx in support.transition_indices() {
+            for &p_idx in net.preset_t[t_idx].iter().chain(net.postset_t[t_idx].iter()) {
+                if candidate_marking[p_idx] == 0 {
+                    unmarked_places_in_subnet.add(p_idx);
                 }
             }
         }
 
         // The maximal trap of the whole net contained within that subnet.
         let trap = maximal_trap_in(net, unmarked_places_in_subnet);
-        if trap.is_clear() {
+        if trap.is_empty() {
             return None;
         }
 
         // The transitions which produce into the trap (•trap, over the whole net). Once any of
         // them fires, the trap can never be unmarked again.
-        let mut feeders = FixedBitSet::with_capacity(net.transition_count());
-        for p in trap.ones() {
+        let mut feeders = TransitionIdxSet::none_of(net.transition_count());
+        for p in trap.place_indices() {
             for &t in &net.preset_p[p] {
-                feeders.insert(t);
+                feeders.add(t);
             }
         }
 
@@ -75,7 +75,7 @@ pub struct TrapBecomesMarkedRefinement {
     trap: IdxTrap,
     /// The transitions which produce into `trap`.
     /// If any of these fire, the trap may not remain unmarked.
-    feeders: FixedBitSet,
+    feeders: TransitionIdxSet,
 }
 
 impl TrapBecomesMarkedRefinement {
@@ -86,10 +86,10 @@ impl TrapBecomesMarkedRefinement {
         transition_terms: &[S::Int],
         callback: Option<&dyn Fn(IdxLemma)>,
     ) {
-        let trap_sum = solver.add(self.trap.ones().map(|p| place_terms[p].clone()));
+        let trap_sum = solver.add(self.trap.place_indices().map(|p| place_terms[p].clone()));
         let zero = solver.mk_int(0);
         let trap_marked = solver.gt(&trap_sum, &zero);
-        for t_idx in self.feeders.ones() {
+        for t_idx in self.feeders.transition_indices() {
             let fires = solver.gt(&transition_terms[t_idx], &zero);
             let implication = solver.implies(&fires, &trap_marked);
             let lemma = IdxLemma::TrapBecomesMarked { feeder: t_idx, trap: self.trap.clone() };

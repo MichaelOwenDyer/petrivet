@@ -1,25 +1,26 @@
 use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::analysis::semi_decision;
 use crate::core::cegar::cegar::CegarProblem;
-use crate::core::cegar::solver::DefaultSolver;
 use crate::core::cegar::observe::CegarObserverFn;
+use crate::core::cegar::solver::DefaultSolver;
 use crate::core::cegar::{CegarProperty, CegarResult, cegar_decide};
 use crate::core::class::NetClass;
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::TokenOps;
 
 pub mod path;
+pub mod idx_set;
 
-/// A place in a built [`Net`], identified by a dense index in `0 .. place_count`.
+/// A place in a built [`DenseNet`], identified by a dense index in `0 .. place_count`.
 ///
-/// This is a crate-internal index used by analysis algorithms. External users
-/// interact with [`Place`] instead.
+/// This is a crate-internal index used by analysis algorithms.
+/// External users interact with [`Place`] instead.
 pub type PlaceIdx = usize;
 
 /// A transition in a built [`DenseNet`], identified by a dense index in `0 .. transition_count`.
 ///
-/// This is a crate-internal index used by analysis algorithms. External users
-/// interact with [`Transition`] instead.
+/// This is a crate-internal index used by analysis algorithms.
+/// External users interact with [`Transition`] instead.
 pub type TransitionIdx = usize;
 
 /// Arc using internal dense indices for places and transitions.

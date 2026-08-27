@@ -1,5 +1,5 @@
-use fixedbitset::FixedBitSet;
 use crate::core::cegar::refinements::p_invariant::IdxPInvariant;
+use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::net::{PlaceIdx, TransitionIdx};
 use crate::core::siphon_trap::IdxTrap;
 
@@ -57,8 +57,8 @@ pub enum IdxLemma {
     /// dead-end marking, then recompute the bottleneck graph and token estimate per the
     /// documented algorithm (see `crate::core::cegar::refinements::explore`).
     Increment {
-        component_places: FixedBitSet,
-        component_transitions: FixedBitSet,
+        component_places: PlaceIdxSet,
+        component_transitions: TransitionIdxSet,
         firing_sequence: Vec<TransitionIdx>,
     },
 }
