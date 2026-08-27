@@ -246,7 +246,7 @@ impl NetBuilder {
     /// assert!(!b.add_arc((t3, p1)));
     /// ```
     pub fn add_arcs<A: IntoArcs>(&mut self, arcs: A) -> bool {
-        arcs.into_arcs().all(|a| self.add_arc(a))
+        arcs.into_arcs().fold(true, |acc, a| self.add_arc(a) & acc)
     }
 
     /// Removes a [`Place`] and all its incident arcs from the net.

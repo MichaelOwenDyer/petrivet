@@ -215,12 +215,12 @@ mod tests {
             initial_marking: 0,
             net_effects: std::iter::once((t2, 1)).collect(),
         }));
-        assert!(lemmas.contains(&Lemma::CausalOrdering {
+        assert!(lemmas.contains(&Lemma::TransitionOrdering {
             transition: t1,
             place: s1,
             feeders: std::iter::once(t2).collect(),
         }));
-        assert!(lemmas.contains(&Lemma::CausalOrdering {
+        assert!(lemmas.contains(&Lemma::TransitionOrdering {
             transition: t2,
             place: s2,
             feeders: std::iter::once(t1).collect(),
@@ -280,22 +280,22 @@ mod tests {
             initial_marking: 0,
             net_effects: [(t_once, 1)].into_iter().collect(),
         }));
-        assert!(lemmas.contains(&Lemma::CausalOrdering {
+        assert!(lemmas.contains(&Lemma::TransitionOrdering {
             transition: t2,
             place: s4,
             feeders: [t4, t5].into_iter().collect(),
         }));
-        assert!(lemmas.contains(&Lemma::CausalOrdering {
+        assert!(lemmas.contains(&Lemma::TransitionOrdering {
             transition: t2,
             place: s3,
             feeders: [t3, t6].into_iter().collect(),
         }));
-        assert!(lemmas.contains(&Lemma::CausalOrdering {
+        assert!(lemmas.contains(&Lemma::TransitionOrdering {
             transition: t5,
             place: s7,
             feeders: [t2].into_iter().collect(),
         }));
-        assert!(lemmas.contains(&Lemma::CausalOrdering {
+        assert!(lemmas.contains(&Lemma::TransitionOrdering {
             transition: t6,
             place: s7,
             feeders: [t2].into_iter().collect(),

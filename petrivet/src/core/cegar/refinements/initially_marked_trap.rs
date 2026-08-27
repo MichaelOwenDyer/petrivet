@@ -65,9 +65,10 @@ impl InitiallyMarkedTrapRefinement {
         let trap_sum = solver.add(self.trap.ones().map(|p| place_terms[p].clone()));
         let zero = solver.mk_int(0);
         let constraint = solver.gt(&trap_sum, &zero);
+        let lemma = IdxLemma::InitiallyMarkedTrap(self.trap);
         if let Some(callback) = callback {
-            callback(IdxLemma::InitiallyMarkedTrap(self.trap.clone()));
+            callback(lemma.clone());
         }
-        solver.assert_tracked(&constraint, IdxLemma::InitiallyMarkedTrap(self.trap));
+        solver.assert_tracked(&constraint, lemma);
     }
 }

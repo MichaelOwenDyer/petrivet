@@ -43,6 +43,10 @@ impl SmtSolver for Z3 {
         Int::from_i64(value)
     }
 
+    fn mk_bool_var(&mut self, name: &str) -> Self::Bool {
+        Bool::new_const(name)
+    }
+
     fn add(&mut self, terms: impl IntoIterator<Item = Self::Int>) -> Self::Int {
         Int::add(&terms.into_iter().collect::<Vec<_>>())
     }
@@ -61,6 +65,10 @@ impl SmtSolver for Z3 {
 
     fn gt(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool {
         a.gt(b.clone())
+    }
+
+    fn le(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool {
+        a.le(b.clone())
     }
 
     fn lt(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool {
@@ -109,12 +117,14 @@ impl SmtSolver for Z3 {
     }
 
     fn eval_int(&self, term: &Self::Int) -> Option<u32> {
-        let model = self
-            .solver
-            .get_model()
-            .expect("eval_int called without a preceding Sat check result");
+        let model = self.solver.get_model().expect("check() must have returned SAT before calling eval_int");
         let value = model.eval(term, true)?;
         u32::try_from(value.as_u64()?).ok()
+    }
+
+    fn eval_bool(&self, term: &Self::Bool) -> Option<bool> {
+        let model = self.solver.get_model().expect("check() must have returned SAT before calling eval_bool");
+        model.eval(term, true)?.as_bool()
     }
 
     fn unsat_core(&mut self) -> Vec<IdxLemma> {

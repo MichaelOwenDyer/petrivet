@@ -225,7 +225,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
             );
             return StructuralStep::Refined(self);
         }
-        StructuralStep::Advanced(Cegar::<Behavioral<S>, S>::from(self))
+        StructuralStep::Advanced(Cegar::<Behavioral<S>, S>::from(self, candidate_marking))
     }
 }
 
@@ -237,6 +237,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
             context,
             observer,
         }: Cegar<'a, Structural<S>, S>,
+        candidate_marking: IdxMarking<u32>,
     ) -> Self {
         // Encode the transition variables into the SMT solver, and assert that they are all
         // non-negative. We will extract the values of these variables to form a candidate
@@ -253,18 +254,26 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                 .collect()
         };
 
-        MarkingEquationRefinement::encode_into(
-            &mut solver,
-            &problem,
-            &context.places,
-            &transitions,
-        );
+        {
+            let callback = observer.with_context(Some(candidate_marking), None);
 
-        if let Some(transition_ordering_refinement) = TransitionOrderingRule::check(
-            problem.net,
-            problem.m0,
-        ) {
-            transition_ordering_refinement.encode_into(&mut solver, &problem, &transitions);
+            MarkingEquationRefinement::encode_into(
+                &mut solver,
+                &problem,
+                &context.places,
+                &transitions,
+                callback.as_deref(),
+            );
+
+            if let Some(transition_ordering_refinement) =
+                TransitionOrderingRule::check(problem.net, problem.m0) {
+                transition_ordering_refinement.encode_into(
+                    &mut solver,
+                    &problem,
+                    &transitions,
+                    callback.as_deref(),
+                );
+            }
         }
 
         let context = Behavioral {

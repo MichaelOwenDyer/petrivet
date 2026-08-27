@@ -10,6 +10,7 @@
 //!
 //! This module provides a bidirectional mapping between the public handles and the internal dense indices.
 
+use crate::core::cegar::CegarResult;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::observe::IdxCegarEvent as IdxCegarEvent;
 use crate::core::marking::IdxMarking;
@@ -19,13 +20,12 @@ use crate::core::state_space::TokenOps;
 use crate::net::invariant::PInvariant;
 use crate::parikh_vector::ParikhVector;
 use crate::prelude::{Marking, Place, Transition};
+use crate::system::coverability::CoverabilityResult;
 use crate::system::lemma::Lemma;
 use crate::system::observe::CegarEvent;
+use crate::system::reachability::Reachability;
 use ahash::{HashMap, HashSet};
 use fixedbitset::FixedBitSet;
-use crate::core::cegar::CegarResult;
-use crate::system::coverability::CoverabilityResult;
-use crate::system::reachability::Reachability;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DenseMapping {
@@ -200,6 +200,7 @@ impl DenseMapping {
                     .map(|(p_idx, w)| (self.place(p_idx), w))
                     .collect(),
                 value: p_inv.value,
+                kind: p_inv.kind,
             }),
             IdxLemma::InitiallyMarkedTrap(trap) => Lemma::InitiallyMarkedTrap(
                 self.place_set(&trap)
@@ -217,7 +218,7 @@ impl DenseMapping {
                 feeder: self.transition(feeder),
                 trap: self.place_set(&trap),
             },
-            IdxLemma::CausalOrdering { t_idx, p_idx, feeders } => Lemma::CausalOrdering {
+            IdxLemma::TransitionOrdering { t_idx, p_idx, feeders } => Lemma::TransitionOrdering {
                 transition: self.transition(t_idx),
                 place: self.place(p_idx),
                 feeders: feeders.into_iter().map(|t_idx| self.transition(t_idx)).collect(),

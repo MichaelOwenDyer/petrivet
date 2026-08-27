@@ -100,6 +100,7 @@ impl TransitionOrderingRefinement {
         solver: &mut S,
         problem: &CegarProblem,
         transition_terms: &[S::Int],
+        callback: Option<&dyn Fn(IdxLemma)>
     ) {
         let mut order_terms = HashMap::new();
 
@@ -114,7 +115,10 @@ impl TransitionOrderingRefinement {
                 // No transition can ever add more tokens to `p`, so `t` can never fire at all.
                 let zero = solver.mk_int(0);
                 let t_dead = solver.eq(&transition_terms[t_idx], &zero);
-                solver.assert_tracked(&t_dead, IdxLemma::CausalOrdering { t_idx, p_idx, feeders });
+                if let Some(callback) = callback {
+                    callback(IdxLemma::TransitionOrdering { t_idx, p_idx, feeders: Vec::new() });
+                }
+                solver.assert_tracked(&t_dead, IdxLemma::TransitionOrdering { t_idx, p_idx, feeders });
                 return;
             }
 
@@ -138,7 +142,11 @@ impl TransitionOrderingRefinement {
                 solver.or(feeder_conditions)
             };
             let implication = solver.implies(&t_fires, &some_feeder_fires_first);
-            solver.assert_tracked(&implication, IdxLemma::CausalOrdering { t_idx, p_idx, feeders });
+            let lemma = IdxLemma::TransitionOrdering { t_idx, p_idx, feeders };
+            if let Some(callback) = callback {
+                callback(lemma.clone());
+            }
+            solver.assert_tracked(&implication, lemma);
         }
     }
 }

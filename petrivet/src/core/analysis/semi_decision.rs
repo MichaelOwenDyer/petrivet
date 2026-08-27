@@ -37,109 +37,11 @@
 //! assert!(!result.is_reachable());
 //! ```
 
-use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, PlaceIdx};
 use good_lp::{
-    Expression, ProblemVariables, Solution, SolverModel, Variable, VariableDefinition, constraint,
+    Expression, ProblemVariables, Solution, SolverModel, Variable, constraint,
     variable,
 };
-
-/// Checks the marking equation M = M₀ + N · x for a non-negative rational solution x,
-/// where N: |P|×|T| is the incidence matrix of the net.
-/// This is a necessary condition for M to be reachable from M₀, but not sufficient.
-/// The feasibility of this LP is logically equivalent to `M ~ M₀`
-/// (agreement on all place invariants).
-///
-/// Note that this LP tries to find a _rational_ solution,
-/// which is faster to solve than the integer version but may yield spurious solutions
-/// that are not actually realizable (e.g. firing a transition 0.5 times).
-/// For a stronger check, see [`find_marking_equation_integer_solution`].
-///
-/// References:
-/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation):
-///   "a nonnegative integer solution x must exist" is a necessary reachability condition.
-/// - [Primer, Proposition 4.3](crate::literature#proposition-43--state-equation)
-///   (state equation as necessary condition)
-#[must_use]
-pub fn find_marking_equation_rational_solution(
-    net: &DenseNet,
-    initial: &IdxMarking<u32>,
-    target: &IdxMarking<u32>,
-) -> Option<Box<[f64]>> {
-    find_marking_equation_solution(net, initial, target, &variable().min(0.0), |v| v)
-}
-
-/// Checks the marking equation using ILP (integer linear programming).
-///
-/// This is a stronger necessary condition than [`find_marking_equation_rational_solution`]:
-/// it searches for a non-negative **integer** firing count vector x such that
-/// `m₀ + N · x = m'`. If no integer solution exists, the target marking is
-/// definitely unreachable (even if a rational LP solution existed).
-///
-/// More expensive than the LP variant due to branch-and-bound, but can
-/// rule out spurious LP solutions that have no integer counterpart.
-///
-/// # Panics
-/// - If the ILP solver returns an error other than infeasibility (e.g. unboundedness, numerical issues).
-///
-/// References:
-/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation): the firing count vector must be a non-negative integer
-#[must_use]
-pub fn find_marking_equation_integer_solution(
-    net: &DenseNet,
-    initial_marking: &IdxMarking<u32>,
-    target: &IdxMarking<u32>,
-) -> Option<Box<[u32]>> {
-    // Safe because we are using integer variables
-    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-    find_marking_equation_solution(
-        net,
-        initial_marking,
-        target,
-        &variable().integer().min(0),
-        |v| v.round() as u32,
-    )
-}
-
-#[must_use]
-fn find_marking_equation_solution<T, F: FnMut(f64) -> T>(
-    net: &DenseNet,
-    initial: &IdxMarking<u32>,
-    target: &IdxMarking<u32>,
-    variable_def: &VariableDefinition,
-    extract: F,
-) -> Option<Box<[T]>> {
-    let mut variables = ProblemVariables::new();
-    let firing_counts: Vec<_> = net
-        .transition_indices()
-        .map(|_| variables.add(variable_def.clone()))
-        .collect();
-
-    let incidence = net.incidence_matrix();
-    let constraints = net.place_indices().map(|p| {
-        let lhs: Expression = net
-            .transition_indices()
-            .map(|t| f64::from(incidence.get_effect(t, p)) * firing_counts[t])
-            .sum();
-        let rhs = f64::from(target[p]) - f64::from(initial[p]);
-        constraint!(lhs == rhs)
-    });
-
-    let objective: Expression = firing_counts.iter().copied().sum();
-    variables
-        .minimise(objective)
-        .using(good_lp::microlp)
-        .with_all(constraints)
-        .solve()
-        .ok()
-        .map(|solution| {
-            firing_counts
-                .into_iter()
-                .map(|v| solution.value(v))
-                .map(extract)
-                .collect()
-        })
-}
 
 /// Checks structural boundedness: is the net bounded for every possible
 /// initial marking?

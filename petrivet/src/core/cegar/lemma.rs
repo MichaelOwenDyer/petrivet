@@ -40,7 +40,7 @@ pub enum IdxLemma {
     /// (or, if `place` has no producer at all, `transition` can never fire).
     /// This is only asserted when a *cycle* is detected, to prevent the SMT solver from proposing
     /// spurious "ouroboros" Parikh vectors which borrow non-existent tokens.
-    CausalOrdering {
+    TransitionOrdering {
         /// The transition which must wait to fire until `place` has been produced into.
         t_idx: TransitionIdx,
         /// The place which must be produced into before `transition` can fire.
