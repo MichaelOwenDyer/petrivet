@@ -8,11 +8,11 @@ keywords = ["petrinets", "modeling", "analysis"]
 
 [dependencies]
 ahash = "0.8.12"
-good_lp = { version = "1.15.1", default-features = false, features = ["microlp"] }
+good_lp = { version = "1.15.3", default-features = false, features = ["microlp"] }
 petgraph = "0.8.3"
 graph-cycles = "0.3.0"
 quick-xml = { version = "0.42.0", features = ["serialize"], optional = true }
-serde = { version = "1.0.228", features = ["derive"], optional = true }
+serde = { version = "1.0.229", features = ["derive"], optional = true }
 tap = "1.0.1"
 fixedbitset = "0.5.7"
 oxiz = { git = "https://github.com/MichaelOwenDyer/oxiz.git", branch = "pub-assertions", optional = true }
