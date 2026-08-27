@@ -335,9 +335,8 @@ pub type CommonerHackCriterionResult = Result<Box<[SiphonTrapPair]>, SiphonTrapP
 /// a trap that is marked under the given marking.
 ///
 /// For free-choice nets, this is a necessary and sufficient condition for
-/// liveness — [Murata, Theorem 12](crate::literature#theorem-12--commonerhack-criterion).
-/// For asymmetric-choice nets it is sufficient but not necessary
-/// — [Murata, Theorem 15](crate::literature#theorem-15--liveness-of-asymmetric-choice-nets).
+/// liveness: [Murata, Theorem 12](crate::literature#theorem-12--commonerhack-criterion).
+/// For asymmetric-choice nets it is sufficient but not necessary: [Murata, Theorem 15](crate::literature#theorem-15--liveness-of-asymmetric-choice-nets).
 ///
 /// This is the key structural shortcut for proving liveness in free-choice nets
 /// without exploring the full state space. This is significant because it runs

@@ -48,7 +48,7 @@ pub enum BoundednessAnalysisMethod {
     /// Structural LP found a positive vector y with yᵀN ≤ 0.
     /// Bounds are derived as M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋: valid but
     /// potentially loose.
-    PositivePlaceSubvariant(Box<[f64]>),
+    PositivePlaceSubinvariant(Box<[f64]>),
     /// Full coverability graph explored. Bounds are exact.
     CoverabilityGraph,
 }

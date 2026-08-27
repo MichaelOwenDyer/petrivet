@@ -18,19 +18,19 @@ pub struct PInvariantRule<S: SmtSolver> {
     is_invariant: S::Bool,
     /// Boolean variable indicating whether the subinvariant condition is being enforced
     /// (i.e., the weighted sum is non-increasing).
-    is_subvariant: S::Bool,
+    is_subinvariant: S::Bool,
     /// Boolean variable indicating whether the surinvariant condition is being enforced
     /// (i.e., the weighted sum is non-decreasing).
-    is_survariant: S::Bool,
+    is_surinvariant: S::Bool,
 }
 
 impl<S: SmtSolver> PInvariantRule<S> {
     pub fn new(incidence_matrix: &IncidenceMatrix) -> Self {
         let mut solver = S::default();
 
-        let is_invariant = solver.mk_bool_var("is_invariant");
-        let is_subvariant = solver.mk_bool_var("is_subvariant");
-        let is_survariant = solver.mk_bool_var("is_survariant");
+        let is_invariant = solver.mk_bool_var("invariant");
+        let is_subinvariant = solver.mk_bool_var("subinvariant");
+        let is_surinvariant = solver.mk_bool_var("surinvariant");
 
         let zero = solver.mk_int(0);
         let weights: Vec<S::Int> = incidence_matrix
@@ -60,20 +60,20 @@ impl<S: SmtSolver> PInvariantRule<S> {
                 let eq_zero = solver.eq(&sum, &zero);
                 let invariant_cond = solver.implies(&is_invariant, &eq_zero);
                 solver.assert(&invariant_cond);
-                
+
                 let le_zero = solver.le(&sum, &zero);
-                let subvariant_cond = solver.implies(&is_subvariant, &le_zero);
-                solver.assert(&subvariant_cond);
+                let subinvariant_cond = solver.implies(&is_subinvariant, &le_zero);
+                solver.assert(&subinvariant_cond);
 
                 let ge_zero = solver.ge(&sum, &zero);
-                let survariant_cond = solver.implies(&is_survariant, &ge_zero);
-                solver.assert(&survariant_cond);
+                let surinvariant_cond = solver.implies(&is_surinvariant, &ge_zero);
+                solver.assert(&surinvariant_cond);
             }
         }
 
         solver.push();
 
-        Self { solver, weights, is_invariant, is_subvariant, is_survariant }
+        Self { solver, weights, is_invariant, is_subinvariant, is_surinvariant }
     }
 }
 
@@ -139,19 +139,19 @@ impl<S: SmtSolver> PInvariantRule<S> {
             // That didn't work, so try to find a violated sub- or sur-invariant.
             self.solver.push();
 
-            let subvariant_cond = self.solver.and([self.is_subvariant.clone(), target_gt]);
-            let survariant_cond = self.solver.and([self.is_survariant.clone(), target_lt]);
-            let either = self.solver.or([subvariant_cond, survariant_cond]);
+            let subinvariant_cond = self.solver.and([self.is_subinvariant.clone(), target_gt]);
+            let surinvariant_cond = self.solver.and([self.is_surinvariant.clone(), target_lt]);
+            let either = self.solver.or([subinvariant_cond, surinvariant_cond]);
             self.solver.assert(&either);
 
             if self.solver.check() == Satisfiability::Sat {
                 let kind = match (
-                    self.solver.eval_bool(&self.is_subvariant),
-                    self.solver.eval_bool(&self.is_survariant)
+                    self.solver.eval_bool(&self.is_subinvariant),
+                    self.solver.eval_bool(&self.is_surinvariant)
                 ) {
                     (Some(true), Some(false)) => PInvariantKind::Subinvariant,
                     (Some(false), Some(true)) => PInvariantKind::Surinvariant,
-                    (sub, sur) => panic!("unexpected model: subvariant={sub:?}, survariant={sur:?}"),
+                    (sub, sur) => panic!("unexpected model: subinvariant={sub:?}, surinvariant={sur:?}"),
                 };
                 return self.extract_and_cleanup(problem, kind);
             }
@@ -201,10 +201,11 @@ pub struct IdxPInvariant {
     pub weights: Vec<(PlaceIdx, u32)>,
     /// The weighted sum of the initial marking's tokens over the invariant's places.
     pub value: u32,
-    /// The kind of invariant: exact, subvariant, or survariant.
+    /// The kind of invariant: exact, subinvariant, or surinvariant.
     pub kind: PInvariantKind,
 }
 
+/// A refinement that encodes a P-Invariant into the SMT solver.
 #[derive(Debug, Clone)]
 pub struct PInvariantRefinement(pub IdxPInvariant);
 

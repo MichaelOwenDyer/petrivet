@@ -244,10 +244,10 @@ where
 
     /// Drive exploration until either:
     ///
-    /// - `predicate` returns `true` for some reachable marking — in which
+    /// - `predicate` returns `true` for some reachable marking, in which
     ///   case the marking is returned immediately, or
     /// - the frontier is exhausted (the entire reachability graph has been
-    ///   explored without the predicate ever firing) — in which case
+    ///   explored without the predicate ever firing), in which case
     ///   `None` is returned.
     ///
     /// **Does not terminate** if there are infinite states and the predicate never returns true.
