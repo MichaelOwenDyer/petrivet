@@ -1,16 +1,6 @@
-/target
+target
 .idea
 .cursor
-.env
 petrivet-wasm/pkg
 node_modules
 petrivet-viz/dist
-literature
-mcc-2026/SubmissionKit
-mcc-2026/mcc-orchestrator/artifacts
-mcc-2026/mcc-orchestrator/cache
-**/.DS_Store
-mcc-tests/oracle/models/*
-mcc-tests/oracle/oracle.tar.gz
-typst/reference
-typst/masters/

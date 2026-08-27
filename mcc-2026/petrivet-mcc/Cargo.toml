@@ -1,7 +1,0 @@
-[package]
-name = "petrivet-mcc"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-petrivet = { path = "../../petrivet" }
