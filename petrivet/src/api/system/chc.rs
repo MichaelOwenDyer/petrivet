@@ -55,12 +55,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
             SiphonTrapPair {
                 siphon: pair
                     .siphon
-                    .into_ones()
+                    .into_place_indices()
                     .map(|p_idx| mapping.place(p_idx))
                     .collect(),
                 trap: pair
                     .trap
-                    .into_ones()
+                    .into_place_indices()
                     .map(|p_idx| mapping.place(p_idx))
                     .collect(),
             }

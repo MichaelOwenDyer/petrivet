@@ -1,16 +1,16 @@
 use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::cegar::cegar::CegarProblem;
+use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::SmtSolver;
 use crate::core::marking::IdxMarking;
+use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::net::{IdxNode, TransitionIdx};
 use crate::core::parikh::IdxParikhVector;
 use ahash::{HashMap, HashMapExt, HashSet};
-use fixedbitset::FixedBitSet;
 use petgraph::Direction;
 use petgraph::Graph;
 use petgraph::visit::IntoNodeReferences;
 use std::hash::{Hash, Hasher};
-use crate::core::cegar::lemma::IdxLemma;
 
 /// A mutable budget of transition firings, which we attempt to completely consume in a
 /// guided depth-first search of the state space. If we reach a dead end, we can report
@@ -184,14 +184,14 @@ impl GuidedExplorer {
         marking: &IdxMarking<u32>,
         budget: &TransitionFiringBudget
     ) -> Vec<TransitionIdx> {
-        let mut active_enabled = FixedBitSet::with_capacity(problem.net.transition_count());
+        let mut active_enabled = TransitionIdxSet::none_of(problem.net.transition_count());
         for t_idx in problem.net.transition_indices() {
             if budget.by_transition[t_idx] > 0 && problem.net.is_enabled_in(t_idx, marking) {
-                active_enabled.insert(t_idx);
+                active_enabled.add(t_idx);
             }
         }
 
-        if active_enabled.is_clear() {
+        if active_enabled.is_empty() {
             return Vec::new();
         }
 
@@ -199,7 +199,7 @@ impl GuidedExplorer {
         // Look for an enabled transition that shares NO input places with any other active transition.
         // Such a transition can always be fired without affecting the executability of any other
         // transition in the budget, so we do not need to branch on any other transitions in the ample set.
-        'singleton_search: for t_idx in active_enabled.ones() {
+        'singleton_search: for t_idx in active_enabled.transition_indices() {
             for &p_idx in &problem.net.preset_t[t_idx] {
                 for &t_rival in &problem.net.postset_p[p_idx] {
                     if t_rival != t_idx && budget.by_transition[t_rival] > 0 {
@@ -212,24 +212,23 @@ impl GuidedExplorer {
         }
 
         // Fallback: Strong Stubborn Set Algorithm
-        let mut stubborn_set = FixedBitSet::with_capacity(problem.net.transition_count());
-        let mut worklist = FixedBitSet::with_capacity(problem.net.transition_count());
+        let mut stubborn_set = TransitionIdxSet::none_of(problem.net.transition_count());
+        let mut worklist = TransitionIdxSet::none_of(problem.net.transition_count());
 
         // Initialize with the first enabled active transition
-        let t0: TransitionIdx = active_enabled.ones().next().expect("there should be at least one enabled transition");
-        stubborn_set.insert(t0);
-        worklist.insert(t0);
+        let t0: TransitionIdx = active_enabled.transition_indices().next().expect("there should be at least one enabled transition");
+        stubborn_set.add(t0);
+        worklist.add(t0);
 
-        while let Some(t_idx) = worklist.ones().next() {
-            worklist.remove(t_idx);
+        while let Some(t_idx) = worklist.remove_first() {
             if problem.net.is_enabled_in(t_idx, marking) {
                 // Rule for enabled transitions:
                 // Add all transitions that share an input place with t_idx
                 for &p_idx in &problem.net.preset_t[t_idx] {
                     for &t_rival in &problem.net.postset_p[p_idx] {
                         if budget.by_transition[t_rival] > 0 && !stubborn_set.contains(t_rival) {
-                            stubborn_set.insert(t_rival);
-                            worklist.insert(t_rival);
+                            stubborn_set.add(t_rival);
+                            worklist.add(t_rival);
                         }
                     }
                 }
@@ -244,8 +243,8 @@ impl GuidedExplorer {
                         // dead, and we don't need to consider it further.
                         for &t_feeder in &problem.net.preset_p[p_idx] {
                             if budget.by_transition[t_feeder] > 0 && !stubborn_set.contains(t_feeder) {
-                                stubborn_set.insert(t_feeder);
-                                worklist.insert(t_feeder);
+                                stubborn_set.add(t_feeder);
+                                worklist.add(t_feeder);
                             }
                         }
                         // We only need to consider one insufficiently marked place.
@@ -256,7 +255,7 @@ impl GuidedExplorer {
         }
 
         // The ample set is the intersection of the stubborn set and the enabled set
-        active_enabled.intersection(&stubborn_set).collect()
+        active_enabled.0.intersection(&stubborn_set.0).collect()
     }
 
     /// Records a dead end if it is among the "best" (smallest remaining budget) seen so far.
@@ -307,7 +306,7 @@ fn find_bottleneck_components(
     problem: &CegarProblem,
     marking: &IdxMarking<u32>,
     remaining_budget: &TransitionFiringBudget,
-) -> Vec<(FixedBitSet, FixedBitSet)> {
+) -> Vec<(PlaceIdxSet, TransitionIdxSet)> {
     let mut graph: Graph<IdxNode, ()> = Graph::new();
     let mut node_index: HashMap<IdxNode, petgraph::graph::NodeIndex> = HashMap::new();
 
@@ -352,15 +351,15 @@ fn find_bottleneck_components(
             condensation_graph.neighbors_directed(*idx, Direction::Incoming).next().is_none()
         })
         .map(|(_, members)| {
-            let mut places = FixedBitSet::with_capacity(problem.net.place_count());
-            let mut transitions = FixedBitSet::with_capacity(problem.net.transition_count());
+            let mut places = PlaceIdxSet::none_of(problem.net.place_count());
+            let mut transitions = TransitionIdxSet::none_of(problem.net.transition_count());
             for &n in members {
                 match n {
                     IdxNode::Place(p_idx) => {
-                        places.insert(p_idx);
+                        places.add(p_idx);
                     }
                     IdxNode::Transition(t_idx) => {
-                        transitions.insert(t_idx);
+                        transitions.add(t_idx);
                     }
                 }
             }
@@ -375,15 +374,15 @@ fn external_consumers(
     problem: &CegarProblem,
     marking: &IdxMarking<u32>,
     remaining_budget: &TransitionFiringBudget,
-    component_places: &FixedBitSet,
-    component_transitions: &FixedBitSet,
-) -> FixedBitSet {
-    let mut xi = FixedBitSet::with_capacity(problem.net.transition_count());
-    for t_idx in component_transitions.zeroes() {
-        if remaining_budget.by_transition[t_idx] > 0 && component_places.ones().any(|p_idx| {
+    component_places: &PlaceIdxSet,
+    component_transitions: &TransitionIdxSet,
+) -> TransitionIdxSet {
+    let mut xi = TransitionIdxSet::none_of(problem.net.transition_count());
+    for t_idx in component_transitions.complement_transition_indices() {
+        if remaining_budget.by_transition[t_idx] > 0 && component_places.place_indices().any(|p_idx| {
             u32::from(problem.net.incidence_matrix.get_consume(t_idx, p_idx)) > marking[p_idx]
         }) {
-            xi.insert(t_idx);
+            xi.add(t_idx);
         }
     }
     xi
@@ -395,19 +394,19 @@ fn external_consumers(
 fn estimate_needed_tokens(
     incidence_matrix: &IncidenceMatrix,
     marking: &IdxMarking<u32>,
-    component_places: &FixedBitSet,
-    component_transitions: &FixedBitSet,
-    external_consumers: &FixedBitSet,
+    component_places: &PlaceIdxSet,
+    component_transitions: &TransitionIdxSet,
+    external_consumers: &TransitionIdxSet,
 ) -> u32 {
-    if component_transitions.is_clear() {
+    if component_transitions.is_empty() {
         // The component is a single place `s` with no internal producer: every transition that
         // could feed it comes from outside (`external_consumers`). Group those consumers by how
         // many tokens they give back to `s` when they fire (some are net-neutral loops, not pure
         // sinks), and process the highest-value groups first, so a group's leftover can offset
         // the token need of the next (lower-value) group instead of being double-counted.
-        let s = component_places.ones().next().expect("non-empty component");
+        let s = component_places.place_indices().next().expect("non-empty component");
         let mut groups: HashMap<u8, (u32, u32)> = HashMap::new(); // production-back j -> (count, total consumption)
-        for t in external_consumers.ones() {
+        for t in external_consumers.transition_indices() {
             let produce_back = incidence_matrix.get_produce(t, s);
             let consume = u32::from(incidence_matrix.get_consume(t, s));
             let (count, consumption) = groups.entry(produce_back).or_insert((0, 0));
@@ -435,10 +434,10 @@ fn estimate_needed_tokens(
         // becomes enabled, it can produce tokens for the rest of the component in turn.
         // n := min_{t∈Ti} Σ_{s∈Si} (F(s,t) - m̂(s))
         component_transitions
-            .ones()
+            .transition_indices()
             .map(|t| {
                 component_places
-                    .ones()
+                    .place_indices()
                     .map(|p| {
                         let consume = u32::from(incidence_matrix.get_consume(t, p));
                         consume.saturating_sub(marking[p])
@@ -489,7 +488,7 @@ impl IncrementRefinement {
             for t in problem.net.transition_indices() {
                 if self.remaining_budget.by_transition[t] == 0 {
                     let net_production: i32 = component_places
-                        .ones()
+                        .place_indices()
                         .map(|p| i32::from(problem.net.incidence_matrix.get_effect(t, p)))
                         .sum();
 
@@ -541,22 +540,22 @@ mod tests {
         let [t_pq, t_qp] = b.add_transitions();
         b.add_arcs((p, t_pq, q));
         b.add_arcs((q, t_qp, p));
-        let net = b.build().unwrap().dense_net;
+        let net = b.build().unwrap();
 
         let p_idx = 0;
         let q_idx = 1;
         let marking = IdxMarking(vec![0, 0]);
 
-        let mut component_places = FixedBitSet::with_capacity(2);
-        component_places.insert(p_idx);
-        component_places.insert(q_idx);
-        let mut component_transitions = FixedBitSet::with_capacity(2);
-        component_transitions.insert(0);
-        component_transitions.insert(1);
-        let external_consumers = FixedBitSet::with_capacity(2); // unused when Ti != ∅
+        let mut component_places = PlaceIdxSet::none_of(2);
+        component_places.add(p_idx);
+        component_places.add(q_idx);
+        let mut component_transitions = TransitionIdxSet::none_of(2);
+        component_transitions.add(0 as TransitionIdx);
+        component_transitions.add(1 as TransitionIdx);
+        let external_consumers = TransitionIdxSet::none_of(2); // unused when Ti != ∅
 
         let n = estimate_needed_tokens(
-            &net.incidence_matrix,
+            &net.dense_net.incidence_matrix,
             &marking,
             &component_places,
             &component_transitions,
@@ -584,13 +583,13 @@ mod tests {
         let s_idx = 0;
         let marking = IdxMarking(vec![0]);
 
-        let mut component_places = FixedBitSet::with_capacity(1);
-        component_places.insert(s_idx);
-        let component_transitions = FixedBitSet::with_capacity(3); // Ti = ∅
-        let mut external_consumers = FixedBitSet::with_capacity(3);
-        external_consumers.insert(0);
-        external_consumers.insert(1);
-        external_consumers.insert(2);
+        let mut component_places = PlaceIdxSet::none_of(1);
+        component_places.add(s_idx);
+        let component_transitions = TransitionIdxSet::none_of(3); // Ti = ∅
+        let mut external_consumers = TransitionIdxSet::none_of(3);
+        external_consumers.add(0 as TransitionIdx);
+        external_consumers.add(1 as TransitionIdx);
+        external_consumers.add(2 as TransitionIdx);
 
         let n = estimate_needed_tokens(
             &net.incidence_matrix,

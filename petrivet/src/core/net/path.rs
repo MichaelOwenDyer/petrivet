@@ -1,10 +1,10 @@
 use crate::core::net::{DenseNet, IdxNode, PlaceIdx, TransitionIdx};
 use crate::net::Net;
 use crate::system::PetriNet;
-use fixedbitset::FixedBitSet;
 use graph_cycles::Cycles;
 use std::ops::Deref;
 use tap::TryConv;
+use crate::core::net::idx_set::PlaceIdxSet;
 
 /// A path through the directed bipartite graph of a Petri net.
 ///
@@ -137,19 +137,19 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn has_unmarked_circuit(&self) -> bool {
         let place_count = self.dense_net.place_count();
         let unmarked_places = {
-            let mut is_zero = FixedBitSet::with_capacity(place_count);
+            let mut is_zero = PlaceIdxSet::none_of(place_count);
             for p in self.dense_net.place_indices() {
                 is_zero.set(p, self.marking[p] == 0);
             }
             is_zero
         };
 
-        if unmarked_places.is_clear() {
+        if unmarked_places.is_empty() {
             return false;
         }
 
-        let mut visited = FixedBitSet::with_capacity(place_count);
-        let mut in_stack = FixedBitSet::with_capacity(place_count);
+        let mut visited = PlaceIdxSet::none_of(place_count);
+        let mut in_stack = PlaceIdxSet::none_of(place_count);
 
         for start in self.dense_net.place_indices() {
             if unmarked_places[start]
@@ -175,13 +175,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
 /// track the DFS state and detect cycles.
 fn dfs_zero_circuit(
     p_idx: PlaceIdx,
-    is_zero: &FixedBitSet,
+    is_zero: &PlaceIdxSet,
     dense_net: &DenseNet,
-    visited: &mut FixedBitSet,
-    in_circuit: &mut FixedBitSet,
+    visited: &mut PlaceIdxSet,
+    in_circuit: &mut PlaceIdxSet,
 ) -> bool {
-    visited.insert(p_idx);
-    in_circuit.insert(p_idx);
+    visited.add(p_idx);
+    in_circuit.add(p_idx);
     for &t in &dense_net.postset_p[p_idx] {
         for &next_p in &dense_net.postset_t[t] {
             if !is_zero[next_p] {
