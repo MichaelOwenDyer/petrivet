@@ -27,7 +27,7 @@ use ahash::HashMap;
 /// use petrivet::net::builder::NetBuilder;
 /// use petrivet::system::PetriNet;
 /// use petrivet::state_space::ExplorationOrder;
-/// use petrivet::state_space::{ReachabilityExplorer, ReachabilityGraph};
+/// use petrivet::state_space::{ReachabilityGraphExplorer, ReachabilityGraph};
 ///
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
@@ -39,14 +39,14 @@ use ahash::HashMap;
 /// let sys = PetriNet::new(net, [(p0, 1)]);
 ///
 /// // Explore an unbounded net incrementally, stopping after 50 states
-/// let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
+/// let mut explorer = sys.explore_reachability_graph(ExplorationOrder::BreadthFirst);
 /// explorer.explore_iter().take(50).for_each(|s| println!("{:#?}", s.marking));
 /// assert!(explorer.marking_count() >= 50);
 /// assert!(!explorer.is_fully_explored()); // unbounded → never finishes
 /// ```
-pub type ReachabilityExplorer<'a> = StateGraphExplorer<'a, u32>;
+pub type ReachabilityGraphExplorer<'a> = StateGraphExplorer<'a, u32>;
 
-impl std::fmt::Debug for ReachabilityExplorer<'_> {
+impl std::fmt::Debug for ReachabilityGraphExplorer<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReachabilityExplorer")
             .field("markings", &self.marking_count())

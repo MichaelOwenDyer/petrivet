@@ -164,7 +164,7 @@ fn main() {
 
     println!("\n--- Incremental Exploration ---\n");
 
-    let mut explorer = sys.explore_reachability(ExplorationOrder::BreadthFirst);
+    let mut explorer = sys.explore_reachability_graph(ExplorationOrder::BreadthFirst);
     println!("Starting incremental exploration...");
 
     let mut new_states = 0;

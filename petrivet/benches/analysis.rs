@@ -338,7 +338,7 @@ fn bench_reachability_graph(c: &mut Criterion) {
             let sys = (fixture.build)(size);
             b.iter(|| {
                 std::hint::black_box(
-                    sys.explore_reachability(ExplorationOrder::BreadthFirst)
+                    sys.explore_reachability_graph(ExplorationOrder::BreadthFirst)
                         .explore_iter()
                         .take(100_000)
                         .count(),
@@ -362,7 +362,7 @@ fn bench_coverability_graph(c: &mut Criterion) {
             let sys = (fixture.build)(size);
             b.iter(|| {
                 std::hint::black_box(
-                    sys.explore_coverability(ExplorationOrder::BreadthFirst)
+                    sys.explore_coverability_graph(ExplorationOrder::BreadthFirst)
                         .explore_iter()
                         .take(10_000)
                         .count(),

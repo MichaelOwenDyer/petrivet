@@ -71,8 +71,6 @@ pub mod parikh_vector;
 
 use crate::core::marking::IdxMarking;
 use crate::net::{Net, Place, Transition};
-use crate::state_space::{CoverabilityExplorer, CoverabilityGraph, ExplorationOrder};
-use crate::state_space::{ReachabilityExplorer, ReachabilityGraph};
 use crate::system::marking::Marking;
 use std::fmt;
 use std::ops::Deref;
@@ -169,11 +167,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
         let PetriNet {
             net,
             marking,
-            reset_marking: reset,
+            reset_marking,
         } = self;
         let marking = net.as_ref().mapping.marking(marking);
-        let reset = net.as_ref().mapping.marking(reset);
-        (net, marking, reset)
+        let reset_marking = net.as_ref().mapping.marking(reset_marking);
+        (net, marking, reset_marking)
     }
 
     /// Returns the current marking of the system.
@@ -287,67 +285,6 @@ impl fmt::Display for NotEnabled {
 }
 
 impl std::error::Error for NotEnabled {}
-
-// state space convenience methods
-impl<N: AsRef<Net>> PetriNet<N> {
-    /// Returns a [`CoverabilityExplorer`] for this system
-    /// initialized with the given [`ExplorationOrder`].
-    pub fn explore_coverability(&self, order: ExplorationOrder) -> CoverabilityExplorer<'_> {
-        CoverabilityExplorer::new(self, order)
-    }
-
-    /// Returns the complete coverability graph for this system.
-    ///
-    /// Warning! This may be a HUGE structure!
-    pub fn build_coverability_graph(&self) -> CoverabilityGraph<'_> {
-        self.explore_coverability(ExplorationOrder::BreadthFirst)
-            .build_graph()
-    }
-
-    /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
-    /// returning either itself if the system is bounded or a partially-explored
-    /// [`CoverabilityExplorer`] if it is unbounded.
-    ///
-    /// Not knowing whether we will encounter unboundedness, this method first
-    /// constructs a Karp-Miller coverability tree which introduces ω as soon
-    /// as unbounded growth is detected. This comes at the cost of an additional
-    /// check per explored marking (omega acceleration). If we finish exploring
-    /// the coverability tree without ever introducing ω, we have in fact explored
-    /// the full reachability graph and can return it directly. Otherwise, we return
-    /// the [`CoverabilityExplorer`] in its current state, which contains the explored
-    /// portion of the coverability graph up to the first ω, and can be further explored.
-    ///
-    /// This is the right entry point when you want the speed of exploring
-    /// the reachability graph directly but cannot rule out unboundedness
-    /// upfront. For unbounded nets you avoid the cost of completing the
-    /// full coverability graph; for bounded nets the cost is identical to
-    /// `build_reachability_graph` (no ω is ever introduced, no extra work).
-    ///
-    /// # Errors
-    /// Returns `Err(partial_explorer)` as soon as any explored marking
-    /// contains ω. The frontier is preserved, so callers may resume.
-    #[allow(clippy::result_large_err)]
-    pub fn try_build_reachability_graph(
-        &self,
-    ) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
-        self.explore_coverability(ExplorationOrder::BreadthFirst)
-            .try_build_reachability_graph()
-    }
-
-    /// Returns a [`ReachabilityExplorer`] for this system
-    /// initialized with the given [`ExplorationOrder`].
-    pub fn explore_reachability(&self, order: ExplorationOrder) -> ReachabilityExplorer<'_> {
-        ReachabilityExplorer::new(self, order)
-    }
-
-    /// Returns the complete reachability graph for this system.
-    ///
-    /// WARNING! For unbounded nets, this will not terminate!
-    pub fn build_reachability_graph(&self) -> ReachabilityGraph<'_> {
-        self.explore_reachability(ExplorationOrder::BreadthFirst)
-            .build_graph()
-    }
-}
 
 #[cfg(feature = "pnml")]
 mod pnml {

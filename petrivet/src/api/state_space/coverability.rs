@@ -431,7 +431,7 @@ mod tests {
     #[test]
     fn step_by_step_exploration() {
         let (sys, _p0, _p1) = two_place_cycle();
-        let mut cg = sys.explore_coverability(ExplorationOrder::BreadthFirst);
+        let mut cg = sys.explore_coverability_graph(ExplorationOrder::BreadthFirst);
 
         assert!(!cg.is_fully_explored());
         assert_eq!(cg.marking_count(), 1);
@@ -449,7 +449,7 @@ mod tests {
     #[test]
     fn early_termination_unbounded() {
         let (sys, _, _) = unbounded_producer();
-        let mut cg = sys.explore_coverability(ExplorationOrder::BreadthFirst);
+        let mut cg = sys.explore_coverability_graph(ExplorationOrder::BreadthFirst);
 
         while let Some(step) = cg.explore_next() {
             if step.marking.has_omega() {
@@ -498,7 +498,7 @@ mod tests {
     #[test]
     fn switch_order_mid_exploration() {
         let (sys, _p0, _p1) = two_place_cycle();
-        let mut cg = sys.explore_coverability(ExplorationOrder::BreadthFirst);
+        let mut cg = sys.explore_coverability_graph(ExplorationOrder::BreadthFirst);
         cg.explore_next();
         cg.set_exploration_order(ExplorationOrder::DepthFirst);
         let cg = cg.build_graph();
@@ -609,10 +609,10 @@ mod tests {
     fn bfs_dfs_same_coverability() {
         let (sys, _p0, _p1) = two_place_cycle();
         let cg_bfs = sys
-            .explore_coverability(ExplorationOrder::BreadthFirst)
+            .explore_coverability_graph(ExplorationOrder::BreadthFirst)
             .build_graph();
         let cg_dfs = sys
-            .explore_coverability(ExplorationOrder::DepthFirst)
+            .explore_coverability_graph(ExplorationOrder::DepthFirst)
             .build_graph();
 
         assert_eq!(cg_bfs.marking_count(), cg_dfs.marking_count());

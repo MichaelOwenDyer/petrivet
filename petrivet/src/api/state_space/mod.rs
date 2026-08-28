@@ -11,6 +11,16 @@ use crate::net::{Net, Place, Transition};
 use crate::system::{PetriNet, marking::Marking};
 use std::iter::Sum;
 
+/// Controls frontier traversal order.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub enum ExplorationOrder {
+    /// Breadth-first: `path_to` returns shortest firing sequences.
+    #[default]
+    BreadthFirst,
+    /// Depth-first: may use less memory on wide state spaces.
+    DepthFirst,
+}
+
 /// An in-progress exploration of the state graph of a Petri net.
 ///
 /// Edges are [`Transitions`](Transition), and nodes are [`Markings`](Marking) of token type `T`.
@@ -146,7 +156,7 @@ where
     pub fn find_cover(&mut self, target: Marking<T>) -> Option<Marking<T>> {
         let target_idx_marking = self.mapping.idx_marking(target);
         self.core
-            .find(|idx_marking| *idx_marking >= target_idx_marking)
+            .search(|idx_marking| *idx_marking >= target_idx_marking)
             .map(|idx_marking| self.mapping.marking(idx_marking.clone()))
     }
 
@@ -329,12 +339,57 @@ impl<T: TokenOps> StateGraph<'_, T> {
     }
 }
 
-/// Controls frontier traversal order.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
-pub enum ExplorationOrder {
-    /// Breadth-first: `path_to` returns shortest firing sequences.
-    #[default]
-    BreadthFirst,
-    /// Depth-first: may use less memory on wide state spaces.
-    DepthFirst,
+impl<N: AsRef<Net>> PetriNet<N> {
+    /// Returns a [`CoverabilityExplorer`] for this system
+    /// initialized with the given [`ExplorationOrder`].
+    pub fn explore_coverability_graph(&self, order: ExplorationOrder) -> CoverabilityExplorer<'_> {
+        CoverabilityExplorer::new(self, order)
+    }
+
+    /// Returns the complete coverability graph for this system.
+    ///
+    /// Warning! This may be a HUGE structure!
+    pub fn build_coverability_graph(&self) -> CoverabilityGraph<'_> {
+        self.explore_coverability_graph(ExplorationOrder::BreadthFirst).build_graph()
+    }
+
+    /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
+    /// returning either itself if the system is bounded or a partially-explored
+    /// [`CoverabilityExplorer`] if it is unbounded.
+    ///
+    /// Not knowing whether we will encounter unboundedness, this method first
+    /// constructs a Karp-Miller coverability tree which introduces ω as soon
+    /// as unbounded growth is detected. This comes at the cost of an additional
+    /// check per explored marking (omega acceleration). If we finish exploring
+    /// the coverability tree without ever introducing ω, we have in fact explored
+    /// the full reachability graph and can return it directly. Otherwise, we return
+    /// the [`CoverabilityExplorer`] in its current state, which contains the explored
+    /// portion of the coverability graph up to the first ω, and can be further explored.
+    ///
+    /// This is the right entry point when you want the speed of exploring
+    /// the reachability graph directly but cannot rule out unboundedness
+    /// upfront. For unbounded nets you avoid the cost of completing the
+    /// full coverability graph; for bounded nets the cost is identical to
+    /// `build_reachability_graph` (no ω is ever introduced, no extra work).
+    ///
+    /// # Errors
+    /// Returns `Err(partial_explorer)` as soon as any explored marking
+    /// contains ω. The frontier is preserved, so callers may resume.
+    #[allow(clippy::result_large_err)]
+    pub fn try_build_reachability_graph(&self) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
+        self.explore_coverability_graph(ExplorationOrder::BreadthFirst).try_build_reachability_graph()
+    }
+
+    /// Returns a [`ReachabilityGraphExplorer`] for this system
+    /// initialized with the given [`ExplorationOrder`].
+    pub fn explore_reachability_graph(&self, order: ExplorationOrder) -> ReachabilityGraphExplorer<'_> {
+        ReachabilityGraphExplorer::new(self, order)
+    }
+
+    /// Returns the complete reachability graph for this system.
+    ///
+    /// WARNING! For unbounded nets, this will not terminate!
+    pub fn build_reachability_graph(&self) -> ReachabilityGraph<'_> {
+        self.explore_reachability_graph(ExplorationOrder::BreadthFirst).build_graph()
+    }
 }

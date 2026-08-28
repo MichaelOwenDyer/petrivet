@@ -26,7 +26,7 @@
 //! sys.try_fire(t0).expect("should be enabled");
 //! println!("Marking after firing: {:?}", sys.marking());
 //!
-//! let mut cg = sys.explore_coverability(ExplorationOrder::BreadthFirst);
+//! let mut cg = sys.explore_coverability_graph(ExplorationOrder::BreadthFirst);
 //! for state in cg.explore_iter().take(10) {
 //!     if state.is_new {
 //!         println!("{:#?}", state.marking);

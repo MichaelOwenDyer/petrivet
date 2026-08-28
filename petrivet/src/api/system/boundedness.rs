@@ -257,9 +257,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Returns true if some reachable marking puts more than one token in any place.
     pub fn has_reachable_unsafe_marking(&self) -> bool {
-        self.explore_reachability(ExplorationOrder::BreadthFirst)
+        self.explore_reachability_graph(ExplorationOrder::BreadthFirst)
             .core
-            .find(|m| m.iter().any(|&t| t > 1))
+            .search(|m| m.iter().any(|&t| t > 1))
             .is_some()
     }
 

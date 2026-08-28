@@ -9,7 +9,6 @@ use petgraph::graph::NodeIndex;
 use std::collections::VecDeque;
 use std::hash::Hash;
 use std::iter::Sum;
-use std::ops::ControlFlow;
 
 /// Operations on a token count needed for state space exploration.
 pub trait TokenOps: Clone + Copy + Eq + Ord + Hash + Sum {
@@ -217,20 +216,19 @@ where
     ///
     /// Otherwise, drive exploration until either a marking satisfying `predicate` is found
     /// (and returned), or the frontier is exhausted (in which case `None` is returned).
-    /// See [`search`](DenseStateGraphExplorer::search) for the latter behavior.
+    /// See [`find`](DenseStateGraphExplorer::find) for the latter behavior.
     ///
     /// **Does not terminate** if there are infinite states and the predicate never returns true.
-    pub fn find(
+    pub fn search(
         &mut self,
         mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
     ) -> Option<&IdxMarking<T>> {
-        // todo: possible to call .any_matched() here instead?
         for &node in self.state_space.seen.values() {
             if predicate(self.state_space.marking_at(node)) {
                 return Some(self.state_space.marking_at(node));
             }
         }
-        self.search(predicate)
+        self.find(predicate)
     }
 
     /// Drive exploration until either:
@@ -242,7 +240,7 @@ where
     ///   `None` is returned.
     ///
     /// **Does not terminate** if there are infinite states and the predicate never returns true.
-    pub fn search(
+    pub fn find(
         &mut self,
         mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
     ) -> Option<&IdxMarking<T>> {
@@ -252,17 +250,6 @@ where
             }
         }
         None
-    }
-
-    pub fn visit<F, B>(&mut self, mut visitor: F) -> Option<B>
-    where
-        F: FnMut((TransitionIdx, NodeIndex, bool)) -> ControlFlow<B>,
-    {
-        loop {
-            if let ControlFlow::Break(b) = visitor(self.explore_next()?) {
-                return Some(b);
-            }
-        }
     }
 }
 

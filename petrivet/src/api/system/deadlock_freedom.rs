@@ -1,6 +1,6 @@
 use crate::net::Net;
 use crate::net::class::NetClass;
-use crate::state_space::{ExplorationOrder, ReachabilityExplorer};
+use crate::state_space::{ExplorationOrder, ReachabilityGraphExplorer};
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
 
@@ -21,7 +21,7 @@ pub enum Deadlocks<'a> {
     /// The initial marking iff it is itself a deadlock - yielded first, exactly once.
     InitialDeadlock(Option<Deadlock>),
     /// The system is not certified deadlock-free: explore the reachable markings for deadlocks.
-    Explorer(ReachabilityExplorer<'a>),
+    Explorer(ReachabilityGraphExplorer<'a>),
 }
 
 impl Iterator for Deadlocks<'_> {
@@ -33,7 +33,7 @@ impl Iterator for Deadlocks<'_> {
             Deadlocks::InitialDeadlock(deadlock) => deadlock.take(),
             Deadlocks::Explorer(reachability_explorer) => reachability_explorer
                 .core
-                .search(|m| reachability_explorer.core.state_space.net.is_deadlock(m))
+                .find(|m| reachability_explorer.core.state_space.net.is_deadlock(m))
                 .map(|m| reachability_explorer.mapping.marking(m.clone())),
         }
     }
@@ -60,7 +60,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         } else if self.dense_net.is_deadlock(&self.marking) {
             Deadlocks::InitialDeadlock(Some(self.mapping.marking(self.marking.clone())))
         } else {
-            Deadlocks::Explorer(self.explore_reachability(ExplorationOrder::BreadthFirst))
+            Deadlocks::Explorer(self.explore_reachability_graph(ExplorationOrder::BreadthFirst))
         }
     }
 
