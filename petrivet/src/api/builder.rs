@@ -37,6 +37,10 @@ use std::num::NonZeroU32;
 use std::{fmt, iter};
 use crate::core::analysis::incidence::IncidenceMatrix;
 
+/// Panic message if the adjacency maps get out of sync,
+/// which would indicate an internal logic error in the builder.
+const DESYNC_DETECTED: &str = "adjacency map desynchronization detected";
+
 /// Builder for an ordinary Petri net.
 #[derive(Debug, Clone)]
 pub struct NetBuilder {
@@ -190,7 +194,7 @@ impl NetBuilder {
                         let added_to_pre = preset.insert(p);
                         debug_assert_eq!(
                             added_to_post, added_to_pre,
-                            "adjacency map desynchronization detected"
+                            "{}", DESYNC_DETECTED
                         );
                         added_to_post
                     }
@@ -199,21 +203,19 @@ impl NetBuilder {
                 }
             }
             Arc::TransitionToPlace(t, p) => {
-                let t_postset = self.postset_t.get_mut(&t);
-                let p_preset = self.preset_p.get_mut(&p);
-                match (t_postset, p_preset) {
-                    (Some(postset), Some(preset)) => {
-                        let added_to_post = postset.insert(p);
-                        let added_to_pre = preset.insert(t);
-                        debug_assert_eq!(
-                            added_to_post, added_to_pre,
-                            "adjacency map desynchronization detected"
-                        );
-                        added_to_post
-                    }
-                    // One or both of the nodes do not exist
-                    _ => false,
-                }
+                let Some(t_postset) = self.postset_t.get_mut(&t) else {
+                    return false;
+                };
+                let Some(p_preset) = self.preset_p.get_mut(&p) else {
+                    return false;
+                };
+                let added_to_post = t_postset.insert(p);
+                let added_to_pre = p_preset.insert(t);
+                debug_assert_eq!(
+                    added_to_post, added_to_pre,
+                    "{}", DESYNC_DETECTED
+                );
+                added_to_post
             }
         }
     }
@@ -281,21 +283,21 @@ impl NetBuilder {
         let preset = self
             .preset_p
             .remove(&place)
-            .expect("adjacency map desynchronization detected");
+            .expect(DESYNC_DETECTED);
         let postset = self
             .postset_p
             .remove(&place)
-            .expect("adjacency map desynchronization detected");
+            .expect(DESYNC_DETECTED);
         for &input_transition in &preset {
             self.postset_t
                 .get_mut(&input_transition)
-                .expect("adjacency map desynchronization detected")
+                .expect(DESYNC_DETECTED)
                 .remove(&place);
         }
         for &output_transition in &postset {
             self.preset_t
                 .get_mut(&output_transition)
-                .expect("adjacency map desynchronization detected")
+                .expect(DESYNC_DETECTED)
                 .remove(&place);
         }
         true
@@ -333,21 +335,21 @@ impl NetBuilder {
         let preset = self
             .preset_t
             .remove(&transition)
-            .expect("adjacency map desynchronization detected");
+            .expect(DESYNC_DETECTED);
         let postset = self
             .postset_t
             .remove(&transition)
-            .expect("adjacency map desynchronization detected");
+            .expect(DESYNC_DETECTED);
         for &p in &preset {
             self.postset_p
                 .get_mut(&p)
-                .expect("adjacency map desynchronization detected")
+                .expect(DESYNC_DETECTED)
                 .remove(&transition);
         }
         for &p in &postset {
             self.preset_p
                 .get_mut(&p)
-                .expect("adjacency map desynchronization detected")
+                .expect(DESYNC_DETECTED)
                 .remove(&transition);
         }
         true
@@ -377,7 +379,7 @@ impl NetBuilder {
                 if removed {
                     self.postset_p
                         .get_mut(&p)
-                        .expect("adjacency map desynchronization detected")
+                        .expect(DESYNC_DETECTED)
                         .remove(&t);
                 }
                 removed
@@ -387,7 +389,7 @@ impl NetBuilder {
                 if removed {
                     self.preset_p
                         .get_mut(&p)
-                        .expect("adjacency map desynchronization detected")
+                        .expect(DESYNC_DETECTED)
                         .remove(&t);
                 }
                 removed
