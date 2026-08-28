@@ -1,11 +1,11 @@
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::SmtSolver;
-use crate::core::marking::IdxMarking;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::net::siphon_trap::IdxTrap;
 use crate::core::net::siphon_trap::maximal_trap_in;
-use crate::core::parikh_vector::IdxParikhVector;
+use crate::core::system::marking::IdxMarking;
+use crate::core::system::parikh_vector::IdxParikhVector;
 
 /// This rule identifies spurious marking + Parikh vector pairs where the candidate
 /// marking contains an unmarked trap which, after firing the Parikh vector's support,

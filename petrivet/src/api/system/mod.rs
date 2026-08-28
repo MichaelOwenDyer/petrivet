@@ -60,16 +60,13 @@
 
 pub mod boundedness;
 pub mod chc;
-pub mod coverability;
 pub mod deadlock_freedom;
 pub mod liveness;
 pub mod reachability;
-pub mod lemma;
-pub mod observe;
 pub mod marking;
 pub mod parikh_vector;
 
-use crate::core::marking::IdxMarking;
+use crate::core::system::marking::IdxMarking;
 use crate::net::{Net, Place, Transition};
 use crate::system::marking::Marking;
 use std::fmt;

@@ -5,8 +5,8 @@ pub use coverability::*;
 pub use reachability::*;
 
 use crate::core::mapping::DenseMapping;
-use crate::core::marking::IdxMarking;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
+use crate::core::system::marking::IdxMarking;
 use crate::net::{Net, Place, Transition};
 use crate::system::{PetriNet, marking::Marking};
 use std::iter::Sum;

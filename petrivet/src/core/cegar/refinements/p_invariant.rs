@@ -1,9 +1,9 @@
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::{Satisfiability, SmtSolver};
-use crate::core::marking::IdxMarking;
 use crate::core::net::PlaceIdx;
 use crate::core::net::incidence::IdxIncidenceMatrix;
+use crate::core::system::marking::IdxMarking;
 use crate::net::p_invariant::PInvariantKind;
 use tap::TapOptional;
 

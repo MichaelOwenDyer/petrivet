@@ -1,11 +1,11 @@
+use crate::core::cegar::observe::ToCegarCallbackFn;
+use crate::core::cegar::solver::DefaultSolver;
 use crate::core::cegar::{CegarProblem, CegarQuestion, cegar_decide};
 use crate::net::{Net, Transition};
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
-pub use crate::system::lemma::Lemma;
-use crate::core::cegar::observe::ToCegarCallbackFn;
-use crate::core::cegar::solver::DefaultSolver;
-use crate::system::observe::CegarEvent;
+use crate::system::reachability::Lemma;
+use crate::system::reachability::SpuriousSolutionEliminatedEvent;
 use std::sync::{Arc, mpsc};
 
 #[derive(Debug, Clone)]
@@ -54,7 +54,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn analyze_coverability(
         &self,
         target: impl Into<Marking<u32>>,
-        observer: Option<mpsc::Sender<CegarEvent>>,
+        observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
     ) -> CoverabilityResult {
         let m0 = &self.marking;
         let target = &self.mapping.idx_marking(target.into());
@@ -84,8 +84,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
 mod tests {
     use crate::net::builder::NetBuilder;
     use crate::system::PetriNet;
-    use crate::system::coverability::{CoverabilityResult, Lemma};
     use crate::system::marking::Marking;
+    use crate::system::reachability::CoverabilityResult;
+    use crate::system::reachability::Lemma;
     use std::sync::mpsc;
 
     #[test]
@@ -119,7 +120,7 @@ mod tests {
     /// observer: every event it reports should agree with the final contradiction.
     #[test]
     fn observer_sees_every_lemma_in_the_final_contradiction() {
-        use crate::system::lemma::Lemma;
+        use crate::system::reachability::Lemma;
 
         let mut b = NetBuilder::new();
         let [s1, s2, s3, s4, s5, s6, s7, x] = b.add_places();

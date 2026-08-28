@@ -4,9 +4,9 @@ use crate::core::cegar::{CegarProblem, CegarQuestion, cegar_decide};
 use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
 use crate::system::PetriNet;
-use crate::system::lemma::Lemma;
 use crate::system::marking::Marking;
-use crate::system::observe::CegarEvent;
+use crate::system::reachability::Lemma;
+use crate::system::reachability::SpuriousSolutionEliminatedEvent;
 use std::sync::{Arc, mpsc};
 
 #[derive(Debug, Clone)]
@@ -67,14 +67,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Analyzes reachability of a target marking.
     /// Analyzes reachability of a target marking, like [`analyze_reachability`](Self::analyze_reachability),
-    /// but additionally invokes `observer` with a [`CegarEvent`] every time the search rules out a
+    /// but additionally invokes `observer` with a [`SpuriousSolutionEliminatedEvent`] every time the search rules out a
     /// spurious candidate solution along the way. Useful for progress reporting on searches that
     /// take a while - the returned [`ReachabilityResult`] is unaffected by what the observer does.
     #[must_use]
     pub fn analyze_reachability(
         &self,
         target: impl Into<Marking<u32>>,
-        observer: Option<mpsc::Sender<CegarEvent>>,
+        observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
     ) -> ReachabilityResult {
         let m0 = &self.marking;
         let target = &self.mapping.idx_marking(target.into());

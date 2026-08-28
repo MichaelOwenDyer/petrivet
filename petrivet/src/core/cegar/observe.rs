@@ -1,8 +1,8 @@
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::mapping::DenseMapping;
-use crate::core::marking::IdxMarking;
-use crate::core::parikh_vector::IdxParikhVector;
-use crate::system::observe::CegarEvent;
+use crate::core::system::marking::IdxMarking;
+use crate::core::system::parikh_vector::IdxParikhVector;
+use crate::system::reachability::SpuriousSolutionEliminatedEvent;
 use std::sync::{Arc, mpsc};
 
 /// An `IdxCegarEvent` is emitted by the CEGAR-based analysis whenever a spurious candidate
@@ -23,14 +23,14 @@ pub struct IdxCegarEvent {
 /// A type-erased sink for [`IdxCegarEvent`]s.
 pub type CegarCallbackFn = Box<dyn Fn(IdxCegarEvent) + Send>;
 
-/// A trait for converting a public-facing [`mpsc::Sender<CegarEvent>`] into a private-facing
+/// A trait for converting a public-facing [`mpsc::Sender<SpuriousSolutionEliminatedEvent>`] into a private-facing
 /// [`CegarCallbackFn`] which handles the translation from index-based to public-facing types
 /// via [`DenseMapping`].
 pub trait ToCegarCallbackFn {
     fn to_cegar_callback_fn(self, mapping: Arc<DenseMapping>) -> CegarCallbackFn;
 }
 
-impl ToCegarCallbackFn for mpsc::Sender<CegarEvent> {
+impl ToCegarCallbackFn for mpsc::Sender<SpuriousSolutionEliminatedEvent> {
     fn to_cegar_callback_fn(self, mapping: Arc<DenseMapping>) -> CegarCallbackFn {
         Box::new(move |event: IdxCegarEvent| {
             let _ = self.send(mapping.cegar_event(event));

@@ -4,9 +4,9 @@ pub mod solver;
 mod refinements;
 
 use crate::core::cegar::observe::CegarObserver;
-use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
-use crate::core::parikh_vector::IdxParikhVector;
+use crate::core::system::marking::IdxMarking;
+use crate::core::system::parikh_vector::IdxParikhVector;
 use lemma::IdxLemma;
 use observe::CegarCallbackFn;
 use refinements::explore::GuidedExplorer;

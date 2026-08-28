@@ -1,6 +1,6 @@
-use crate::core::marking::IdxMarking;
 use crate::core::net::idx_set::PlaceIdxSet;
 use crate::core::net::{DenseNet, PlaceIdx};
+use crate::core::system::marking::IdxMarking;
 use good_lp::Variable;
 use std::collections::HashSet;
 

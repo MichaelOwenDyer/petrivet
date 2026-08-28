@@ -10,22 +10,21 @@
 //!
 //! This module provides a bidirectional mapping between the public handles and the internal dense indices.
 
-use crate::api::system::parikh_vector::ParikhVector;
 use crate::core::cegar::CegarResult;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::observe::IdxCegarEvent as IdxCegarEvent;
-use crate::core::marking::IdxMarking;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::net::{PlaceIdx, TransitionIdx};
-use crate::core::parikh_vector::IdxParikhVector;
 use crate::core::state_space::TokenOps;
+use crate::core::system::marking::IdxMarking;
+use crate::core::system::parikh_vector::IdxParikhVector;
 use crate::net::p_invariant::PInvariant;
 use crate::net::{Place, Transition};
-use crate::system::coverability::CoverabilityResult;
-use crate::system::lemma::Lemma;
 use crate::system::marking::Marking;
-use crate::system::observe::CegarEvent;
-use crate::system::reachability::ReachabilityResult;
+use crate::system::parikh_vector::ParikhVector;
+use crate::system::reachability::Lemma;
+use crate::system::reachability::SpuriousSolutionEliminatedEvent;
+use crate::system::reachability::{CoverabilityResult, ReachabilityResult};
 use ahash::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,8 +158,8 @@ impl DenseMapping {
     }
 
     /// Translates an internal dense-indexed [`IdxCegarEvent`](IdxCegarEvent) to its public equivalent.
-    pub fn cegar_event(&self, event: IdxCegarEvent) -> CegarEvent {
-        CegarEvent {
+    pub fn cegar_event(&self, event: IdxCegarEvent) -> SpuriousSolutionEliminatedEvent {
+        SpuriousSolutionEliminatedEvent {
             spurious_marking: self.marking(event.spurious_marking),
             spurious_parikh_vector: event.spurious_parikh_vector.map(|pv| self.parikh_vector(pv)),
             lemma: self.lemma(event.lemma),

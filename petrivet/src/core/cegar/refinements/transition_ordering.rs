@@ -1,8 +1,8 @@
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::SmtSolver;
-use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, IdxNode, PlaceIdx, TransitionIdx};
+use crate::core::system::marking::IdxMarking;
 use ahash::{HashMap, HashMapExt};
 use petgraph::Graph;
 use petgraph::algo::tarjan_scc;

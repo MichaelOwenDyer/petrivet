@@ -1,8 +1,8 @@
 pub mod coverability;
 pub mod reachability;
 
-use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
+use crate::core::system::marking::IdxMarking;
 use crate::state_space::ExplorationOrder;
 use ahash::{HashMap, HashMapExt};
 use petgraph::graph::NodeIndex;

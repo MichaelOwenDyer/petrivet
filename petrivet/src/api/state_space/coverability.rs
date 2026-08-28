@@ -29,9 +29,9 @@
 //! assert!(!cg.is_bounded());
 //! ```
 
-use crate::core::marking::IdxMarking;
 use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::core::state_space::{DenseStateGraph, ExploreNext};
+use crate::core::system::marking::IdxMarking;
 use crate::net::Place;
 use crate::state_space::reachability::ReachabilityGraph;
 use crate::state_space::{StateGraph, StateGraphExplorer};

@@ -1,11 +1,11 @@
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::SmtSolver;
-use crate::core::marking::IdxMarking;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::net::incidence::IdxIncidenceMatrix;
 use crate::core::net::{IdxNode, TransitionIdx};
-use crate::core::parikh_vector::IdxParikhVector;
+use crate::core::system::marking::IdxMarking;
+use crate::core::system::parikh_vector::IdxParikhVector;
 use ahash::{HashMap, HashMapExt, HashSet};
 use petgraph::Direction;
 use petgraph::Graph;

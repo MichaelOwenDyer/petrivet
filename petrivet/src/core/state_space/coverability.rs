@@ -1,7 +1,7 @@
-use crate::core::marking;
-use crate::core::marking::IdxMarking;
 use crate::core::net::TransitionIdx;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
+use crate::core::system::marking;
+use crate::core::system::marking::IdxMarking;
 use crate::state_space::Omega;
 use fixedbitset::FixedBitSet;
 use petgraph::graph::NodeIndex;
@@ -132,8 +132,8 @@ impl ExploreNext<Omega> for DenseStateGraphExplorer<'_, Omega> {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::marking::IdxMarking;
     use crate::core::state_space::coverability::{IdxOmegaMarking, Omega};
+    use crate::core::system::marking::IdxMarking;
     use std::cmp::Ordering;
 
     #[test]

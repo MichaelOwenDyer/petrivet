@@ -1,5 +1,5 @@
-use crate::core::marking::IdxMarking;
 use crate::core::state_space::TokenOps;
+use crate::core::system::marking::IdxMarking;
 use crate::net::class::NetClass;
 use incidence::IdxIncidenceMatrix;
 
