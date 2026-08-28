@@ -1,5 +1,10 @@
 #![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
-#![allow(clippy::cargo_common_metadata, clippy::use_self, clippy::iter_on_single_items)]
+#![allow(
+    clippy::cargo_common_metadata,
+    clippy::use_self,
+    clippy::iter_on_single_items,
+    clippy::similar_names,
+)]
 
 //! `petrivet`: a Rust library for modeling, simulating, and analyzing Petri nets.
 //!

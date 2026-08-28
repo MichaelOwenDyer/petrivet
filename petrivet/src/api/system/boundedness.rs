@@ -65,7 +65,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             // A marked graph is bounded iff it is strongly connected
             NetClass::MarkedGraph => Some(self.is_strongly_connected()),
             // A live free-choice system is bounded iff every place belongs to an s-component
-            NetClass::FreeChoice if self.is_live() => Some(self.is_covered_by_s_components()),
+            // NetClass::FreeChoice if self.is_live() => Some(self.is_covered_by_s_components()),
             _ => None,
         }
     }

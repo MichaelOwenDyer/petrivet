@@ -121,10 +121,7 @@ impl DenseMapping {
 
     /// Convert a public marking to an internal index marking.
     ///
-    /// If the provided marking contains places that do not exist in this net, those places will be ignored.
-    ///
-    /// todo: accept any `IntoIterator<Item=(Place, T)>` instead of a `Marking<T>` to avoid unnecessary
-    ///  intermediate allocations when the caller already has an iterator over the marking's support.
+    /// Referenced places which do not exist in the net will be ignored.
     pub fn idx_marking<T: TokenOps>(&self, marking: Marking<T>) -> IdxMarking<T> {
         let mut idx_marking = IdxMarking::zeros(self.place_count());
         marking.into_iter().for_each(|(place, count)| {
@@ -135,17 +132,17 @@ impl DenseMapping {
         idx_marking
     }
 
-    /// Convert a set of internal indices to a HashSet<Place>.
+    /// Convert a set of internal indices to a `HashSet<Place>`.
     pub fn place_set(&self, places: &PlaceIdxSet) -> HashSet<Place> {
         places.place_indices().map(|p_idx| self.place(p_idx)).collect()
     }
 
-    /// Convert a set of internal indices to a HashSet<Transition>.
+    /// Convert a set of internal indices to a `HashSet<Transition>`.
     pub fn transition_set(&self, transitions: &TransitionIdxSet) -> HashSet<Transition> {
         transitions.transition_indices().map(|p_idx| self.transition(p_idx)).collect()
     }
 
-    /// Convert a sequence of internal transition indices to a Vec<Transition>.
+    /// Convert a sequence of internal transition indices to a `Vec<Transition>`.
     pub fn firing_sequence(&self, transitions: Vec<TransitionIdx>) -> Vec<Transition> {
         transitions.into_iter().map(|t_idx| self.transition(t_idx)).collect()
     }
@@ -163,7 +160,7 @@ impl DenseMapping {
     /// Translates an internal dense-indexed [`IdxCegarEvent`](IdxCegarEvent) to its public equivalent.
     pub fn cegar_event(&self, event: IdxCegarEvent) -> CegarEvent {
         CegarEvent {
-            spurious_marking: event.spurious_marking.map(|m| self.marking(m)),
+            spurious_marking: self.marking(event.spurious_marking),
             spurious_parikh_vector: event.spurious_parikh_vector.map(|pv| self.parikh_vector(pv)),
             lemma: self.lemma(event.lemma),
         }

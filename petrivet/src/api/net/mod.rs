@@ -255,13 +255,6 @@ impl Net {
         })
     }
 
-    /// Returns whether every place in this net belongs to an S-component.
-    #[must_use]
-    pub fn is_covered_by_s_components(&self) -> bool {
-        // todo
-        false
-    }
-
     /// Returns true if the given marking enables no transitions in this net
     #[must_use]
     pub fn is_deadlock(&self, marking: Marking<u32>) -> bool {

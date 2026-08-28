@@ -82,7 +82,7 @@ impl CegarObserver {
     /// cheap (one allocation per CEGAR step, not per lemma).
     pub fn with_context(
         &self,
-        marking: Option<IdxMarking<u32>>,
+        marking: IdxMarking<u32>,
         parikh_vector: Option<IdxParikhVector<u32>>,
     ) -> Option<Box<dyn Fn(IdxLemma) + '_>> {
         self.sink.as_deref().map(|sink| {
@@ -213,7 +213,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
             p_invariant_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.observer.with_context(Some(candidate_marking), None).as_deref()
+                self.observer.with_context(candidate_marking, None).as_deref()
             );
             return StructuralStep::Refined(self);
         }
@@ -221,7 +221,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
             trap_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.observer.with_context(Some(candidate_marking), None).as_deref()
+                self.observer.with_context(candidate_marking, None).as_deref()
             );
             return StructuralStep::Refined(self);
         }
@@ -255,7 +255,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
         };
 
         {
-            let callback = observer.with_context(Some(candidate_marking), None);
+            let callback = observer.with_context(candidate_marking, None);
 
             MarkingEquationRefinement::encode_into(
                 &mut solver,
@@ -344,7 +344,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
             p_invariant_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector)).as_deref()
+                self.observer.with_context(candidate_marking, Some(candidate_parikh_vector)).as_deref()
             );
             return BehavioralStep::Refined(self);
         }
@@ -354,7 +354,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
             trap_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector)).as_deref(),
+                self.observer.with_context(candidate_marking, Some(candidate_parikh_vector)).as_deref(),
             );
             return BehavioralStep::Refined(self);
         }
@@ -367,7 +367,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                 &mut self.solver,
                 &self.context.places,
                 &self.context.transitions,
-                self.observer.with_context(Some(candidate_marking), Some(candidate_parikh_vector)).as_deref()
+                self.observer.with_context(candidate_marking, Some(candidate_parikh_vector)).as_deref()
             );
             return BehavioralStep::Refined(self);
         }
@@ -383,7 +383,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
             Err(increment_refinements) => {
                 {
                     let callback = self.observer
-                        .with_context(Some(candidate_marking), Some(candidate_parikh_vector));
+                        .with_context(candidate_marking, Some(candidate_parikh_vector));
                     for increment_refinement in increment_refinements {
                         increment_refinement.encode_into(
                             &self.problem,
