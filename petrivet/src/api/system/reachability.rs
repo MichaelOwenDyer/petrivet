@@ -1,6 +1,7 @@
 use crate::class::NetClass;
-use crate::core::cegar::observe::IdxCegarEvent;
-use crate::core::cegar::CegarProperty;
+use crate::core::cegar::observe::ToCegarCallbackFn;
+use crate::core::cegar::solver::DefaultSolver;
+use crate::core::cegar::{CegarProblem, CegarQuestion, cegar_decide};
 use crate::marking::Marking;
 use crate::net::{Net, Transition};
 use crate::prelude::PetriNet;
@@ -9,7 +10,7 @@ use crate::system::observe::CegarEvent;
 use std::sync::{Arc, mpsc};
 
 #[derive(Debug, Clone)]
-pub enum Reachability {
+pub enum ReachabilityResult {
     /// The target marking is reachable from M₀.
     Reachable {
         firing_sequence: Vec<Transition>,
@@ -20,7 +21,7 @@ pub enum Reachability {
     },
 }
 
-impl Reachability {
+impl ReachabilityResult {
     /// Whether the target is definitely reachable.
     #[must_use]
     pub const fn is_reachable(&self) -> bool {
@@ -68,34 +69,34 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Analyzes reachability of a target marking, like [`analyze_reachability`](Self::analyze_reachability),
     /// but additionally invokes `observer` with a [`CegarEvent`] every time the search rules out a
     /// spurious candidate solution along the way. Useful for progress reporting on searches that
-    /// take a while - the returned [`Reachability`] is unaffected by what the observer does.
+    /// take a while - the returned [`ReachabilityResult`] is unaffected by what the observer does.
     #[must_use]
     pub fn analyze_reachability(
         &self,
         target: impl Into<Marking<u32>>,
         observer: Option<mpsc::Sender<CegarEvent>>
-    ) -> Reachability {
+    ) -> ReachabilityResult {
         let m0 = &self.marking;
         let target = &self.mapping.idx_marking(target.into());
 
         if m0 == target {
-            return Reachability::Reachable {
+            return ReachabilityResult::Reachable {
                 firing_sequence: Vec::new(),
             };
         }
 
-        let observer_fn = observer.map(|observer| {
-            let mapping = Arc::clone(&self.mapping);
-            Box::new(move |event: IdxCegarEvent| {
-                let _ = observer.send(mapping.cegar_event(event));
-            }) as Box<dyn Fn(IdxCegarEvent) + Send>
-        });
-        let cegar_result = self.dense_net.cegar_decide(
+        let problem = CegarProblem {
+            net: &self.dense_net,
             m0,
             target,
-            CegarProperty::Coverability,
-            observer_fn
-        );
+            question: CegarQuestion::Reachable,
+        };
+        // Wrap the provided observer in a type-erased closure
+        // that maps the internal `IdxCegarEvent` to the public `CegarEvent`.
+        let callback_fn = observer.map(|sender| {
+            sender.to_cegar_callback_fn(Arc::clone(&self.mapping))
+        });
+        let cegar_result = cegar_decide::<DefaultSolver>(problem, callback_fn);
         self.mapping.reachability_result(cegar_result)
     }
 }

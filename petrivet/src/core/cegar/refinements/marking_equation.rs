@@ -1,4 +1,4 @@
-use crate::core::cegar::cegar::CegarProblem;
+use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::SmtSolver;
 use crate::core::net::TransitionIdx;

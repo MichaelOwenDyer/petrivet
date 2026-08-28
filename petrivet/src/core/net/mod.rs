@@ -1,9 +1,5 @@
 use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::analysis::semi_decision;
-use crate::core::cegar::cegar::CegarProblem;
-use crate::core::cegar::observe::CegarObserverFn;
-use crate::core::cegar::solver::DefaultSolver;
-use crate::core::cegar::{CegarProperty, CegarResult, cegar_decide};
 use crate::core::class::NetClass;
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::TokenOps;
@@ -165,21 +161,5 @@ impl DenseNet {
     #[must_use]
     pub fn is_place_structurally_bounded(&self, place: PlaceIdx) -> bool {
         semi_decision::find_semipositive_place_subinvariant(self, |&p| p == place).is_some()
-    }
-
-    /// Decide the given problem using the CEGAR approach with the default solver.
-    pub fn cegar_decide(
-        &self,
-        m0: &IdxMarking<u32>,
-        target: &IdxMarking<u32>,
-        property: CegarProperty,
-        observer: Option<CegarObserverFn>,
-    ) -> CegarResult {
-        let problem = CegarProblem {
-            net: self,
-            m0,
-            target,
-        };
-        cegar_decide::<DefaultSolver>(problem, property, observer)
     }
 }

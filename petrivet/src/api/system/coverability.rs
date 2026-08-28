@@ -1,9 +1,10 @@
-use crate::core::cegar::CegarProperty;
+use crate::core::cegar::{CegarProblem, CegarQuestion, cegar_decide};
 use crate::marking::Marking;
 use crate::net::{Net, Transition};
 use crate::prelude::PetriNet;
 pub use crate::system::lemma::Lemma;
-use crate::core::cegar::observe::IdxCegarEvent;
+use crate::core::cegar::observe::ToCegarCallbackFn;
+use crate::core::cegar::solver::DefaultSolver;
 use crate::system::observe::CegarEvent;
 use std::sync::{Arc, mpsc};
 
@@ -64,18 +65,17 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 marking: self.mapping.marking(m0.clone()),
             };
         }
-        let observer_fn = observer.map(|observer| {
-            let mapping = Arc::clone(&self.mapping);
-            Box::new(move |event: IdxCegarEvent| {
-                let _ = observer.send(mapping.cegar_event(event));
-            }) as Box<dyn Fn(IdxCegarEvent) + Send>
-        });
-        let cegar_result = self.dense_net.cegar_decide(
+
+        let problem = CegarProblem {
+            net: &self.dense_net,
             m0,
             target,
-            CegarProperty::Reachability,
-            observer_fn
-        );
+            question: CegarQuestion::Coverable,
+        };
+        let observer_fn = observer.map(|sender| {
+            sender.to_cegar_callback_fn(Arc::clone(&self.mapping))
+        });
+        let cegar_result = cegar_decide::<DefaultSolver>(problem, observer_fn);
         self.mapping.coverability_result(cegar_result)
     }
 }

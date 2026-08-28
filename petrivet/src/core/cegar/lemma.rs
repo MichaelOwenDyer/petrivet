@@ -11,7 +11,7 @@ use crate::core::siphon_trap::IdxTrap;
 /// Where a fact isn't checkable from static structure alone (`Increment`, which depends on a 
 /// specific attempted simulation), the variant carries enough data - a replayable firing sequence
 /// - to make the check mechanical anyway.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IdxLemma {
     /// An invariant: every reachable marking must satisfy `w·M = value`.
     PInvariant(IdxPInvariant),

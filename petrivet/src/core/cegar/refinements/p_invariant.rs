@@ -1,5 +1,5 @@
 use crate::core::analysis::incidence::IncidenceMatrix;
-use crate::core::cegar::cegar::CegarProblem;
+use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::{Satisfiability, SmtSolver};
 use crate::core::marking::IdxMarking;
@@ -198,7 +198,7 @@ impl<S: SmtSolver> PInvariantRule<S> {
 }
 
 /// A P-Invariant is a weighted sum of places which is either constant, non-increasing, or non-decreasing,
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IdxPInvariant {
     /// The places and their weights that define the invariant.
     pub weights: Vec<(PlaceIdx, u32)>,

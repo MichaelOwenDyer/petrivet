@@ -1,5 +1,5 @@
 use crate::core::analysis::siphon_trap::maximal_trap_in;
-use crate::core::cegar::cegar::CegarProblem;
+use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::SmtSolver;
 use crate::core::marking::IdxMarking;
