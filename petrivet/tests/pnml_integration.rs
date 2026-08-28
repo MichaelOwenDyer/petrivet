@@ -8,10 +8,11 @@
 
 #![cfg(feature = "pnml")]
 
+use petrivet::net::Net;
 use petrivet::pnml::PnmlDocument;
 use petrivet::pnml::convert::PetriNetKind;
 use petrivet::pnml::labels::NetLabels;
-use petrivet::prelude::{Net, PetriNet};
+use petrivet::system::PetriNet;
 
 fn load(path: &str) -> PnmlDocument {
     let xml = std::fs::read_to_string(path)

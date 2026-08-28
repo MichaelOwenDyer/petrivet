@@ -18,7 +18,9 @@
 //!
 //! Run: `cargo run --example dining_philosophers`
 
-use petrivet::prelude::{Marking, NetBuilder, PetriNet};
+use petrivet::net::builder::NetBuilder;
+use petrivet::system::PetriNet;
+use petrivet::system::marking::Marking;
 
 const N: usize = 4;
 

@@ -8,7 +8,7 @@ use crate::core::net::{DenseNet, PlaceIdx, TransitionIdx};
 /// - [Primer, Definition 4.1](crate::literature#definition-41--incidence-matrix)
 /// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (uses the transposed convention; our N = Murata's Aᵀ)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IncidenceMatrix {
+pub struct IdxIncidenceMatrix {
     /// The number of tokens consumed from place p by transition t.
     consume: Box<[u8]>,
     /// The number of tokens produced into place p by transition t.
@@ -19,7 +19,7 @@ pub struct IncidenceMatrix {
     transitions: usize,
 }
 
-impl IncidenceMatrix {
+impl IdxIncidenceMatrix {
     /// Constructs the |P| × |T| incidence matrix for a given net.
     #[must_use]
     pub fn new(net: &DenseNet) -> Self {
@@ -27,7 +27,7 @@ impl IncidenceMatrix {
         let cols = net.transition_count();
         let mut consume = vec![0; rows * cols].into_boxed_slice();
         let mut produce = vec![0; rows * cols].into_boxed_slice();
-        
+
         for t in net.transition_indices() {
             for &p in &net.preset_t[t] {
                 consume[p * cols + t] += 1;
@@ -36,7 +36,7 @@ impl IncidenceMatrix {
                 produce[p * cols + t] += 1;
             }
         }
-        IncidenceMatrix {
+        IdxIncidenceMatrix {
             consume,
             produce,
             places: rows,
@@ -64,7 +64,7 @@ impl IncidenceMatrix {
                 produce[p * cols + t] += 1;
             }
         }
-        IncidenceMatrix {
+        IdxIncidenceMatrix {
             consume,
             produce,
             places: rows,
@@ -91,11 +91,11 @@ impl IncidenceMatrix {
         i16::from(self.get_produce(transition, place)) - i16::from(self.get_consume(transition, place))
     }
 
-    pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
+    pub fn place_indices(&self) -> impl Iterator<Item=PlaceIdx> + '_ {
         0..self.places as PlaceIdx
     }
 
-    pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
+    pub fn transition_indices(&self) -> impl Iterator<Item=TransitionIdx> + '_ {
         0..self.transitions as TransitionIdx
     }
 }

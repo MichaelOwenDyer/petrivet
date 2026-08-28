@@ -2,116 +2,13 @@ use crate::core::marking;
 use crate::core::marking::IdxMarking;
 use crate::core::net::TransitionIdx;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
+use crate::state_space::Omega;
 use fixedbitset::FixedBitSet;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use std::cmp::Ordering;
 use std::iter;
 use std::iter::Sum;
-
-/// A token count that is either finite or ω (unbounded).
-///
-/// "Omega" as the name of this enum is a slight misnomer,
-/// since ω represents unboundedness but this enum
-/// represents either boundedness or unboundedness.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Omega {
-    /// A concrete finite token count.
-    Finite(u32),
-    /// An unbounded token count (ω). Greater than any finite value.
-    Unbounded,
-}
-
-impl Omega {
-    /// Returns `true` if this is a finite value.
-    #[must_use]
-    pub const fn is_finite(self) -> bool {
-        matches!(self, Omega::Finite(_))
-    }
-
-    /// Returns `true` if this value is unbounded (ω).
-    #[must_use]
-    pub const fn is_omega(self) -> bool {
-        matches!(self, Omega::Unbounded)
-    }
-
-    /// Returns the finite value, or `None` if unbounded.
-    #[must_use]
-    pub const fn finite(self) -> Option<u32> {
-        match self {
-            Omega::Finite(n) => Some(n),
-            Omega::Unbounded => None,
-        }
-    }
-}
-
-impl Default for Omega {
-    fn default() -> Self {
-        Omega::Finite(0)
-    }
-}
-
-impl From<u32> for Omega {
-    fn from(n: u32) -> Self {
-        Omega::Finite(n)
-    }
-}
-
-impl Ord for Omega {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (Omega::Finite(a), Omega::Finite(b)) => a.cmp(b),
-            (Omega::Finite(_), Omega::Unbounded) => Ordering::Less,
-            (Omega::Unbounded, Omega::Finite(_)) => Ordering::Greater,
-            (Omega::Unbounded, Omega::Unbounded) => Ordering::Equal,
-        }
-    }
-}
-
-impl PartialOrd for Omega {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq<u32> for Omega {
-    fn eq(&self, other: &u32) -> bool {
-        match self {
-            Omega::Finite(n) => n == other,
-            Omega::Unbounded => false,
-        }
-    }
-}
-
-impl PartialEq<Omega> for u32 {
-    fn eq(&self, other: &Omega) -> bool {
-        other == self
-    }
-}
-
-impl PartialOrd<u32> for Omega {
-    fn partial_cmp(&self, other: &u32) -> Option<Ordering> {
-        match self {
-            Omega::Finite(n) => n.partial_cmp(other),
-            Omega::Unbounded => Some(Ordering::Greater),
-        }
-    }
-}
-
-impl PartialOrd<Omega> for u32 {
-    fn partial_cmp(&self, other: &Omega) -> Option<Ordering> {
-        other.partial_cmp(self).map(Ordering::reverse)
-    }
-}
-
-impl Sum for Omega {
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.fold(Self::ZERO, |acc, o| match (acc, o) {
-            (Omega::Unbounded, _) | (_, Omega::Unbounded) => Omega::Unbounded,
-            (Omega::Finite(a), Omega::Finite(b)) => Omega::Finite(a + b),
-        })
-    }
-}
 
 impl TokenOps for Omega {
     const ZERO: Self = Omega::Finite(0);

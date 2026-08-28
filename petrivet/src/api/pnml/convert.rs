@@ -38,9 +38,12 @@
 //! inscriptions or color declarations would produce structurally wrong nets.
 
 use super::{PageObject, PnmlDocument, net, net_type, nupn::NupnMetadata};
+use crate::net::builder::{NetBuilder, NetError};
+use crate::net::{Arc, Net, Place, Transition};
 use crate::pnml::graphics::PnmlGraphics;
 use crate::pnml::labels::NetLabels;
-use crate::prelude::{Arc, Marking, Net, NetBuilder, NetError, PetriNet, Place, Transition};
+use crate::system::PetriNet;
+use crate::system::marking::Marking;
 use ahash::{HashMap, HashMapExt};
 
 /// Errors that can occur when converting a [`super::PnmlNet`] PNML model into a

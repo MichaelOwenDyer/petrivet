@@ -1,9 +1,21 @@
 use crate::core::marking::IdxMarking;
+use crate::core::net::idx_set::PlaceIdxSet;
 use crate::core::net::{DenseNet, PlaceIdx};
-use crate::core::siphon_trap::{IdxSiphon, IdxTrap};
 use good_lp::Variable;
 use std::collections::HashSet;
-use crate::core::net::idx_set::PlaceIdxSet;
+
+/// A siphon is a set of places D such that •D ⊆ D•.
+///
+/// In other words, every transition that produces to D also consumes from D.
+/// This is significant because it means once a siphon is unmarked,
+/// it can never be marked again (all transitions which could mark it are dead).
+pub type IdxSiphon = PlaceIdxSet;
+
+/// A trap is a set of places Q such that Q• ⊆ •Q.
+///
+/// In other words, every transition that consumes from Q also produces to Q.
+/// This is significant because it means once a trap is marked, it can never be unmarked again.
+pub type IdxTrap = PlaceIdxSet;
 
 /// Computes the maximal siphon contained in a given set of places.
 ///
@@ -16,7 +28,7 @@ use crate::core::net::idx_set::PlaceIdxSet;
 #[must_use]
 pub fn maximal_siphon_in(
     net: &DenseNet,
-    mut places: PlaceIdxSet
+    mut places: PlaceIdxSet,
 ) -> IdxSiphon {
     loop {
         let to_remove: Vec<PlaceIdx> = places
@@ -53,7 +65,7 @@ pub fn maximal_siphon_in(
 #[must_use]
 pub fn maximal_trap_in(
     net: &DenseNet,
-    mut places: PlaceIdxSet
+    mut places: PlaceIdxSet,
 ) -> IdxTrap {
     loop {
         let to_remove: Vec<PlaceIdx> = places

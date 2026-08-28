@@ -14,9 +14,8 @@
 //! # Usage
 //!
 //! ```
-//! use petrivet::builder::NetBuilder;
-//! use petrivet::system::PetriNet;
-//! use petrivet::state_space::{CoverabilityGraph, ExplorationOrder};
+//! use petrivet::net::builder::NetBuilder;
+//! use petrivet::system::PetriNet;//!
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();
@@ -30,16 +29,121 @@
 //! assert!(!cg.is_bounded());
 //! ```
 
-use crate::boundedness::{Boundedness, K};
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::coverability::IdxOmegaMarking;
-pub use crate::core::state_space::coverability::Omega;
 use crate::core::state_space::{DenseStateGraph, ExploreNext};
-use crate::marking::Marking;
 use crate::net::Place;
 use crate::state_space::reachability::ReachabilityGraph;
 use crate::state_space::{StateGraph, StateGraphExplorer};
+use crate::system::boundedness::{Boundedness, K};
+use crate::system::marking::Marking;
 use ahash::HashMap;
+use std::cmp::Ordering;
+use std::iter::Sum;
+
+/// A token count that is either finite or ω (unbounded).
+///
+/// "Omega" as the name of this enum is a slight misnomer,
+/// since ω represents unboundedness but this enum
+/// represents either boundedness or unboundedness.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Omega {
+    /// A concrete finite token count.
+    Finite(u32),
+    /// An unbounded token count (ω). Greater than any finite value.
+    Unbounded,
+}
+
+impl Omega {
+    /// Returns `true` if this is a finite value.
+    #[must_use]
+    pub const fn is_finite(self) -> bool {
+        matches!(self, Omega::Finite(_))
+    }
+
+    /// Returns `true` if this value is unbounded (ω).
+    #[must_use]
+    pub const fn is_omega(self) -> bool {
+        matches!(self, Omega::Unbounded)
+    }
+
+    /// Returns the finite value, or `None` if unbounded.
+    #[must_use]
+    pub const fn finite(self) -> Option<u32> {
+        match self {
+            Omega::Finite(n) => Some(n),
+            Omega::Unbounded => None,
+        }
+    }
+}
+
+impl Default for Omega {
+    fn default() -> Self {
+        Omega::Finite(0)
+    }
+}
+
+impl From<u32> for Omega {
+    fn from(n: u32) -> Self {
+        Omega::Finite(n)
+    }
+}
+
+impl Ord for Omega {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Omega::Finite(a), Omega::Finite(b)) => a.cmp(b),
+            (Omega::Finite(_), Omega::Unbounded) => Ordering::Less,
+            (Omega::Unbounded, Omega::Finite(_)) => Ordering::Greater,
+            (Omega::Unbounded, Omega::Unbounded) => Ordering::Equal,
+        }
+    }
+}
+
+impl PartialOrd for Omega {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq<u32> for Omega {
+    fn eq(&self, other: &u32) -> bool {
+        match self {
+            Omega::Finite(n) => n == other,
+            Omega::Unbounded => false,
+        }
+    }
+}
+
+impl PartialEq<Omega> for u32 {
+    fn eq(&self, other: &Omega) -> bool {
+        other == self
+    }
+}
+
+impl PartialOrd<u32> for Omega {
+    fn partial_cmp(&self, other: &u32) -> Option<Ordering> {
+        match self {
+            Omega::Finite(n) => n.partial_cmp(other),
+            Omega::Unbounded => Some(Ordering::Greater),
+        }
+    }
+}
+
+impl PartialOrd<Omega> for u32 {
+    fn partial_cmp(&self, other: &Omega) -> Option<Ordering> {
+        other.partial_cmp(self).map(Ordering::reverse)
+    }
+}
+
+impl Sum for Omega {
+    fn sum<I: Iterator<Item=Self>>(iter: I) -> Self {
+        iter.fold(Omega::Finite(0), |acc, o| match (acc, o) {
+            (Omega::Unbounded, _) | (_, Omega::Unbounded) => Omega::Unbounded,
+            (Omega::Finite(a), Omega::Finite(b)) => Omega::Finite(a + b),
+        })
+    }
+}
 
 /// An ω-marking: a marking where token counts can either be a finite number or `ω`.
 ///
@@ -102,9 +206,9 @@ impl<'a> CoverabilityExplorer<'a> {
             state_space: self.core.state_space,
             mapping: self.mapping,
         })
-        .map_err(|_| {
-            unreachable!("ω-free CG must promote successfully; ω would have been detected above")
-        })
+            .map_err(|_| {
+                unreachable!("ω-free CG must promote successfully; ω would have been detected above")
+            })
     }
 }
 
@@ -244,8 +348,11 @@ fn unwrap_omega_marking_to_u32(om: IdxMarking<Omega>) -> IdxMarking<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::{Net, NetBuilder, NetClass, PetriNet, Place};
+    use crate::net::builder::NetBuilder;
+    use crate::net::class::NetClass;
+    use crate::net::{Net, Place};
     use crate::state_space::ExplorationOrder;
+    use crate::system::PetriNet;
 
     /// Two-place cycle: p0 → t0 → p1 → t1 → p0 (bounded)
     fn two_place_cycle() -> (PetriNet<Net>, Place, Place) {

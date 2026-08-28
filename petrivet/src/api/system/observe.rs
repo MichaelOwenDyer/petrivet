@@ -1,11 +1,6 @@
-//! Progress events emitted while a CEGAR-based analysis
-//! ([`analyze_coverability_with_observer`](crate::system::PetriNet::analyze_coverability_with_observer),
-//! [`analyze_reachability_with_observer`](crate::system::PetriNet::analyze_reachability_with_observer))
-//! is running.
-
-use crate::marking::Marking;
-use crate::parikh_vector::ParikhVector;
+use crate::api::system::parikh_vector::ParikhVector;
 use crate::system::lemma::Lemma;
+use crate::system::marking::Marking;
 
 /// A `CegarEvent` is emitted by the CEGAR-based analysis whenever a spurious candidate
 /// is found and a lemma is derived to eliminate it.

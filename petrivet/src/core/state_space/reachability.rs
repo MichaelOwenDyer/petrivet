@@ -1,6 +1,6 @@
 use crate::core::net::TransitionIdx;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
-use crate::liveness::LivenessLevel;
+use crate::system::liveness::LivenessLevel;
 use petgraph::graph::NodeIndex;
 
 impl TokenOps for u32 {
@@ -42,7 +42,7 @@ impl DenseStateGraph<'_, u32> {
     /// - [`L2`](LivenessLevel::L2): equivalent to L3 because this is a finite state space.
     /// - [`L3`](LivenessLevel::L3): `t` labels an edge within some non-trivial SCC.
     /// - [`L4`](LivenessLevel::L4): `t` labels an edge in **every** terminal SCC.
-    pub fn liveness_levels(&self) -> impl Iterator<Item = LivenessLevel> {
+    pub fn liveness_levels(&self) -> impl Iterator<Item=LivenessLevel> {
         use petgraph::visit::EdgeRef;
 
         let transition_count = self.net.transition_count();

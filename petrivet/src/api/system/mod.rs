@@ -7,8 +7,8 @@
 //! # Quick start
 //!
 //! ```
-//! use petrivet::builder::NetBuilder;
-//! use petrivet::marking::Marking;
+//! use petrivet::net::builder::NetBuilder;
+//! use petrivet::system::marking::Marking;
 //! use petrivet::system::PetriNet;
 //!
 //! // Build a simple producer-consumer net
@@ -36,7 +36,7 @@
 //! Three patterns for firing transitions:
 //!
 //! ```
-//! # use petrivet::builder::NetBuilder;
+//! # use petrivet::net::builder::NetBuilder;
 //! # use petrivet::system::PetriNet;
 //! # let mut b = NetBuilder::new();
 //! # let [p0, p1] = b.add_places();
@@ -66,12 +66,14 @@ pub mod liveness;
 pub mod reachability;
 pub mod lemma;
 pub mod observe;
+pub mod marking;
+pub mod parikh_vector;
 
 use crate::core::marking::IdxMarking;
-use crate::core::state_space::ExplorationOrder;
-use crate::prelude::{Marking, Net, Place, Transition};
-use crate::state_space::{CoverabilityExplorer, CoverabilityGraph};
+use crate::net::{Net, Place, Transition};
+use crate::state_space::{CoverabilityExplorer, CoverabilityGraph, ExplorationOrder};
 use crate::state_space::{ReachabilityExplorer, ReachabilityGraph};
+use crate::system::marking::Marking;
 use std::fmt;
 use std::ops::Deref;
 
@@ -79,7 +81,7 @@ use std::ops::Deref;
 ///
 /// ```
 /// use petrivet::system::PetriNet;
-/// # use petrivet::builder::NetBuilder;
+/// # use petrivet::net::builder::NetBuilder;
 /// # let mut b = NetBuilder::new();
 /// # let [p0, p1] = b.add_places();
 /// # let [t0] = b.add_transitions();
@@ -92,7 +94,7 @@ use std::ops::Deref;
 /// by firing [`Transitions`](Transition).
 ///
 /// ```
-/// # use petrivet::builder::NetBuilder;
+/// # use petrivet::net::builder::NetBuilder;
 /// # use petrivet::system::PetriNet;
 /// # let mut b = NetBuilder::new();
 /// # let [p0, p1] = b.add_places();
@@ -108,7 +110,7 @@ use std::ops::Deref;
 /// use [`fire_any()`](Self::fire_any).
 ///
 /// ```
-/// # use petrivet::builder::NetBuilder;
+/// # use petrivet::net::builder::NetBuilder;
 /// # use petrivet::system::PetriNet;
 /// # let mut b = NetBuilder::new();
 /// # let [p0, p1] = b.add_places();
@@ -212,7 +214,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ///
     /// This is a read-only query. To fire one of these, use [`try_fire`](Self::try_fire)
     /// or [`fire_unchecked`](Self::fire_unchecked).
-    pub fn enabled_transitions(&self) -> impl Iterator<Item = Transition> + '_ {
+    pub fn enabled_transitions(&self) -> impl Iterator<Item=Transition> + '_ {
         self.dense_net
             .transition_indices()
             .filter(|&t_idx| self.dense_net.is_enabled_in(t_idx, &self.marking))
@@ -349,9 +351,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
 #[cfg(feature = "pnml")]
 mod pnml {
+    use crate::net::Net;
     use crate::pnml::PnmlDocument;
     use crate::pnml::convert::PnmlConversionError;
-    use crate::prelude::{Net, PetriNet};
+    use crate::system::PetriNet;
     use std::error::Error;
     use std::fmt;
     use std::fmt::{Display, Formatter};
@@ -409,7 +412,9 @@ mod pnml {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{Marking, Net, NetBuilder, Place, Transition};
+    use crate::net::builder::NetBuilder;
+    use crate::net::{Net, Place, Transition};
+    use crate::system::marking::Marking;
 
     /// Builds a simple two-place cycle: p0 -> t0 -> p1 -> t1 -> p0
     pub fn two_place_cycle() -> (Net, Place, Transition, Place, Transition) {

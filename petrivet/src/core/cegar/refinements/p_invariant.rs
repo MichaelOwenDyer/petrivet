@@ -1,11 +1,11 @@
-use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::{Satisfiability, SmtSolver};
 use crate::core::marking::IdxMarking;
 use crate::core::net::PlaceIdx;
+use crate::core::net::incidence::IdxIncidenceMatrix;
+use crate::net::p_invariant::PInvariantKind;
 use tap::TapOptional;
-use crate::net::invariant::PInvariantKind;
 
 /// Ensures that the SMT solver respects the P-Invariants of the net.
 pub struct PInvariantRule<S: SmtSolver> {
@@ -26,7 +26,7 @@ pub struct PInvariantRule<S: SmtSolver> {
 }
 
 impl<S: SmtSolver> PInvariantRule<S> {
-    pub fn new(incidence_matrix: &IncidenceMatrix) -> Self {
+    pub fn new(incidence_matrix: &IdxIncidenceMatrix) -> Self {
         let mut solver = S::default();
 
         let is_invariant = solver.mk_bool_var("invariant");

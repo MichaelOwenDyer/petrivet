@@ -9,7 +9,7 @@
 //! # Usage
 //!
 //! ```rust
-//! use petrivet::builder::NetBuilder;
+//! use petrivet::net::builder::NetBuilder;
 //! use petrivet::pnml::labels::NetLabels;
 //!
 //! let mut b = NetBuilder::new();
@@ -226,13 +226,13 @@ impl NetLabels {
     }
 
     /// Iterates over `(Place, name)` pairs for all places that have a name set.
-    pub fn named_places(&self) -> impl Iterator<Item = (Place, &str)> {
+    pub fn named_places(&self) -> impl Iterator<Item=(Place, &str)> {
         self.place_names.iter().map(|(k, v)| (*k, v.as_str()))
     }
 
     /// Iterates over `(Transition, name)` pairs for all transitions that have a
     /// name set (crate-internal).
-    pub fn named_transitions(&self) -> impl Iterator<Item = (Transition, &str)> {
+    pub fn named_transitions(&self) -> impl Iterator<Item=(Transition, &str)> {
         self.transition_names.iter().map(|(k, v)| (*k, v.as_str()))
     }
 }
@@ -269,8 +269,9 @@ impl NetLabels {
 
 #[cfg(test)]
 mod tests {
+    use crate::net::Arc;
+    use crate::net::builder::NetBuilder;
     use crate::pnml::labels::NetLabels;
-    use crate::prelude::{Arc, NetBuilder};
 
     #[test]
     fn set_and_get_place_name() {

@@ -1,8 +1,8 @@
-use crate::core::analysis::siphon_trap;
 use crate::core::mapping::DenseMapping;
+use crate::core::net::siphon_trap;
 use crate::net::Net;
 use crate::net::siphon_trap::{Siphon, Trap};
-use crate::prelude::PetriNet;
+use crate::system::PetriNet;
 
 /// A minimal siphon and the maximal trap found within it.
 #[derive(Debug, Clone, PartialEq, Eq)]

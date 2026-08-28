@@ -1,9 +1,9 @@
-use std::sync::{mpsc, Arc};
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::mapping::DenseMapping;
 use crate::core::marking::IdxMarking;
-use crate::core::parikh::IdxParikhVector;
+use crate::core::parikh_vector::IdxParikhVector;
 use crate::system::observe::CegarEvent;
+use std::sync::{Arc, mpsc};
 
 /// An `IdxCegarEvent` is emitted by the CEGAR-based analysis whenever a spurious candidate
 /// is found and a lemma is derived to eliminate it.

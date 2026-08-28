@@ -3,10 +3,11 @@
 //! ensuring that only one process can be in the critical section at a time.
 //! The mutual exclusion is enforced by a shared mutex place.
 
-use petrivet::prelude::{NetBuilder, PetriNet};
+use petrivet::net::Net;
+use petrivet::system::PetriNet;
 
 fn main() {
-    let mut b = NetBuilder::new();
+    let mut b = Net::builder();
 
     // process 1
     let [idle1, wait1, crit1] = b.add_places();

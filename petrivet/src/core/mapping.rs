@@ -10,19 +10,20 @@
 //!
 //! This module provides a bidirectional mapping between the public handles and the internal dense indices.
 
+use crate::api::system::parikh_vector::ParikhVector;
 use crate::core::cegar::CegarResult;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::observe::IdxCegarEvent as IdxCegarEvent;
 use crate::core::marking::IdxMarking;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::net::{PlaceIdx, TransitionIdx};
-use crate::core::parikh::IdxParikhVector;
+use crate::core::parikh_vector::IdxParikhVector;
 use crate::core::state_space::TokenOps;
-use crate::net::invariant::PInvariant;
-use crate::parikh_vector::ParikhVector;
-use crate::prelude::{Marking, Place, Transition};
+use crate::net::p_invariant::PInvariant;
+use crate::net::{Place, Transition};
 use crate::system::coverability::CoverabilityResult;
 use crate::system::lemma::Lemma;
+use crate::system::marking::Marking;
 use crate::system::observe::CegarEvent;
 use crate::system::reachability::ReachabilityResult;
 use ahash::{HashMap, HashSet};
@@ -77,7 +78,7 @@ impl DenseMapping {
     /// Returns an iterator over all [`Places`](Place) in the net in their dense index order.
     ///
     /// This is useful for zipping places together with internal dense place data.
-    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
+    pub fn places(&self) -> impl Iterator<Item=Place> + '_ {
         self.ordered_places.iter().copied()
     }
 
@@ -103,7 +104,7 @@ impl DenseMapping {
     /// Returns an iterator over all [`Transitions`](Transition) in the net in their dense index order.
     ///
     /// This is useful for zipping transitions together with internal dense transition data.
-    pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
+    pub fn transitions(&self) -> impl Iterator<Item=Transition> + '_ {
         self.ordered_transitions.iter().copied()
     }
 

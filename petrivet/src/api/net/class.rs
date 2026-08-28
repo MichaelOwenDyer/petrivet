@@ -52,8 +52,8 @@ pub enum NetClass {
     /// iff J = (y, ..., y) for some y ∈ Q.
     ///
     /// ```
-    /// use petrivet::class::NetClass;
     /// use petrivet::net::Net;
+    /// use petrivet::net::class::NetClass;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3] = b.add_places();
     /// let [t1, t2, t3] = b.add_transitions();
@@ -117,7 +117,7 @@ pub enum NetClass {
     /// Credit for this example goes to [Murata Figure 4]. // todo cite properly
     ///
     /// ```
-    /// use petrivet::class::NetClass;
+    /// use petrivet::net::class::NetClass;
     /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [bal_0, bal_5, bal_10, bal_15, bal_20] = b.add_places();
@@ -225,7 +225,7 @@ pub enum NetClass {
     ///   M₀ <sup>σ</sup>→ M such that |σ| ≤ b * n(n-1)/2, where n = |T| is the number of transitions.
     ///
     /// ```
-    /// use petrivet::class::NetClass;
+    /// use petrivet::net::class::NetClass;
     /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2, p3, p4, p5] = b.add_places();
@@ -340,7 +340,7 @@ pub enum NetClass {
     /// `M'` reachable from `M` such that `M'(s) > 0`.
     ///
     /// ```
-    /// use petrivet::class::NetClass;
+    /// use petrivet::net::class::NetClass;
     /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();
@@ -376,7 +376,7 @@ pub enum NetClass {
     /// [Ackermann-complete](https://en.wikipedia.org/wiki/Ackermann_function) [Czerwiński and Orlikowski 2021].
     ///
     /// ```
-    /// use petrivet::class::NetClass;
+    /// use petrivet::net::class::NetClass;
     /// use petrivet::net::Net;
     /// let mut b = Net::builder();
     /// let [p1, p2] = b.add_places();
@@ -542,8 +542,8 @@ fn is_s_net<S: std::hash::BuildHasher>(
 ) -> bool {
     transition_presets.values().all(|preset| preset.len() == 1)
         && transition_postsets
-            .values()
-            .all(|postset| postset.len() == 1)
+        .values()
+        .all(|postset| postset.len() == 1)
 }
 
 /// T-net: |•p| = 1 and |p•| = 1 for every place p.

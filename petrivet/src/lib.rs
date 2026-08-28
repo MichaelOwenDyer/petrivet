@@ -8,12 +8,10 @@
 
 //! `petrivet`: a Rust library for modeling, simulating, and analyzing Petri nets.
 //!
-//!
-//!
 //! # Quick Start
 //!
 //! ```
-//! use petrivet::builder::NetBuilder;
+//! use petrivet::net::builder::NetBuilder;
 //! use petrivet::state_space::ExplorationOrder;
 //! let mut net = NetBuilder::new();
 //! let [p0, p1] = net.add_places();
@@ -36,19 +34,17 @@
 //! }
 //! ```
 
-pub(crate) mod api;
+mod api;
 pub(crate) mod core;
 pub mod literature;
 
-pub use api::{builder, marking, net, parikh_vector, pnml, state_space, system};
-pub use core::{boundedness, class, liveness};
+pub use api::*;
 
 pub mod prelude {
-    pub use crate::api::{
-        builder::{NetBuilder, NetError},
-        marking::Marking,
-        net::{Arc, Net, Node, Place, Transition},
+    pub use crate::{
+        net::{Net, Place, Transition, Arc},
+        net::builder::NetBuilder,
         system::PetriNet,
+        system::marking::Marking,
     };
-    pub use crate::core::{boundedness::Boundedness, class::NetClass, liveness::LivenessLevel};
 }

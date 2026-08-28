@@ -1,11 +1,11 @@
-use crate::core::analysis::incidence::IncidenceMatrix;
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::cegar::solver::SmtSolver;
 use crate::core::marking::IdxMarking;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
+use crate::core::net::incidence::IdxIncidenceMatrix;
 use crate::core::net::{IdxNode, TransitionIdx};
-use crate::core::parikh::IdxParikhVector;
+use crate::core::parikh_vector::IdxParikhVector;
 use ahash::{HashMap, HashMapExt, HashSet};
 use petgraph::Direction;
 use petgraph::Graph;
@@ -85,7 +85,7 @@ impl GuidedExplorer {
     /// which places prevented further progress.
     pub fn realize_parikh_vector(
         problem: &CegarProblem,
-        parikh_vector: IdxParikhVector<u32>
+        parikh_vector: IdxParikhVector<u32>,
     ) -> Result<(Vec<TransitionIdx>, IdxMarking<u32>), Vec<IncrementRefinement>> {
         /// A frame in the DFS stack.
         struct DfsFrame {
@@ -182,7 +182,7 @@ impl GuidedExplorer {
     fn compute_ample_set(
         problem: &CegarProblem,
         marking: &IdxMarking<u32>,
-        budget: &TransitionFiringBudget
+        budget: &TransitionFiringBudget,
     ) -> Vec<TransitionIdx> {
         let mut active_enabled = TransitionIdxSet::none_of(problem.net.transition_count());
         for t_idx in problem.net.transition_indices() {
@@ -392,7 +392,7 @@ fn external_consumers(
 /// component needs from outside itself. Guaranteed (Corollary 3) to return a value in
 /// `[1, actual_number_needed]`.
 fn estimate_needed_tokens(
-    incidence_matrix: &IncidenceMatrix,
+    incidence_matrix: &IdxIncidenceMatrix,
     marking: &IdxMarking<u32>,
     component_places: &PlaceIdxSet,
     component_transitions: &TransitionIdxSet,
@@ -527,7 +527,7 @@ impl IncrementRefinement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::NetBuilder;
+    use crate::net::builder::NetBuilder;
 
     /// A 2-cycle p <-> q, both places empty. If both t_pq and t_qp still need to fire (the
     /// `Ti != ∅` case of Wimmel & Wolf's Part 2), the cheapest one to unblock needs exactly 1

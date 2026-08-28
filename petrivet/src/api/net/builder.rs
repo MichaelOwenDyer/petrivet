@@ -26,8 +26,10 @@
 //! indices and the public API is an adapter over the internal dense representation.
 
 use crate::core::mapping::DenseMapping;
+use crate::core::net::incidence::IdxIncidenceMatrix;
 use crate::core::net::{DenseNet, IdxNode, PlaceIdx, TransitionIdx};
-use crate::prelude::{Arc, Net, NetClass, Node, Place, Transition};
+use crate::net::class::NetClass;
+use crate::net::{Arc, Net, Node, Place, Transition};
 use ahash::{HashMap, HashMapExt, HashSet, HashSetExt};
 use petgraph::graph::NodeIndex;
 use std::collections::VecDeque;
@@ -35,7 +37,6 @@ use std::error::Error;
 use std::hash::Hash;
 use std::num::NonZeroU32;
 use std::{fmt, iter};
-use crate::core::analysis::incidence::IncidenceMatrix;
 
 /// Panic message if the adjacency maps get out of sync,
 /// which would indicate an internal logic error in the builder.
@@ -417,17 +418,17 @@ impl NetBuilder {
     }
 
     /// Iterates all places currently in the net.
-    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
+    pub fn places(&self) -> impl Iterator<Item=Place> + '_ {
         self.places.iter().copied()
     }
 
     /// Iterates all transitions currently in the net.
-    pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
+    pub fn transitions(&self) -> impl Iterator<Item=Transition> + '_ {
         self.transitions.iter().copied()
     }
 
     /// Iterates all arcs currently in the net.
-    pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
+    pub fn arcs(&self) -> impl Iterator<Item=Arc> + '_ {
         iter::chain(
             self.preset_t
                 .iter()
@@ -447,13 +448,13 @@ impl NetBuilder {
             return Err(NetError::Degenerate);
         }
 
-        crate::core::class::classify(
+        crate::net::class::classify(
             &self.preset_t,
             &self.postset_t,
             &self.preset_p,
             &self.postset_p,
         )
-        .ok_or(NetError::NotConnected)
+            .ok_or(NetError::NotConnected)
     }
 
     /// Consumes the builder and returns a validated [`Net`] with dense indices and bandwidth reduction applied.
@@ -521,10 +522,10 @@ impl NetBuilder {
         };
 
         let is_strongly_connected = petgraph::algo::tarjan_scc(&graph).len() == 1;
-        let incidence_matrix = IncidenceMatrix::from_preset_and_postset(
+        let incidence_matrix = IdxIncidenceMatrix::from_preset_and_postset(
             self.places.len(),
             &preset_t,
-            &postset_t
+            &postset_t,
         );
 
         let core_net = DenseNet {
@@ -774,7 +775,7 @@ impl From<Net> for NetBuilder {
 }
 
 pub trait IntoArcs {
-    fn into_arcs(self) -> impl Iterator<Item = Arc>;
+    fn into_arcs(self) -> impl Iterator<Item=Arc>;
 }
 
 /// Heterogeneous tuples of [`Place`] and [`Transition`] in alternating order become a chain
@@ -818,7 +819,8 @@ impl_into_arcs_for_tuples!(a b c d e f g h i j k l);
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{Arc, NetBuilder, NetClass, NetError};
+    use crate::net::class::NetClass;
+    use crate::net::{Arc, NetBuilder, builder::NetError};
 
     #[test]
     fn build_simple_net() {

@@ -1,8 +1,8 @@
-use crate::class::NetClass;
-use crate::marking::Marking;
 use crate::net::Net;
-use crate::prelude::PetriNet;
+use crate::net::class::NetClass;
 use crate::state_space::{ExplorationOrder, ReachabilityExplorer};
+use crate::system::PetriNet;
+use crate::system::marking::Marking;
 
 /// A **deadlock** is a [`Marking`] which enables no [`Transition`](crate::net::Transition).
 ///
@@ -81,7 +81,7 @@ mod tests {
     /// `deadlocks()` now tests the seed first, exactly once.
     #[test]
     fn initial_marking_deadlock_is_detected() {
-        let (net, p0, _t0, _p1, _t1) = crate::api::system::tests::two_place_cycle();
+        let (net, p0, _t0, _p1, _t1) = crate::system::tests::two_place_cycle();
         let dead = net.with_initial_marking([]);
         assert!(!dead.is_deadlock_free(), "an m₀ deadlock must be detected");
         assert!(

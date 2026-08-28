@@ -6,9 +6,9 @@ pub use reachability::*;
 
 use crate::core::mapping::DenseMapping;
 use crate::core::marking::IdxMarking;
-pub use crate::core::state_space::ExplorationOrder;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
-use crate::prelude::{Marking, Net, PetriNet, Place, Transition};
+use crate::net::{Net, Place, Transition};
+use crate::system::{PetriNet, marking::Marking};
 use std::iter::Sum;
 
 /// An in-progress exploration of the state graph of a Petri net.
@@ -89,7 +89,7 @@ impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
     }
 
     /// All markings discovered so far which enable no transitions.
-    pub fn deadlocks(&self) -> impl Iterator<Item = Marking<T>> {
+    pub fn deadlocks(&self) -> impl Iterator<Item=Marking<T>> {
         self.core
             .state_space
             .deadlocks()
@@ -137,7 +137,7 @@ where
     /// Returns an iterator that drives exploration step by step.
     ///
     /// See [`explore_next`](StateGraphExplorer::explore_next).
-    pub fn explore_iter(&mut self) -> impl Iterator<Item = ExplorationStep<T>> + '_ {
+    pub fn explore_iter(&mut self) -> impl Iterator<Item=ExplorationStep<T>> + '_ {
         std::iter::from_fn(move || self.explore_next())
     }
 
@@ -189,7 +189,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     }
 
     /// Iterator over all distinct markings in the graph.
-    pub fn markings(&self) -> impl Iterator<Item = Marking<T>> {
+    pub fn markings(&self) -> impl Iterator<Item=Marking<T>> {
         self.state_space
             .markings()
             .cloned()
@@ -243,7 +243,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     }
 
     /// All discovered markings that have no enabled transitions.
-    pub fn deadlocks(&self) -> impl Iterator<Item = Marking<T>> {
+    pub fn deadlocks(&self) -> impl Iterator<Item=Marking<T>> {
         self.state_space
             .deadlocks()
             .cloned()
@@ -327,4 +327,14 @@ impl<T: TokenOps> StateGraph<'_, T> {
                 .collect()
         })
     }
+}
+
+/// Controls frontier traversal order.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
+pub enum ExplorationOrder {
+    /// Breadth-first: `path_to` returns shortest firing sequences.
+    #[default]
+    BreadthFirst,
+    /// Depth-first: may use less memory on wide state spaces.
+    DepthFirst,
 }

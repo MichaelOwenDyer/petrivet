@@ -11,9 +11,9 @@ use crate::net::Place;
 ///
 /// The canonical way to create a marking is to use the [`From`] trait on an array of `(Place, T)`:
 /// ```
-/// use petrivet::marking::Marking;
 /// use petrivet::net::Net;
 /// use petrivet::system::PetriNet;
+/// use petrivet::system::marking::Marking;
 /// let mut b = Net::builder();
 /// let [p0, p1] = b.add_places();
 /// let t0 = b.add_transition();
@@ -27,7 +27,7 @@ use crate::net::Place;
 /// You can also collect an iterator of `(Place, T)` into a marking:
 /// ```
 /// use std::collections::HashSet;
-/// use petrivet::marking::Marking;
+/// use petrivet::system::marking::Marking;
 /// use petrivet::net::Net;
 /// let mut b = Net::builder();
 /// let [p0, p1] = b.add_places();
@@ -50,13 +50,13 @@ pub struct Marking<T> {
 }
 
 impl<T> Marking<T> {
-    pub fn support(&self) -> impl Iterator<Item = Place> + '_ {
+    pub fn support(&self) -> impl Iterator<Item=Place> + '_ {
         self.support.iter().map(|(place, _)| *place)
     }
 }
 
 impl<T: TokenOps> FromIterator<(Place, T)> for Marking<T> {
-    fn from_iter<I: IntoIterator<Item = (Place, T)>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Item=(Place, T)>>(iter: I) -> Self {
         let mut vec: Vec<(Place, T)> = iter.into_iter().filter(|(_, t)| *t != T::ZERO).collect();
         vec.sort_unstable_by_key(|elem| elem.0.0);
         vec.dedup_by_key(|elem| elem.0.0);

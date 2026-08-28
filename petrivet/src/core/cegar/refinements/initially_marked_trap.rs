@@ -4,7 +4,7 @@ use crate::core::cegar::solver::SmtSolver;
 use crate::core::marking::IdxMarking;
 use crate::core::net::PlaceIdx;
 use crate::core::net::idx_set::PlaceIdxSet;
-use crate::core::siphon_trap::IdxTrap;
+use crate::core::net::siphon_trap::IdxTrap;
 
 /// Ensures that the SMT solver keeps all traps which were marked in the initial marking
 /// also marked in its candidate solutions.

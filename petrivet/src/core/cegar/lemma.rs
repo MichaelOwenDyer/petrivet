@@ -1,7 +1,7 @@
 use crate::core::cegar::refinements::p_invariant::IdxPInvariant;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
+use crate::core::net::siphon_trap::IdxTrap;
 use crate::core::net::{PlaceIdx, TransitionIdx};
-use crate::core::siphon_trap::IdxTrap;
 
 /// A single, independently-verifiable fact about the net that was used as a hypothesis in
 /// deriving unsatisfiability of a reachability or coverability problem.

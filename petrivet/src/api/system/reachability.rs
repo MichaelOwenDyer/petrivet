@@ -1,11 +1,11 @@
-use crate::class::NetClass;
 use crate::core::cegar::observe::ToCegarCallbackFn;
 use crate::core::cegar::solver::DefaultSolver;
 use crate::core::cegar::{CegarProblem, CegarQuestion, cegar_decide};
-use crate::marking::Marking;
+use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
-use crate::prelude::PetriNet;
+use crate::system::PetriNet;
 use crate::system::lemma::Lemma;
+use crate::system::marking::Marking;
 use crate::system::observe::CegarEvent;
 use std::sync::{Arc, mpsc};
 
@@ -74,7 +74,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn analyze_reachability(
         &self,
         target: impl Into<Marking<u32>>,
-        observer: Option<mpsc::Sender<CegarEvent>>
+        observer: Option<mpsc::Sender<CegarEvent>>,
     ) -> ReachabilityResult {
         let m0 = &self.marking;
         let target = &self.mapping.idx_marking(target.into());
@@ -103,12 +103,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::NetBuilder;
-    use crate::class::NetClass;
+    use crate::net::builder::NetBuilder;
+    use crate::net::class::NetClass;
 
     #[test]
     fn s_net_reachability_dispatches() {
-        let (net, p0, _t0, p1, _t1) = crate::api::system::tests::two_place_cycle();
+        let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
         let sys = net.with_initial_marking([(p0, 1)]);
         assert!(sys.is_reachable([(p1, 1)]));
         assert!(sys.is_reachable([(p0, 1)]));

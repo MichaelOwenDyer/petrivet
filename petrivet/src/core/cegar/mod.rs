@@ -6,7 +6,7 @@ mod refinements;
 use crate::core::cegar::observe::CegarObserver;
 use crate::core::marking::IdxMarking;
 use crate::core::net::{DenseNet, TransitionIdx};
-use crate::core::parikh::IdxParikhVector;
+use crate::core::parikh_vector::IdxParikhVector;
 use lemma::IdxLemma;
 use observe::CegarCallbackFn;
 use refinements::explore::GuidedExplorer;
@@ -195,7 +195,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
             p_invariant_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.callback.with_context(candidate_marking, None).as_deref()
+                self.callback.with_context(candidate_marking, None).as_deref(),
             );
             return StructuralStep::Refined(self);
         }
@@ -203,7 +203,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
             trap_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.callback.with_context(candidate_marking, None).as_deref()
+                self.callback.with_context(candidate_marking, None).as_deref(),
             );
             return StructuralStep::Refined(self);
         }
@@ -326,7 +326,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
             p_invariant_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.callback.with_context(candidate_marking, Some(candidate_parikh_vector)).as_deref()
+                self.callback.with_context(candidate_marking, Some(candidate_parikh_vector)).as_deref(),
             );
             return BehavioralStep::Refined(self);
         }
@@ -349,7 +349,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                 &mut self.solver,
                 &self.context.places,
                 &self.context.transitions,
-                self.callback.with_context(candidate_marking, Some(candidate_parikh_vector)).as_deref()
+                self.callback.with_context(candidate_marking, Some(candidate_parikh_vector)).as_deref(),
             );
             return BehavioralStep::Refined(self);
         }
@@ -361,7 +361,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                     "Guided exploration reached a marking which does not match the candidate marking from the SMT solver"
                 );
                 BehavioralStep::Witnessed(marking, firing_sequence)
-            },
+            }
             Err(increment_refinements) => {
                 {
                     let callback = self.callback
@@ -371,7 +371,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                             &self.problem,
                             &mut self.solver,
                             &self.context.transitions,
-                            callback.as_deref()
+                            callback.as_deref(),
                         );
                     }
                 }
@@ -412,10 +412,10 @@ pub fn cegar_decide<S: SmtSolver>(
             StructuralStep::Refined(refined) => refined,
             StructuralStep::Unsat(contradiction) => {
                 return CegarResult::Unsatisfiable { contradiction }
-            },
+            }
             StructuralStep::Upgraded(behavioral_cegar) => {
                 break behavioral_cegar
-            },
+            }
         }
     };
     loop {
@@ -423,10 +423,10 @@ pub fn cegar_decide<S: SmtSolver>(
             BehavioralStep::Refined(refined) => refined,
             BehavioralStep::Unsat(contradiction) => {
                 return CegarResult::Unsatisfiable { contradiction }
-            },
+            }
             BehavioralStep::Witnessed(marking, firing_sequence) => {
                 return CegarResult::Satisfiable { marking, firing_sequence }
-            },
+            }
         };
     };
 }
@@ -435,8 +435,8 @@ pub fn cegar_decide<S: SmtSolver>(
 mod tests {
     use super::*;
     use crate::core::net::DenseNet;
-    use crate::marking::Marking;
-    use crate::prelude::NetBuilder;
+    use crate::net::builder::NetBuilder;
+    use crate::system::marking::Marking;
 
     /// p0 -> t0 -> p1: a token in p0 can move to p1, so p1 is coverable (and reachable at
     /// exactly 1 token) from m0 = [1, 0], but not from m0 = [0, 0].
@@ -452,7 +452,7 @@ mod tests {
             net.mapping.idx_marking(Marking::from([(p1, 1)]))
         )
     }
-    
+
     fn once_only() -> (DenseNet, IdxMarking<u32>, IdxMarking<u32>) {
         let mut b = NetBuilder::new();
 

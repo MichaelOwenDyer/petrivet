@@ -1,14 +1,7 @@
-use ahash::HashSet;
-use crate::net::{Place, Transition};
-use crate::net::invariant::PInvariant;
+use crate::net::p_invariant::PInvariant;
 use crate::net::siphon_trap::Trap;
-
-/// A set of lemmas that are jointly unsatisfiable, proving that the target marking is not coverable.
-/// The set is not guaranteed to be minimal or irreducible, but each lemma is independently verifiable.
-#[derive(Debug, Clone)]
-pub struct Contradiction {
-    pub lemmas: Vec<Lemma>,
-}
+use crate::net::{Place, Transition};
+use ahash::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]

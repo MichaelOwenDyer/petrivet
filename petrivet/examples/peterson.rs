@@ -1,4 +1,5 @@
-use petrivet::prelude::{NetBuilder, PetriNet};
+use petrivet::net::Net;
+use petrivet::system::PetriNet;
 
 /// Demonstrates [Peterson's mutual exclusion algorithm](https://en.wikipedia.org/wiki/Peterson%27s_algorithm).
 ///
@@ -27,7 +28,7 @@ use petrivet::prelude::{NetBuilder, PetriNet};
 /// end parallel
 /// ```
 fn main() {
-    let mut b = NetBuilder::new();
+    let mut b = Net::builder();
 
     // m1: {false,true}
     let [m1f, m1t] = b.add_places();

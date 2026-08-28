@@ -114,7 +114,7 @@ impl TransitionOrderingRefinement {
         solver: &mut S,
         problem: &CegarProblem,
         transition_terms: &[S::Int],
-        callback: Option<&dyn Fn(IdxLemma)>
+        callback: Option<&dyn Fn(IdxLemma)>,
     ) {
         let mut order_terms = HashMap::new();
 
@@ -169,8 +169,8 @@ impl TransitionOrderingRefinement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::marking::Marking;
-    use crate::prelude::NetBuilder;
+    use crate::net::builder::NetBuilder;
+    use crate::system::marking::Marking;
 
     #[test]
     fn finds_the_genuine_cycle_and_the_escape_route() {

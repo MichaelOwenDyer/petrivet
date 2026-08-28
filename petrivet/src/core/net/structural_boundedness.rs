@@ -17,8 +17,8 @@
 //! # Example
 //!
 //! ```
-//! use petrivet::builder::NetBuilder;
-//! use petrivet::marking::Marking;
+//! use petrivet::system::marking::Marking;
+//! use petrivet::net::builder::NetBuilder;
 //! use petrivet::system::PetriNet;
 //!
 //! let mut b = NetBuilder::new();
@@ -69,7 +69,7 @@ use good_lp::{
 /// per-place upper bounds can be derived: `M[p] ≤ ⌊(y·M₀) / y[p]⌋`.
 #[must_use]
 pub fn find_positive_place_subinvariant(net: &DenseNet) -> Option<Box<[f64]>> {
-    find_semipositive_place_subinvariant(net, |_| true)
+    find_place_subinvariant(net, |_| true)
 }
 
 /// Checks whether a set of places is structurally bounded
@@ -85,15 +85,15 @@ pub fn find_positive_place_subinvariant(net: &DenseNet) -> Option<Box<[f64]>> {
 /// Feasible → place is structurally bounded; Infeasible → structurally
 /// unbounded (there exists an initial marking under which it is unbounded).
 #[must_use]
-pub fn find_semipositive_place_subinvariant<F: FnMut(&PlaceIdx) -> bool>(
+pub fn find_place_subinvariant<F: FnMut(&PlaceIdx) -> bool>(
     net: &DenseNet,
-    mut covering: F,
+    mut in_support: F,
 ) -> Option<Box<[f64]>> {
     let mut variables = ProblemVariables::new();
     let place_weights: Box<[Variable]> = net
         .place_indices()
         .map(|p| {
-            if covering(&p) {
+            if in_support(&p) {
                 variables.add(variable().min(1.0))
             } else {
                 variables.add(variable().min(0.0))
@@ -126,8 +126,8 @@ pub fn find_semipositive_place_subinvariant<F: FnMut(&PlaceIdx) -> bool>(
 
 #[cfg(test)]
 mod tests {
-    use crate::core::analysis::semi_decision::*;
-    use crate::prelude::{Net, NetBuilder};
+    use crate::core::net::structural_boundedness::*;
+    use crate::net::{Net, builder::NetBuilder};
 
     fn two_place_cycle() -> Net {
         let mut b = NetBuilder::new();
@@ -171,7 +171,7 @@ mod tests {
         let net = b.build().unwrap();
         let p0 = net.mapping.place_idx(p0).expect("place in built net");
         assert!(find_positive_place_subinvariant(&net.dense_net).is_none());
-        assert!(find_semipositive_place_subinvariant(&net.dense_net, |&idx| idx == p0).is_none());
+        assert!(find_place_subinvariant(&net.dense_net, |&idx| idx == p0).is_none());
     }
 
     #[test]

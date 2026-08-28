@@ -1,12 +1,14 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use petrivet::prelude::*;
+use petrivet::net::builder::NetBuilder;
+use petrivet::net::{Place, Transition};
 use petrivet::state_space::ExplorationOrder;
+use petrivet::system::PetriNet;
 
 type NetSize = usize;
 
 struct NetFixture {
     label: &'static str,
-    build: fn(NetSize) -> PetriNet<Net>,
+    build: fn(NetSize) -> PetriNet,
 }
 
 const CIRCUIT: NetFixture = NetFixture {
@@ -58,7 +60,7 @@ const LARGE: (&str, NetSize) = ("large", 25);
 const SIZES: &[(&str, NetSize)] = &[SMALL, MEDIUM, LARGE];
 
 /// n-place n-transition ring, 1 token in the first place.
-fn circuit(n: NetSize) -> PetriNet<Net> {
+fn circuit(n: NetSize) -> PetriNet {
     let m = n.max(1);
     let mut b = NetBuilder::new();
     let places: Vec<Place> = (0..m).map(|_| b.add_place()).collect();
@@ -72,7 +74,7 @@ fn circuit(n: NetSize) -> PetriNet<Net> {
 
 /// n-arm hub-and-spoke state machine. Center place + n arms (enter + exit
 /// transitions + one intermediate place). Token-conservative with n tokens.
-fn state_machine_sc(n: NetSize) -> PetriNet<Net> {
+fn state_machine_sc(n: NetSize) -> PetriNet {
     let m = n.max(1);
     let mut b = NetBuilder::new();
     let center = b.add_place();
@@ -88,7 +90,7 @@ fn state_machine_sc(n: NetSize) -> PetriNet<Net> {
 
 /// Two S-net cycles of n/2 places each, linked by a one-way switch transition.
 /// Not strongly connected as a whole; token count is invariant, so always bounded.
-fn state_machine_non_sc(n: NetSize) -> PetriNet<Net> {
+fn state_machine_non_sc(n: NetSize) -> PetriNet {
     let half = (n / 2).max(2);
     let mut b = NetBuilder::new();
 
@@ -117,7 +119,7 @@ fn state_machine_non_sc(n: NetSize) -> PetriNet<Net> {
 /// Fork/join marked graph with n parallel paths and 1 token in the shared
 /// place. All n circuits are marked (M(p_shared) = 1) → all transitions L4.
 /// Exercises the fast no-unmarked-circuit exit in liveness_via_marked_graph.
-fn marked_graph_live(n: NetSize) -> PetriNet<Net> {
+fn marked_graph_live(n: NetSize) -> PetriNet {
     let m = n.max(1);
     let mut b = NetBuilder::new();
     let p_shared = b.add_place();
@@ -135,7 +137,7 @@ fn marked_graph_live(n: NetSize) -> PetriNet<Net> {
 /// Same fork/join structure with zero tokens. All n circuits are unmarked →
 /// the DFS propagation runs over every circuit. Exercises the full
 /// liveness_via_marked_graph_unmarked_circuits code path.
-fn marked_graph_dark(n: NetSize) -> PetriNet<Net> {
+fn marked_graph_dark(n: NetSize) -> PetriNet {
     let m = n.max(1);
     let mut b = NetBuilder::new();
     let p_shared = b.add_place();
@@ -147,13 +149,13 @@ fn marked_graph_dark(n: NetSize) -> PetriNet<Net> {
         b.add_arcs((t_fork, p, t_join));
     }
     let net = b.build().unwrap();
-    PetriNet::new(net, Marking::default())
+    PetriNet::new(net, [])
 }
 
 /// n-stage diamond chain. Each stage has one entry place and two parallel
 /// choice paths (choice → private middle → commit) leading to the next stage.
 /// Satisfies the free-choice property. One token circulates.
-fn free_choice(n: NetSize) -> PetriNet<Net> {
+fn free_choice(n: NetSize) -> PetriNet {
     let m = n.max(1);
     let mut b = NetBuilder::new();
     let stages: Vec<Place> = (0..m).map(|_| b.add_place()).collect();
@@ -175,7 +177,7 @@ fn free_choice(n: NetSize) -> PetriNet<Net> {
 /// p_main_i; t_low_i consumes both p_main_i and p_low_i. This satisfies the
 /// AC property (p_low_i• ⊆ p_main_i•) but not the free-choice property
 /// (p_main_i• ≠ p_low_i•). Total token count is conserved → always bounded.
-fn asym_choice(n: NetSize) -> PetriNet<Net> {
+fn asym_choice(n: NetSize) -> PetriNet {
     let m = n.max(1);
     let mut b = NetBuilder::new();
     let p_mains: Vec<Place> = (0..m).map(|_| b.add_place()).collect();
@@ -200,7 +202,7 @@ fn asym_choice(n: NetSize) -> PetriNet<Net> {
 /// private transitions t_priv_a_i (only p_a_i as input) and t_priv_b_i (only
 /// p_b_i as input). Neither p_a_i• ⊆ p_b_i• nor p_b_i• ⊆ p_a_i•, so the
 /// net is General. Total token count 2 is conserved → always bounded.
-fn general(n: NetSize) -> PetriNet<Net> {
+fn general(n: NetSize) -> PetriNet {
     let m = n.max(1);
     let mut b = NetBuilder::new();
     let p_a: Vec<Place> = (0..m).map(|_| b.add_place()).collect();

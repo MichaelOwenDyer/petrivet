@@ -34,13 +34,14 @@
 //!
 //! Run: `cargo run --example workflow_analysis`
 
-use petrivet::prelude::{NetBuilder, PetriNet};
+use petrivet::net::Net;
 use petrivet::state_space::ExplorationOrder;
+use petrivet::system::PetriNet;
 
 fn main() {
     println!("=== PCB Assembly Line Analysis ===\n");
 
-    let mut b = NetBuilder::new();
+    let mut b = Net::builder();
 
     let [raw, station, soldered, passed, failed, done] = b.add_places();
 

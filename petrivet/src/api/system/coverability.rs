@@ -1,7 +1,7 @@
 use crate::core::cegar::{CegarProblem, CegarQuestion, cegar_decide};
-use crate::marking::Marking;
 use crate::net::{Net, Transition};
-use crate::prelude::PetriNet;
+use crate::system::PetriNet;
+use crate::system::marking::Marking;
 pub use crate::system::lemma::Lemma;
 use crate::core::cegar::observe::ToCegarCallbackFn;
 use crate::core::cegar::solver::DefaultSolver;
@@ -82,10 +82,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::NetBuilder;
-    use crate::marking::Marking;
-    use crate::prelude::PetriNet;
+    use crate::net::builder::NetBuilder;
+    use crate::system::PetriNet;
     use crate::system::coverability::{CoverabilityResult, Lemma};
+    use crate::system::marking::Marking;
     use std::sync::mpsc;
 
     #[test]

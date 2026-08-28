@@ -16,13 +16,13 @@ pub struct ParikhVector<T> {
 impl<T> ParikhVector<T> {
     /// Returns an iterator over the transitions in the support of this Parikh vector,
     /// e.g., the transitions that have non-zero firing counts.
-    pub fn support(&self) -> impl Iterator<Item = Transition> + '_ {
+    pub fn support(&self) -> impl Iterator<Item=Transition> + '_ {
         self.support.iter().map(|(transition, _)| *transition)
     }
 }
 
 impl<T: TokenOps> FromIterator<(Transition, T)> for ParikhVector<T> {
-    fn from_iter<I: IntoIterator<Item = (Transition, T)>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Item=(Transition, T)>>(iter: I) -> Self {
         let mut vec: Vec<(Transition, T)> = iter.into_iter().filter(|(_, t)| *t != T::ZERO).collect();
         vec.sort_unstable_by_key(|elem| elem.0.0);
         vec.dedup_by_key(|elem| elem.0.0);

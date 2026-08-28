@@ -4,9 +4,9 @@
 //! from a given initial marking in a Petri net, and analyzing the resulting
 //! reachability graph for properties like liveness and deadlock-freedom.
 
-use crate::boundedness::{Boundedness, K};
 use crate::net::Place;
 use crate::state_space::{StateGraph, StateGraphExplorer};
+use crate::system::boundedness::{Boundedness, K};
 use crate::system::liveness::LivenessAnalysis;
 use ahash::HashMap;
 
@@ -24,7 +24,7 @@ use ahash::HashMap;
 /// # Examples
 ///
 /// ```
-/// use petrivet::builder::NetBuilder;
+/// use petrivet::net::builder::NetBuilder;
 /// use petrivet::system::PetriNet;
 /// use petrivet::state_space::ExplorationOrder;
 /// use petrivet::state_space::{ReachabilityExplorer, ReachabilityGraph};

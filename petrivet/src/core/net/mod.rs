@@ -1,11 +1,13 @@
-use crate::core::analysis::incidence::IncidenceMatrix;
-use crate::core::analysis::semi_decision;
-use crate::core::class::NetClass;
 use crate::core::marking::IdxMarking;
 use crate::core::state_space::TokenOps;
+use crate::net::class::NetClass;
+use incidence::IdxIncidenceMatrix;
 
 pub mod path;
 pub mod idx_set;
+pub mod siphon_trap;
+pub mod incidence;
+pub mod structural_boundedness;
 
 /// A place in a built [`DenseNet`], identified by a dense index in `0 .. place_count`.
 ///
@@ -43,7 +45,7 @@ pub struct DenseNet {
     /// so we compute it at build time.
     pub is_strongly_connected: bool,
     /// The incidence matrix of the net, which encodes the net effect of each transition on each place.
-    pub incidence_matrix: IncidenceMatrix,
+    pub incidence_matrix: IdxIncidenceMatrix,
     /// Transition presets: for each transition t, the set of places in `•t`.
     pub preset_t: Box<[Box<[PlaceIdx]>]>,
     /// Transition postsets: for each transition t, the set of places in `t•`.
@@ -82,17 +84,17 @@ impl DenseNet {
     }
 
     /// Iterator over all internal places.
-    pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
+    pub fn place_indices(&self) -> impl Iterator<Item=PlaceIdx> + '_ {
         0..self.place_count() as PlaceIdx
     }
 
     /// Iterator over all internal transitions.
-    pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
+    pub fn transition_indices(&self) -> impl Iterator<Item=TransitionIdx> + '_ {
         0..self.transition_count() as TransitionIdx
     }
 
     /// Iterator over all arcs in the net, represented as pairs of internal indices.
-    pub fn arc_indices(&self) -> impl Iterator<Item = IdxArc> + '_ {
+    pub fn arc_indices(&self) -> impl Iterator<Item=IdxArc> + '_ {
         self.place_indices()
             .zip(self.preset_p.iter().zip(self.postset_p.iter()))
             .flat_map(|(p_idx, (preset, postset))| {
@@ -143,8 +145,8 @@ impl DenseNet {
 
     /// Computes the incidence matrix N of the net.
     #[must_use]
-    pub fn incidence_matrix(&self) -> IncidenceMatrix {
-        IncidenceMatrix::new(self)
+    pub fn incidence_matrix(&self) -> IdxIncidenceMatrix {
+        IdxIncidenceMatrix::new(self)
     }
 
     /// Checks if the net is structurally bounded.
@@ -152,7 +154,7 @@ impl DenseNet {
     /// which would cause any place in the net to become unbounded.
     #[must_use]
     pub fn is_structurally_bounded(&self) -> bool {
-        semi_decision::find_positive_place_subinvariant(self).is_some()
+        structural_boundedness::find_positive_place_subinvariant(self).is_some()
     }
 
     /// Checks if a single place is structurally bounded.
@@ -160,6 +162,6 @@ impl DenseNet {
     /// which would cause this place to become unbounded.
     #[must_use]
     pub fn is_place_structurally_bounded(&self, place: PlaceIdx) -> bool {
-        semi_decision::find_semipositive_place_subinvariant(self, |&p| p == place).is_some()
+        structural_boundedness::find_place_subinvariant(self, |&p| p == place).is_some()
     }
 }
