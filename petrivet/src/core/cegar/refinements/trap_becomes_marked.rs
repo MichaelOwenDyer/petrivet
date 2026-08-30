@@ -1,9 +1,9 @@
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::cegar::solver::SmtSolver;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::net::siphon_trap::IdxTrap;
 use crate::core::net::siphon_trap::maximal_trap_in;
+use crate::core::solver::SmtSolver;
 use crate::core::system::marking::IdxMarking;
 use crate::core::system::parikh_vector::IdxParikhVector;
 

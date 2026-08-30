@@ -59,7 +59,7 @@
 //! ```
 
 pub mod boundedness;
-pub mod chc;
+pub mod siphon_trap;
 pub mod deadlock_freedom;
 pub mod liveness;
 pub mod reachability;

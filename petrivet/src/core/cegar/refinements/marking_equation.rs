@@ -1,7 +1,7 @@
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::cegar::solver::SmtSolver;
 use crate::core::net::TransitionIdx;
+use crate::core::solver::SmtSolver;
 
 /// This refinement encodes the state equation of the net into the SMT solver.
 ///

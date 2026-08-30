@@ -1,7 +1,7 @@
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::cegar::solver::SmtSolver;
 use crate::core::net::{DenseNet, IdxNode, PlaceIdx, TransitionIdx};
+use crate::core::solver::SmtSolver;
 use crate::core::system::marking::IdxMarking;
 use ahash::{HashMap, HashMapExt};
 use petgraph::Graph;
@@ -152,9 +152,9 @@ impl TransitionOrderingRefinement {
                         .clone();
                     let feeder_fires = solver.gt(&transition_terms[feeder], &zero);
                     let feeder_fires_first = solver.lt(&feeder_order, &t_order);
-                    feeder_conditions.push(solver.and([feeder_fires, feeder_fires_first]));
+                    feeder_conditions.push(solver.and(&[feeder_fires, feeder_fires_first]));
                 }
-                solver.or(feeder_conditions)
+                solver.or(&feeder_conditions)
             };
             let implication = solver.implies(&t_fires, &some_feeder_fires_first);
             let lemma = IdxLemma::TransitionOrdering { t_idx, p_idx, feeders };

@@ -1,15 +1,13 @@
 //! [`SmtSolver`] backed by the pure-Rust `oxiz` SMT solver.
 
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::cegar::solver::{SmtSolver, Satisfiability};
+use crate::core::solver::{Satisfiability, SmtSolver};
 use ahash::{HashMap, HashMapExt};
 
-/// Owns an `oxiz` solver and term manager, plus the bookkeeping needed to translate an unsat
-/// core (a list of assertion indices, in `oxiz`'s API) back into the [`IdxLemma`]s that were
-/// asserted via [`SmtSolver::assert_tracked`].
+/// An incremental SMT solver backed by the pure-Rust `oxiz` SMT solver.
 pub struct OxiZ {
     /// The `oxiz` SMT solver.
-    smt: Box<oxiz::Solver>,
+    solver: Box<oxiz::Solver>,
     /// The `oxiz` term manager, which owns all terms and sorts.
     terms: Box<oxiz::TermManager>,
     /// Maps a tracking literal to the refinement it was tagged with, so that it can be
@@ -24,7 +22,7 @@ pub struct OxiZ {
 impl OxiZ {
     pub fn new() -> Self {
         Self {
-            smt: Box::new(oxiz::Solver::new()),
+            solver: Box::new(oxiz::Solver::new()),
             terms: Box::new(oxiz::TermManager::new()),
             tracked: HashMap::new(),
             next_tracking_id: 0,
@@ -52,6 +50,14 @@ impl SmtSolver for OxiZ {
 
     fn mk_bool_var(&mut self, name: &str) -> Self::Bool {
         self.terms.mk_var(name, self.terms.sorts.bool_sort)
+    }
+
+    fn mk_bool(&mut self, value: bool) -> Self::Bool {
+        if value {
+            self.terms.mk_true()
+        } else {
+            self.terms.mk_false()
+        }
     }
 
     fn add(&mut self, terms: impl IntoIterator<Item = Self::Int>) -> Self::Int {
@@ -82,56 +88,66 @@ impl SmtSolver for OxiZ {
         self.terms.mk_lt(*a, *b)
     }
 
-    fn and(&mut self, terms: impl IntoIterator<Item = Self::Bool>) -> Self::Bool {
-        self.terms.mk_and(terms)
+    fn and(&mut self, terms: &[Self::Bool]) -> Self::Bool {
+        if terms.is_empty() {
+            self.terms.mk_true()
+        } else {
+            self.terms.mk_and(terms)
+        }
     }
 
-    fn or(&mut self, terms: impl IntoIterator<Item = Self::Bool>) -> Self::Bool {
-        self.terms.mk_or(terms)
+    fn or(&mut self, terms: &[Self::Bool]) -> Self::Bool {
+        if terms.is_empty() {
+            self.terms.mk_false()
+        } else {
+            self.terms.mk_or(terms)
+        }
     }
 
     fn implies(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool {
         self.terms.mk_implies(*a, *b)
     }
+    fn not(&mut self, a: &Self::Bool) -> Self::Bool {
+        self.terms.mk_not(*a)
+    }
+    fn iff(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool {
+        self.terms.mk_iff(*a, *b)
+    }
 
     fn assert(&mut self, constraint: &Self::Bool) {
-        self.smt.assert(*constraint, &mut self.terms);
+        self.solver.assert(*constraint, &mut self.terms);
     }
 
     fn assert_tracked(&mut self, constraint: &Self::Bool, lemma: IdxLemma) {
-        // oxiz has no direct "assert and track" primitive, so we build the standard
-        // activation-literal encoding by hand: assert `lit => constraint` unconditionally, and
-        // `lit` itself as a separate, named assertion. If the latter ends up in the unsat core,
-        // `constraint` was necessary for unsatisfiability.
         let name = format!("t{}", self.next_tracking_id);
         self.next_tracking_id += 1;
         let lit = self.terms.mk_var(&name, self.terms.sorts.bool_sort);
         let tracked_constraint = self.terms.mk_implies(lit, *constraint);
-        self.smt.assert(tracked_constraint, &mut self.terms);
-        self.smt.assert(lit, &mut self.terms);
+        self.solver.assert(tracked_constraint, &mut self.terms);
+        self.solver.assert(lit, &mut self.terms);
         self.tracked.insert(lit, lemma);
     }
 
     fn push(&mut self) {
-        self.smt.push();
+        self.solver.push();
     }
     fn pop(&mut self) {
-        self.smt.pop();
+        self.solver.pop();
     }
 
     fn check(&mut self) -> Satisfiability {
-        match self.smt.check(&mut self.terms) {
+        match self.solver.check(&mut self.terms) {
             oxiz::SolverResult::Sat => Satisfiability::Sat,
             oxiz::SolverResult::Unsat => Satisfiability::Unsat,
             oxiz::SolverResult::Unknown => panic!(
                 "oxiz solver returned Unknown result! Debug info: {:?}",
-                self.smt
+                self.solver
             ),
         }
     }
 
     fn eval_int(&self, term: &Self::Int) -> Option<u32> {
-        let model = self.smt.model()?;
+        let model = self.solver.model()?;
         let value = model.get(*term)?;
         match &self.terms.get(value)?.kind {
             oxiz::core::TermKind::IntConst(n) => u32::try_from(n).ok(),
@@ -143,7 +159,7 @@ impl SmtSolver for OxiZ {
     }
 
     fn eval_bool(&self, term: &Self::Bool) -> Option<bool> {
-        let model = self.smt.model()?;
+        let model = self.solver.model()?;
         let value = model.get(*term)?;
         match &self.terms.get(value)?.kind {
             oxiz::core::TermKind::True => Some(true),
@@ -153,11 +169,11 @@ impl SmtSolver for OxiZ {
     }
 
     fn unsat_core(&mut self) -> Vec<IdxLemma> {
-        self.smt
+        self.solver
             .get_unsat_core()
             .into_iter()
             .flat_map(|core| core.indices.iter().copied())
-            .map(|assertion_index| self.smt.assertions[assertion_index as usize])
+            .map(|assertion_index| self.solver.assertions[assertion_index as usize])
             .filter_map(|term_id| self.tracked.remove(&term_id))
             .collect()
     }

@@ -57,13 +57,13 @@ pub struct DenseNet {
 }
 
 impl DenseNet {
-    /// Number of places in the net.
+    /// Number of places in the net, guaranteed to be > 0.
     #[must_use]
     pub fn place_count(&self) -> usize {
         self.preset_p.len()
     }
 
-    /// Number of transitions in the net.
+    /// Number of transitions in the net, guaranteed to be > 0.
     #[must_use]
     pub fn transition_count(&self) -> usize {
         self.preset_t.len()

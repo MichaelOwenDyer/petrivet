@@ -1,18 +1,8 @@
-//! The [`SmtSolver`] trait abstracts over the incremental SMT solver that drives the CEGAR
-//! loop in [`super::cegar`], so that the algorithm and its refinement rules (`refinements/*.rs`)
-//! can be written once, generic over `S: CegarSolver`, and reused with any conforming backend.
+//! The [`SmtSolver`] trait abstracts over incremental SMT solver backends.
 //!
 //! Two backends are provided:
 //! - [`oxiz::OxiZ`], backed by the pure-Rust `oxiz` solver.
 //! - [`z3::Z3`], backed by the mature `z3` solver via its Rust bindings.
-//!
-//! The trait is deliberately small and shaped by exactly what the CEGAR encoding needs: fresh
-//! integer variables, linear arithmetic and boolean combinations over them, asserting
-//! constraints (optionally tagged with the domain-level [`IdxLemma`] that produced them, for
-//! unsat-core reporting), and reading integer values back out of a satisfying model. Where the
-//! two backends' native APIs differ incidentally (e.g. how a model is represented, or how an
-//! unsat core is reported), that difference is absorbed inside the backend implementation
-//! rather than exposed through the trait.
 
 #[cfg(feature = "oxiz")]
 pub mod oxiz;
@@ -35,10 +25,7 @@ pub type DefaultSolver = z3::Z3;
 #[cfg(all(feature = "z3", feature = "oxiz"))]
 compile_error!("features `z3` and `oxiz` are mutually exclusive; pick one backend");
 
-/// An incremental SMT solver capable of driving the CEGAR loop.
-///
-/// Implementors own both "the solver" and "the term manager/context" (however a given backend
-/// splits those concerns internally) behind this single interface.
+/// An incremental SMT solver.
 pub trait SmtSolver: Default {
     /// An integer-sorted SMT term.
     type Int: Clone;
@@ -53,6 +40,8 @@ pub trait SmtSolver: Default {
     /// Declare a boolean-sorted variable with the given name.
     /// Multiple calls with the same name return the same variable.
     fn mk_bool_var(&mut self, name: &str) -> Self::Bool;
+    /// Create a boolean constant.
+    fn mk_bool(&mut self, value: bool) -> Self::Bool;
 
     /// The sum of `terms`. Callers must not pass an empty collection.
     fn add(&mut self, terms: impl IntoIterator<Item = Self::Int>) -> Self::Int;
@@ -70,18 +59,18 @@ pub trait SmtSolver: Default {
     /// `a < b`
     fn lt(&mut self, a: &Self::Int, b: &Self::Int) -> Self::Bool;
 
-    /// The conjunction of `terms`. Callers must not pass an empty collection.
-    fn and(&mut self, terms: impl IntoIterator<Item = Self::Bool>) -> Self::Bool;
-    /// The disjunction of `terms`. Callers must not pass an empty collection.
-    fn or(&mut self, terms: impl IntoIterator<Item = Self::Bool>) -> Self::Bool;
+    /// The conjunction of `terms`. An empty conjunction resolves to `true`.
+    fn and(&mut self, terms: &[Self::Bool]) -> Self::Bool;
+    /// The disjunction of `terms`. An empty disjunction resolves to `false`.
+    fn or(&mut self, terms: &[Self::Bool]) -> Self::Bool;
     /// The implication `a => b`. Equivalent to `!a || b`.
     fn implies(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool;
+    /// The logical negation `!a`.
+    fn not(&mut self, a: &Self::Bool) -> Self::Bool;
+    /// The biconditional `a <=> b`.
+    fn iff(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool;
 
-    /// Assert a constraint unconditionally, with no attribution in the unsat core. Reserved for
-    /// constraints that aren't independently-verifiable domain facts in their own right (e.g.
-    /// non-negativity of place/transition variables) - anything that states a checkable claim
-    /// about the net should go through [`SmtSolver::assert_tracked`] instead, tagged with an
-    /// [`IdxLemma`] precise enough for a reader to verify it independently.
+    /// Assert a constraint.
     fn assert(&mut self, constraint: &Self::Bool);
     /// Assert a constraint, tagging it with the [`IdxLemma`] it corresponds to. If this
     /// constraint is used to derive unsatisfiability, `lemma` will be present in the
@@ -95,9 +84,7 @@ pub trait SmtSolver: Default {
     /// Does nothing if there is no matching `push` (i.e. the solver is at the root scope).
     fn pop(&mut self);
 
-    /// Check satisfiability of the current assertions. Panics if the underlying solver answers
-    /// "unknown" the CEGAR encoding is quantifier-free linear arithmetic and should always be
-    /// decidable.
+    /// Check satisfiability of the current assertions. Panics if the underlying solver answers "unknown".
     fn check(&mut self) -> Satisfiability;
     /// Read the concrete value assigned to `term` by the model of the last [`Satisfiability::Sat`]
     /// result. Only valid to call after `check` returned `Sat`.

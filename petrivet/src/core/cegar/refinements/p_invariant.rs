@@ -1,8 +1,8 @@
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::cegar::solver::{Satisfiability, SmtSolver};
 use crate::core::net::PlaceIdx;
 use crate::core::net::incidence::IdxIncidenceMatrix;
+use crate::core::solver::{Satisfiability, SmtSolver};
 use crate::core::system::marking::IdxMarking;
 use crate::net::p_invariant::PInvariantKind;
 use tap::TapOptional;
@@ -108,7 +108,7 @@ impl<S: SmtSolver> PInvariantRule<S> {
 
         let target_lt = self.solver.lt(&target_value, &m0_value);
         let target_gt = self.solver.gt(&target_value, &m0_value);
-        let target_neq = self.solver.or([target_lt.clone(), target_gt.clone()]);
+        let target_neq = self.solver.or(&[target_lt.clone(), target_gt.clone()]);
 
         // Try to find a violated exact invariant first.
         {
@@ -133,11 +133,11 @@ impl<S: SmtSolver> PInvariantRule<S> {
 
             // Seek a non-increasing weighted sum in the net such that the value of the target
             // is greater than the value of the initial marking.
-            let subinvariant_cond = self.solver.and([self.is_subinvariant.clone(), target_gt]);
+            let subinvariant_cond = self.solver.and(&[self.is_subinvariant.clone(), target_gt]);
             // Seek a non-decreasing weighted sum in the net such that the value of the target
             // is less than the value of the initial marking.
-            let surinvariant_cond = self.solver.and([self.is_surinvariant.clone(), target_lt]);
-            let either = self.solver.or([subinvariant_cond, surinvariant_cond]);
+            let surinvariant_cond = self.solver.and(&[self.is_surinvariant.clone(), target_lt]);
+            let either = self.solver.or(&[subinvariant_cond, surinvariant_cond]);
             self.solver.assert(&either);
 
             if self.solver.check() == Satisfiability::Sat {

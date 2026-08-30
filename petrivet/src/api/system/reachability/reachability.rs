@@ -1,6 +1,6 @@
 use crate::core::cegar::observe::ToCegarCallbackFn;
-use crate::core::cegar::solver::DefaultSolver;
 use crate::core::cegar::{CegarProblem, CegarQuestion, cegar_decide};
+use crate::core::solver::DefaultSolver;
 use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
 use crate::system::PetriNet;

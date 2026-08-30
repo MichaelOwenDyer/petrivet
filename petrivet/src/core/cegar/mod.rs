@@ -1,10 +1,10 @@
 pub mod lemma;
 pub mod observe;
-pub mod solver;
 mod refinements;
 
 use crate::core::cegar::observe::CegarObserver;
 use crate::core::net::{DenseNet, TransitionIdx};
+use crate::core::solver::{Satisfiability, SmtSolver};
 use crate::core::system::marking::IdxMarking;
 use crate::core::system::parikh_vector::IdxParikhVector;
 use lemma::IdxLemma;
@@ -15,7 +15,6 @@ use refinements::marking_equation::MarkingEquationRefinement;
 use refinements::p_invariant::PInvariantRule;
 use refinements::transition_ordering::TransitionOrderingRule;
 use refinements::trap_becomes_marked::TrapBecomesMarkedRule;
-use solver::{Satisfiability, SmtSolver};
 
 /// Whether we are checking for reachability or coverability of the target marking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -435,6 +434,7 @@ pub fn cegar_decide<S: SmtSolver>(
 mod tests {
     use super::*;
     use crate::core::net::DenseNet;
+    use crate::core::solver;
     use crate::net::builder::NetBuilder;
     use crate::system::marking::Marking;
 

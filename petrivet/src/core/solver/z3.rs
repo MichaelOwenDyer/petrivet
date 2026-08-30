@@ -1,14 +1,12 @@
 //! [`SmtSolver`] backed by the `z3` SMT solver via its Rust bindings.
 
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::cegar::solver::{Satisfiability, SmtSolver};
+use crate::core::solver::{Satisfiability, SmtSolver};
 use ahash::{HashMap, HashMapExt};
 use z3::SatResult;
 use z3::ast::{Bool, Int};
 
-/// Owns a `z3` solver. Unlike `oxiz`, `z3`'s Rust bindings manage the `Context` implicitly via
-/// a thread-local default (see `z3::Context::thread_local`), so there is no separate context
-/// handle to store here, and `Int`/`Bool` terms carry no lifetime parameter.
+/// An incremental SMT solver backed by the `z3` SMT solver via its Rust bindings.
 pub struct Z3 {
     solver: z3::Solver,
     /// Maps a tracking literal (passed to `Solver::assert_and_track`) to the refinement it was
@@ -46,6 +44,9 @@ impl SmtSolver for Z3 {
     fn mk_bool_var(&mut self, name: &str) -> Self::Bool {
         Bool::new_const(name)
     }
+    fn mk_bool(&mut self, value: bool) -> Self::Bool {
+        Bool::from_bool(value)
+    }
 
     fn add(&mut self, terms: impl IntoIterator<Item = Self::Int>) -> Self::Int {
         Int::add(&terms.into_iter().collect::<Vec<_>>())
@@ -75,16 +76,30 @@ impl SmtSolver for Z3 {
         a.lt(b.clone())
     }
 
-    fn and(&mut self, terms: impl IntoIterator<Item = Self::Bool>) -> Self::Bool {
-        Bool::and(&terms.into_iter().collect::<Vec<_>>())
+    fn and(&mut self, terms: &[Self::Bool]) -> Self::Bool {
+        if terms.is_empty() {
+            Bool::from_bool(true)
+        } else {
+            Bool::and(terms)
+        }
     }
 
-    fn or(&mut self, terms: impl IntoIterator<Item = Self::Bool>) -> Self::Bool {
-        Bool::or(&terms.into_iter().collect::<Vec<_>>())
+    fn or(&mut self, terms: &[Self::Bool]) -> Self::Bool {
+        if terms.is_empty() {
+            Bool::from_bool(false)
+        } else {
+            Bool::or(terms)
+        }
     }
 
     fn implies(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool {
-        a.implies(b.clone())
+        a.implies(b)
+    }
+    fn not(&mut self, a: &Self::Bool) -> Self::Bool {
+        a.not()
+    }
+    fn iff(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool {
+        a.iff(b)
     }
 
     fn assert(&mut self, constraint: &Self::Bool) {
