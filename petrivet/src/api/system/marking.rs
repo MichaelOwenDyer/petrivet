@@ -1,8 +1,6 @@
 //! Markings: the state of a Petri net.
 //!
-//! A marking assigns a token count to each place. The default token type is
-//! `u32`. For coverability analysis, [`Omega`] extends token counts with an
-//! unbounded symbol ω, and [`OmegaMarking`] is a type alias for `Marking<Omega>`.
+//! A marking assigns a `u32` token count to each place.
 
 use crate::core::state_space::TokenOps;
 use crate::net::Place;

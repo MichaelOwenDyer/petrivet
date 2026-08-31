@@ -1,6 +1,6 @@
-use crate::core::net::siphon_trap::find_proper_siphon_with_no_marked_trap;
+use crate::core::net::siphon_trap::{find_proper_siphon_with_no_marked_trap, maximal_siphon_in, maximal_trap_in};
 use crate::core::solver::DefaultSolver;
-use crate::net::Net;
+use crate::net::{Net, Place};
 use crate::net::siphon_trap::{Siphon, Trap};
 use crate::system::PetriNet;
 
@@ -46,5 +46,19 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 self.mapping.place_set(&siphon),
                 self.mapping.place_set(&trap)
             ))))
+    }
+
+    /// Computes the maximal [`Siphon`] contained in a given set of places.
+    pub fn maximal_siphon_in(&self, places: &[Place]) -> Siphon {
+        let idx_places = self.mapping.place_idx_set(places);
+        let idx_siphon = maximal_siphon_in(&self.dense_net, idx_places);
+        self.mapping.place_set(&idx_siphon)
+    }
+
+    /// Computes the maximal [`Trap`] contained in a given set of places.
+    pub fn maximal_trap_in(&self, places: &[Place]) -> Trap {
+        let idx_places = self.mapping.place_idx_set(places);
+        let idx_trap = maximal_trap_in(&self.dense_net, idx_places);
+        self.mapping.place_set(&idx_trap)
     }
 }

@@ -52,14 +52,6 @@ impl SmtSolver for OxiZ {
         self.terms.mk_var(name, self.terms.sorts.bool_sort)
     }
 
-    fn mk_bool(&mut self, value: bool) -> Self::Bool {
-        if value {
-            self.terms.mk_true()
-        } else {
-            self.terms.mk_false()
-        }
-    }
-
     fn add(&mut self, terms: impl IntoIterator<Item = Self::Int>) -> Self::Int {
         self.terms.mk_add(terms)
     }
@@ -109,9 +101,6 @@ impl SmtSolver for OxiZ {
     }
     fn not(&mut self, a: &Self::Bool) -> Self::Bool {
         self.terms.mk_not(*a)
-    }
-    fn iff(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool {
-        self.terms.mk_iff(*a, *b)
     }
 
     fn assert(&mut self, constraint: &Self::Bool) {

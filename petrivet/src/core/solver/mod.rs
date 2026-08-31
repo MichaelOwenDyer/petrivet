@@ -40,8 +40,6 @@ pub trait SmtSolver: Default {
     /// Declare a boolean-sorted variable with the given name.
     /// Multiple calls with the same name return the same variable.
     fn mk_bool_var(&mut self, name: &str) -> Self::Bool;
-    /// Create a boolean constant.
-    fn mk_bool(&mut self, value: bool) -> Self::Bool;
 
     /// The sum of `terms`. Callers must not pass an empty collection.
     fn add(&mut self, terms: impl IntoIterator<Item = Self::Int>) -> Self::Int;
@@ -67,8 +65,6 @@ pub trait SmtSolver: Default {
     fn implies(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool;
     /// The logical negation `!a`.
     fn not(&mut self, a: &Self::Bool) -> Self::Bool;
-    /// The biconditional `a <=> b`.
-    fn iff(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool;
 
     /// Assert a constraint.
     fn assert(&mut self, constraint: &Self::Bool);

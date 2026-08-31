@@ -44,9 +44,6 @@ impl SmtSolver for Z3 {
     fn mk_bool_var(&mut self, name: &str) -> Self::Bool {
         Bool::new_const(name)
     }
-    fn mk_bool(&mut self, value: bool) -> Self::Bool {
-        Bool::from_bool(value)
-    }
 
     fn add(&mut self, terms: impl IntoIterator<Item = Self::Int>) -> Self::Int {
         Int::add(&terms.into_iter().collect::<Vec<_>>())
@@ -97,9 +94,6 @@ impl SmtSolver for Z3 {
     }
     fn not(&mut self, a: &Self::Bool) -> Self::Bool {
         a.not()
-    }
-    fn iff(&mut self, a: &Self::Bool, b: &Self::Bool) -> Self::Bool {
-        a.iff(b)
     }
 
     fn assert(&mut self, constraint: &Self::Bool) {

@@ -10,6 +10,7 @@ macro_rules! define_idx_set {
         $into_iter_name:ident,
         $complement_iter_name:ident
     ) => {
+        /// A compact `Set<$idx_type>`, implemented as a fixed-size bitset.
         #[derive(Debug, Clone, PartialEq, Eq, Hash)]
         pub struct $struct_name(pub FixedBitSet);
 

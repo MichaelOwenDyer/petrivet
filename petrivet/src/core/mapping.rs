@@ -132,9 +132,32 @@ impl DenseMapping {
         idx_marking
     }
 
+    /// Convert a slice of public places to a set of internal indices.
+    pub fn place_idx_set(&self, places: &[Place]) -> PlaceIdxSet {
+        let mut idx_set = PlaceIdxSet::none_of(self.place_count() as usize);
+        for &place in places {
+            if let Some(p_idx) = self.place_idx(place) {
+                idx_set.add(p_idx);
+            }
+        }
+        idx_set
+    }
+
     /// Convert a set of internal indices to a `HashSet<Place>`.
     pub fn place_set(&self, places: &PlaceIdxSet) -> HashSet<Place> {
         places.place_indices().map(|p_idx| self.place(p_idx)).collect()
+    }
+
+    /// Convert a slice of public transitions to a set of internal indices.
+    #[expect(unused)]
+    pub fn transition_idx_set(&self, transitions: &[Transition]) -> TransitionIdxSet {
+        let mut idx_set = TransitionIdxSet::none_of(self.transition_count() as usize);
+        for &transition in transitions {
+            if let Some(t_idx) = self.transition_idx(transition) {
+                idx_set.add(t_idx);
+            }
+        }
+        idx_set
     }
 
     /// Convert a set of internal indices to a `HashSet<Transition>`.
