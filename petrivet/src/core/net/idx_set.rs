@@ -20,31 +20,21 @@ macro_rules! define_idx_set {
                 Self(FixedBitSet::with_capacity(size))
             }
 
-            /// Creates a new full set of indices with the given size.
-            pub fn all_of(size: usize) -> Self {
-                let mut set = FixedBitSet::with_capacity(size);
-                set.insert_range(..);
-                Self(set)
-            }
-
             /// Returns an iterator over the indices in the set.
             pub fn $iter_name(&self) -> impl Iterator<Item = $idx_type> + '_ {
                 self.0.ones()
             }
 
             /// Consumes the set and returns an iterator over the indices in the set.
+            #[allow(unused)]
             pub fn $into_iter_name(self) -> impl Iterator<Item = $idx_type> {
                 self.0.into_ones()
             }
 
             /// Returns an iterator over the indices not in the set.
+            #[allow(unused)]
             pub fn $complement_iter_name(&self) -> impl Iterator<Item = $idx_type> + '_ {
                 self.0.zeroes()
-            }
-
-            /// Returns the number of items in the set.
-            pub fn size(&self) -> usize {
-                self.0.count_ones(..)
             }
 
             /// Returns true if the set is empty.
@@ -63,11 +53,13 @@ macro_rules! define_idx_set {
             }
 
             /// Removes an index from the set.
+            #[allow(unused)]
             pub fn remove(&mut self, idx: $idx_type) {
                 self.0.remove(idx)
             }
 
             /// Removes and returns the first index in the set, if any.
+            #[allow(unused)]
             pub fn remove_first(&mut self) -> Option<$idx_type> {
                 if let Some(idx) = self.0.ones().next() {
                     self.0.remove(idx);
@@ -82,12 +74,8 @@ macro_rules! define_idx_set {
                 self.0.contains(idx)
             }
 
-            /// Returns true if this set contains only indices that are also in the other set.
-            pub fn is_subset(&self, other: &Self) -> bool {
-                self.0.is_subset(&other.0)
-            }
-
             /// Returns true if the set of indices is disjoint from another set of indices.
+            #[allow(unused)]
             pub fn is_disjoint(&self, other: &Self) -> bool {
                 self.0.is_disjoint(&other.0)
             }
