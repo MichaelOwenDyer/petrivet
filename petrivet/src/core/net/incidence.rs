@@ -5,8 +5,8 @@ use crate::core::net::{DenseNet, PlaceIdx, TransitionIdx};
 /// Stored as two separate matrices: the consume matrix C and the produce matrix P.
 ///
 /// References:
-/// - [Primer, Definition 4.1](crate::literature#definition-41--incidence-matrix)
-/// - [Murata 1989, §IV-B](crate::literature#iv-b--incidence-matrix-and-state-equation) (uses the transposed convention; our N = Murata's Aᵀ)
+/// - [Primer, Definition 4.1]
+/// - [Murata 1989, §IV-B]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdxIncidenceMatrix {
     /// The number of tokens consumed from place p by transition t.

@@ -8,7 +8,6 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use std::cmp::Ordering;
 use std::iter;
-use std::iter::Sum;
 
 impl TokenOps for Omega {
     const ZERO: Self = Omega::Finite(0);

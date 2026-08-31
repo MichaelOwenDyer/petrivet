@@ -13,7 +13,7 @@ use ahash::HashMap;
 /// An incremental exploration handle which lazily enumerates every single marking
 /// in the state space of the [`PetriNet`].
 ///
-/// Note that an [`unbounded`](crate::literature#Boundedness)
+/// Note that an [`unbounded`]
 ///
 /// Works for any net (bounded or unbounded). For unbounded nets, the frontier
 /// never empties - the caller must impose their own termination condition.
@@ -32,8 +32,7 @@ use ahash::HashMap;
 /// let mut b = NetBuilder::new();
 /// let [p0, p1] = b.add_places();
 /// let [t0] = b.add_transitions();
-/// b.add_arcs((p0, t0));
-/// b.add_arc((t0, p0));
+/// b.add_arcs((p0, t0, p0));
 /// b.add_arc((t0, p1));
 /// let net = b.build().unwrap();
 /// let sys = PetriNet::new(net, [(p0, 1)]);

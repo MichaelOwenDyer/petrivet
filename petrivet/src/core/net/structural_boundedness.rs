@@ -29,11 +29,11 @@
 //! let sys = PetriNet::new(net, [(p0, 1)]);
 //!
 //! // Can we reach (0, 1)? The marking equation says: feasible
-//! let result = sys.analyze_reachability(&Marking::from([(p1, 1)]));
+//! let result = sys.analyze_reachability([(p1, 1)], None);
 //! assert!(result.is_reachable());
 //!
 //! // Can we reach (2, 0)? Conservation law violated, definitely not
-//! let result = sys.analyze_reachability(&Marking::from([(p0, 2)]));
+//! let result = sys.analyze_reachability([(p0, 2)], None);
 //! assert!(!result.is_reachable());
 //! ```
 
@@ -59,8 +59,8 @@ use good_lp::{
 /// 2. Structural boundedness (this check) → bounded for every M₀
 ///
 /// References:
-/// - [Murata 1989, Table 5](crate::literature#table-5--structural-boundedness): structural boundedness ⟺ ∃y > 0, Ay ≤ 0
-/// - [Primer, Proposition 4.12](crate::literature#proposition-412--structural-boundedness-via-lp)
+/// - [Murata 1989, Table 5]: structural boundedness ⟺ ∃y > 0, Ay ≤ 0
+/// - [Primer, Proposition 4.12]
 ///
 /// Checks structural boundedness and returns the weight vector if feasible.
 ///

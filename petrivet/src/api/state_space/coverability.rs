@@ -5,17 +5,17 @@
 //! [`Omega::Unbounded`].
 //!
 //! References:
-//! - [Primer, Proposition 3.23](crate::literature#proposition-323--finiteness-of-the-coverability-trees-and-graphs) (termination)
-//! - [Primer, Proposition 3.27](crate::literature#proposition-327--all-that-can-be-checked-on-a-coverability-graph) (coverability characterization)
-//! - [Murata 1989, §V-A](crate::literature#v-a--the-coverability-tree) (coverability tree properties)
-//! - [Esparza Lecture Notes, Theorem 3.2.5](crate::literature#theorem-325--coverability-graph-terminates) (termination, supplementary)
-//! - [Esparza Lecture Notes, Theorem 3.2.8](crate::literature#theorem-328--coverability-characterization) (correctness, supplementary)
+//! - [Primer, Proposition 3.23]
+//! - [Primer, Proposition 3.27]
+//! - [Murata 1989, §V-A]
+//! - [Esparza Lecture Notes, Theorem 3.2.5]
+//! - [Esparza Lecture Notes, Theorem 3.2.8]
 //!
 //! # Usage
 //!
 //! ```
 //! use petrivet::net::builder::NetBuilder;
-//! use petrivet::system::PetriNet;//!
+//! use petrivet::system::PetriNet;
 //!
 //! let mut b = NetBuilder::new();
 //! let [p0, p1] = b.add_places();

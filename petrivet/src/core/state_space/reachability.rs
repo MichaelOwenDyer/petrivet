@@ -36,7 +36,7 @@ impl ExploreNext<u32> for DenseStateGraphExplorer<'_, u32> {
 impl DenseStateGraph<'_, u32> {
     /// Computes liveness levels for all transitions in a single pass.
     ///
-    /// SCC-based decision procedure for bounded nets ([Murata 1989 §V-C](crate::literature#v-c--liveness-via-reachability-graph-sccs)):
+    /// SCC-based decision procedure for bounded nets ([Murata 1989 §V-C]:
     /// - [`L0`](LivenessLevel::L0): `t` does not label any edge.
     /// - [`L1`](LivenessLevel::L1): `t` labels at least one edge.
     /// - [`L2`](LivenessLevel::L2): equivalent to L3 because this is a finite state space.

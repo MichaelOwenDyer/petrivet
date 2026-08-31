@@ -60,7 +60,7 @@ pub enum NetClass {
     /// // single loop through all places and transitions
     /// b.add_arcs((p1, t1, p2, t2, p3, t3, p1));
     /// let class = b.build().unwrap().class();
-    /// assert!(class == NetClass::Circuit);
+    /// assert_eq!(class, NetClass::Circuit);
     /// assert!(class.is_circuit());
     /// assert!(class.is_state_machine());
     /// assert!(class.is_marked_graph());
@@ -138,7 +138,7 @@ pub enum NetClass {
     /// b.add_arcs((bal_20, get_candy_for_20, bal_0));
     /// b.add_arcs((bal_20, get_candy_for_15_with_change, bal_5));
     /// let class = b.build().unwrap().class();
-    /// assert!(class == NetClass::StateMachine);
+    /// assert_eq!(class, NetClass::StateMachine);
     /// assert!(!class.is_circuit());
     /// assert!(class.is_state_machine());
     /// assert!(!class.is_marked_graph());
@@ -147,7 +147,7 @@ pub enum NetClass {
     /// ```
     ///
     /// References:
-    /// - [Murata 1989, Theorem 21](crate::literature#theorem-21--reachability-in-s-nets)
+    /// - [Murata 1989, Theorem 21]
     /// - Lautenbach & Thiagarajan 1979 (original result)
     StateMachine,
 
@@ -234,7 +234,7 @@ pub enum NetClass {
     /// b.add_arcs((t1, p2, t3, p4, t4));
     /// b.add_arcs((t4, p5, t1));
     /// let class = b.build().unwrap().class();
-    /// assert!(class == NetClass::MarkedGraph);
+    /// assert_eq!(class, NetClass::MarkedGraph);
     /// assert!(!class.is_circuit());
     /// assert!(!class.is_state_machine());
     /// assert!(class.is_marked_graph());
@@ -243,10 +243,9 @@ pub enum NetClass {
     /// ```
     ///
     /// References:
-    /// - [Murata 1989, Theorem 22](crate::literature#theorem-22--reachability-in-t-nets)
+    /// - [Murata 1989, Theorem 22]
     MarkedGraph,
 
-    /// TODO: Cite Prof. Esparza
     /// A net `N = (S, T, F)` is an (extended) **Free-Choice Net**
     /// if `•t x s• ⊆ F` for every `s ∈ S` and `t ∈ T` such that `(s, t) ∈ F`.
     ///
@@ -263,7 +262,7 @@ pub enum NetClass {
     ///
     /// Free-choice nets can model both choice and concurrency, but with a key restriction to prevent
     /// "confusion": the difficult-to-analyze case where two transitions share some but not all input places,
-    /// leading to complex interactions between choices and concurrency [Murata III B]. todo cite
+    /// leading to complex interactions between choices and concurrency [Murata III B].
     /// In a free-choice net, two transitions either share all input places or none.
     ///
     /// [`Circuits`](NetClass::Circuit), [`State Machines`](NetClass::StateMachine),
@@ -316,9 +315,27 @@ pub enum NetClass {
     /// Shortest sequence theorem:
     /// Let (N, M₀) be a k-bounded free-choice system and let M be a reachable marking.
     /// Then there is a firing sequence M₀ <sup>σ</sup>→ M
-    /// such that `|σ| ≤ bn(n+1)(n+2)/6`, where n = |T| is the number of transitions of N.
+    /// such that `|σ| ≤ bn(n+1)(n+2)/6`, where `n = |T|` is the number of transitions of `N`.
     ///
-    /// TODO: Add example of a free-choice system
+    /// ```
+    /// use petrivet::net::class::NetClass;
+    /// use petrivet::net::Net;
+    /// let mut b = Net::builder();
+    /// let [s1, s2, s3, s4, s5, s6, s7, s8] = b.add_places();
+    /// let [t1, t2, t3, t4, t5, t6, t7] = b.add_transitions();
+    /// b.add_arcs((s1, t1, s3, t3, s7, t7, s1));
+    /// b.add_arcs((s2, t1, s4, t4, s8, t7));
+    /// b.add_arcs((s1, t2, s5, t5, s7, t7, s2));
+    /// b.add_arcs((s2, t2, s6, t6, s8, t7));
+    ///
+    /// let class = b.build().unwrap().class();
+    /// assert_eq!(class, NetClass::FreeChoice);
+    /// assert!(!class.is_circuit());
+    /// assert!(!class.is_state_machine());
+    /// assert!(!class.is_marked_graph());
+    /// assert!(class.is_free_choice());
+    /// assert!(class.is_asymmetric_choice());
+    /// ```
     FreeChoice,
 
     /// A net `N = (S, T, F)` is an **Asymmetric-choice Net** (also known as a **Simple Net**)
@@ -351,7 +368,10 @@ pub enum NetClass {
     /// b.add_arc((p2, t1));
     /// b.add_arc((p2, t2));
     /// let class = b.build().unwrap().class();
-    /// assert!(class == NetClass::AsymmetricChoice);
+    /// assert_eq!(class, NetClass::AsymmetricChoice);
+    /// assert!(!class.is_circuit());
+    /// assert!(!class.is_state_machine());
+    /// assert!(!class.is_marked_graph());
     /// assert!(!class.is_free_choice());
     /// assert!(class.is_asymmetric_choice());
     /// ```
@@ -390,7 +410,11 @@ pub enum NetClass {
     /// b.add_arc((p2, t2));
     /// b.add_arc((p2, t3));
     /// let class = b.build().unwrap().class();
-    /// assert!(class == NetClass::General);
+    /// assert_eq!(class, NetClass::General);
+    /// assert!(!class.is_circuit());
+    /// assert!(!class.is_state_machine());
+    /// assert!(!class.is_marked_graph());
+    /// assert!(!class.is_free_choice());
     /// assert!(!class.is_asymmetric_choice());
     /// ```
     General,

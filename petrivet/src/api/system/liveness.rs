@@ -19,7 +19,7 @@ use petgraph::visit::IntoNodeReferences;
 /// The liveness level of a Petri net is that of its *least* live transition.
 ///
 /// References:
-/// - [Murata 1989, Definition 5.1](crate::literature#definition-51--liveness-levels-l0l4)
+/// - [Murata 1989, Definition 5.1]
 /// - Petri Net Primer, §5.4 (liveness)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LivenessLevel {
