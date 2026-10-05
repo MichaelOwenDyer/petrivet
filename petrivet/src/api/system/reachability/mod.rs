@@ -5,17 +5,18 @@ use crate::prelude::Marking;
 use crate::system::parikh_vector::ParikhVector;
 use ahash::HashSet;
 
+#[expect(clippy::module_inception)]
 mod reachability;
 mod coverability;
 
 pub use reachability::ReachabilityResult;
 pub use coverability::CoverabilityResult;
 
+/// A lemma is a "truth" about a Petri net.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Lemma {
-    /// A P-Invariant (weighted sum of places) that the initial marking satisfies,
-    /// but the SMT solver's proposed marking did not.
+    /// A P-Invariant (weighted sum of places) that must hold in all reachable markings.
     PInvariant(PInvariant),
     /// A Trap that is marked in the initial marking, and therefore must
     /// remain marked in all reachable markings.
