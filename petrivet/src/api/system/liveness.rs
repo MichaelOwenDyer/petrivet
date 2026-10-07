@@ -270,11 +270,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
 }
 
 // specialized procedures for state machines and marked graphs
+// TODO: bring core logic to core package
 impl<N: AsRef<Net>> PetriNet<N> {
     /// For a non-strongly-connected state machine, we can determine individual transaction
     /// liveness levels by analyzing the marked strongly connected components of the net
     /// and which other components they can reach.
-    fn liveness_via_state_machine_marked_sccs(&self) -> HashMap<Transition, LivenessLevel> {
+    pub(crate) fn liveness_via_state_machine_marked_sccs(&self) -> HashMap<Transition, LivenessLevel> {
         /// It is important for us to know whether a given token is guaranteed to arrive in some
         /// terminal nontrivial strongly connected component, because that makes the SCC L4-live.
         /// But if a token might end up in one or another, then we can only conclude L3-liveness
@@ -343,8 +344,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         let mut visited = vec![false; condensation_graph.node_count()];
         // perform the depth-first search from each marked SCC
         for (marked_scc, _) in condensation_graph.node_references().filter(|(_, scc)| {
-            scc.iter()
-                .any(|node| matches!(node, &IdxNode::Place(p_idx) if self.marking[p_idx] > 0))
+            scc.iter().any(|node| matches!(node, &IdxNode::Place(p_idx) if self.marking[p_idx] > 0))
         }) {
             let mut reachable_sinks = ReachableSinks::NoneYet;
             visited.fill(false);
@@ -359,7 +359,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 && condensation_graph[sink].len() > 1
             {
                 // any token from this source SCC is guaranteed to end up in
-                // this non-trivial terminal SCC, making it L4-live
+                // this non-trivial terminal SCC, making all transitions in it L4-live
                 liveness[sink.index()] = LivenessLevel::L4;
             }
         }

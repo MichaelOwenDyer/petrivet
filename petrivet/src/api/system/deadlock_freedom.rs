@@ -1,5 +1,7 @@
+use crate::net::class::NetClass;
 use crate::net::Net;
 use crate::state_space::{ExplorationOrder, ReachabilityGraphExplorer};
+use crate::system::liveness::LivenessLevel;
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
 
@@ -44,16 +46,23 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns None if the answer would not be efficient to compute.
     #[must_use]
     pub fn is_efficiently_deadlock_free(&self) -> Option<bool> {
-        match self.is_efficiently_live() {
-            Some(true) => Some(true), // liveness implies deadlock-freedom
-            _ => self.commoner_hack_criterion().ok().map(|()| true),
+        match self.class() {
+            NetClass::Circuit => Some(self.marking.sum() > 0),
+            NetClass::StateMachine => Some(
+                // some token must land in a terminal non-trivial SCC where it can circulate forever
+                self.marking.sum() > 0
+                    && self.liveness_via_state_machine_marked_sccs().values().any(LivenessLevel::is_live)
+            ),
+            NetClass::MarkedGraph => Some(!self.has_unmarked_circuit()),
+            _ => None,
         }
     }
 
     /// Returns an iterator over all reachable deadlock markings in the system.
     #[must_use]
     pub fn deadlocks(&self) -> Deadlocks<'_> {
-        if self.is_efficiently_deadlock_free() == Some(true) {
+        if self.is_efficiently_deadlock_free() == Some(true)
+            || self.commoner_hack_criterion().is_ok() {
             Deadlocks::DeadlockFree
         } else if self.dense_net.is_deadlock(&self.marking) {
             Deadlocks::InitialDeadlock(Some(self.mapping.marking(self.marking.clone())))
