@@ -7,6 +7,7 @@ use crate::system::marking::Marking;
 use crate::system::reachability::Lemma;
 use crate::system::reachability::SpuriousSolutionEliminatedEvent;
 use std::sync::{Arc, mpsc};
+use crate::net::class::NetClass;
 
 #[derive(Debug, Clone)]
 pub enum CoverabilityResult {
@@ -38,9 +39,26 @@ impl CoverabilityResult {
 }
 
 impl<N: AsRef<Net>> PetriNet<N> {
+    /// If there is an efficient (polynomial-time) procedure to determine
+    /// whether the given target marking is coverable in this Petri net,
+    /// returns Some(_) with the answer.
+    /// Returns None if the answer would not be efficient to compute.
+    #[must_use]
+    pub fn is_efficiently_coverable(&self, target: &Marking<u32>) -> Option<bool> {
+        match self.class() {
+            NetClass::Circuit => Some(self.marking.sum() >= target.total_tokens()),
+            NetClass::StateMachine if self.is_strongly_connected() => {
+                Some(self.marking.sum() >= target.total_tokens())
+            }
+            _ => None,
+        }
+    }
+
     /// Returns whether `target` is coverable from the initial marking.
     pub fn is_coverable(&self, target: impl Into<Marking<u32>>) -> bool {
-        self.analyze_coverability(target.into(), None).is_coverable()
+        let target = target.into();
+        self.is_efficiently_coverable(&target)
+            .unwrap_or_else(|| self.analyze_coverability(target, None).is_coverable())
     }
 
     /// Analyzes whether the given target marking is coverable in this Petri net.

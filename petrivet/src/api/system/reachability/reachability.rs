@@ -45,7 +45,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         // todo: efficient check necessary for reachability: maximal unmarked trap in target must be unmarked in M0
         match self.class() {
             NetClass::Circuit => Some(self.marking.sum() == target.total_tokens()),
-            NetClass::StateMachine if self.is_live() => {
+            NetClass::StateMachine if self.is_strongly_connected() => {
                 Some(self.marking.sum() == target.total_tokens())
             }
             // NetClass::MarkedGraph if self.is_live() => Some(self.marking() ~ target) // todo: ~ relation
