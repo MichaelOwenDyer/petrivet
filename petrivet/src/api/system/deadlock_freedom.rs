@@ -1,5 +1,4 @@
 use crate::net::Net;
-use crate::net::class::NetClass;
 use crate::state_space::{ExplorationOrder, ReachabilityGraphExplorer};
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
@@ -47,8 +46,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn is_efficiently_deadlock_free(&self) -> Option<bool> {
         match self.is_efficiently_live() {
             Some(true) => Some(true), // liveness implies deadlock-freedom
-            Some(false) if self.class() == NetClass::FreeChoice => Some(false), // same condition, no need to check it again
-            _ => self.commoner_hack_criterion().ok().map(|_| true),
+            _ => self.commoner_hack_criterion().ok().map(|()| true),
         }
     }
 

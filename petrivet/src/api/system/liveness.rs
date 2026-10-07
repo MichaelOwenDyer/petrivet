@@ -214,7 +214,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             NetClass::StateMachine => Some(self.is_strongly_connected() && self.marking.sum() > 0),
             NetClass::MarkedGraph => Some(!self.has_unmarked_circuit()),
             NetClass::FreeChoice => Some(self.commoner_hack_criterion().is_ok()),
-            NetClass::AsymmetricChoice => self.commoner_hack_criterion().ok().map(|_| true),
+            NetClass::AsymmetricChoice => self.commoner_hack_criterion().ok().map(|()| true),
             NetClass::General => None,
         }
     }
@@ -240,7 +240,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             NetClass::FreeChoice => self
                 .commoner_hack_criterion()
                 .ok()
-                .map(|_| self.transitions().map(|t| (t, LivenessLevel::L4)).collect()),
+                .map(|()| self.transitions().map(|t| (t, LivenessLevel::L4)).collect()),
             _ => None,
         };
         levels.map(|levels| LivenessAnalysis { levels })
