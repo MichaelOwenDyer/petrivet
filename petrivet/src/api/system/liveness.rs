@@ -1,11 +1,12 @@
-use crate::core::net::{IdxNode, TransitionIdx, path::IdxCircuit};
+use crate::core::net::{IdxNode, TransitionIdx};
 use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
 use crate::system::PetriNet;
 use ahash::HashMap;
+use petgraph::algo::tarjan_scc;
 use petgraph::Graph;
 use petgraph::graph::NodeIndex;
-use petgraph::visit::IntoNodeReferences;
+use petgraph::visit::{IntoNodeReferences, NodeFiltered};
 
 /// The liveness level of a [`Transition`] describes how often it
 /// can be fired in a [`Petri net`](crate::PetriNet) `(N, M₀)`.
@@ -237,17 +238,16 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 self.transitions().map(|t| (t, LivenessLevel::L4)).collect()
             ),
             NetClass::StateMachine => Some(self.liveness_via_state_machine_marked_sccs()),
+            NetClass::MarkedGraph => Some(self.liveness_via_marked_graph_unmarked_circuits()),
             _ => None,
         }.map(LivenessAnalysis)
     }
 
-    /// Analyses liveness, dispatching to the cheapest known procedure first.
+    /// Analyzes liveness, dispatching to the cheapest known procedure first.
+    /// Currently not implemented for unbounded systems, so returns None in that case.
     #[must_use]
     pub fn liveness(&self) -> Option<LivenessAnalysis> {
         self.efficient_liveness().or_else(|| match self.class() {
-            NetClass::MarkedGraph => Some(
-                LivenessAnalysis(self.liveness_via_marked_graph_unmarked_circuits())
-            ),
             NetClass::FreeChoice | NetClass::AsymmetricChoice if self.commoner_hack_criterion().is_ok() => Some(
                 LivenessAnalysis(self.transitions().map(|t| (t, LivenessLevel::L4)).collect())
             ),
@@ -406,15 +406,26 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
         }
 
+        // unmarked circuits are nontrivial strongly connected components of the subgraph
+        // of unmarked places and all transitions.
+        let unmarked_subgraph = NodeFiltered::from_fn(&self.graph, |node| {
+            match self.graph[node] {
+                IdxNode::Place(p_idx) => self.marking[p_idx] == 0,
+                IdxNode::Transition(_) => true,
+            }
+        });
+        let dead_transition_indices = tarjan_scc(&unmarked_subgraph)
+            .into_iter()
+            .filter(|scc| scc.len() > 1) // nontrivial SCCs
+            .flat_map(|scc| scc.into_iter())
+            .filter_map(|node| match self.graph[node] {
+                IdxNode::Transition(t_idx) => Some(t_idx),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
         // all transitions in an unmarked circuit are L0,
         // and all transitions downstream from them are at most L1. the rest are L4.
-        let unmarked_circuits: Vec<IdxCircuit> = self.unmarked_circuits().collect();
-        let mut dead_transition_indices = unmarked_circuits
-            .iter()
-            .flat_map(|circuit| circuit.transition_indices())
-            .collect::<Vec<_>>();
-        dead_transition_indices.sort_unstable();
-        dead_transition_indices.dedup();
         let mut liveness = vec![LivenessLevel::L4; self.transition_count() as usize];
         for t_idx in dead_transition_indices {
             dfs_finite_pathways(self, t_idx, false, &mut liveness);
