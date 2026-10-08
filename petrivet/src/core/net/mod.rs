@@ -1,3 +1,5 @@
+use crate::core::net::idx_set::PlaceIdxSet;
+use crate::core::net::siphon_trap::maximal_siphon_in;
 use crate::core::state_space::TokenOps;
 use crate::core::system::marking::IdxMarking;
 use crate::net::class::NetClass;
@@ -140,7 +142,17 @@ impl DenseNet {
     /// Returns true if the net has a source transition, i.e. a transition with no preset places.
     #[must_use]
     pub fn has_source_transition(&self) -> bool {
-        self.transition_indices().any(|t| self.preset_t[t].is_empty())
+        !self.class.is_state_machine()
+            && self.transition_indices().any(|t| self.preset_t[t].is_empty())
+    }
+
+    /// Returns true if the net has a proper siphon unmarked in the given marking.
+    pub fn has_unmarked_proper_siphon(&self, marking: &IdxMarking<u32>) -> bool {
+        let mut unmarked_places = PlaceIdxSet::all_of(self.place_count());
+        for p_idx in marking.support() {
+            unmarked_places.set(p_idx, false);
+        }
+        !maximal_siphon_in(self, unmarked_places).is_empty()
     }
 
     /// Returns true if the given marking enables no transitions in the net.

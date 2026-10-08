@@ -141,9 +141,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
             // conservative - token count never changes
             NetClass::Circuit | NetClass::StateMachine => Some(true),
             // A live marked graph is bounded iff it is strongly connected
-            NetClass::MarkedGraph if self.is_live() => Some(self.is_strongly_connected()),
-            // A live free-choice system is bounded iff every place belongs to an s-component
-            // NetClass::FreeChoice if self.is_live() => Some(self.is_covered_by_s_components()),
+            NetClass::MarkedGraph if self.is_efficiently_live()? => Some(
+                self.is_strongly_connected()
+            ),
             _ => None,
         }
     }

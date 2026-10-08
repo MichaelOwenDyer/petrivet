@@ -49,11 +49,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns None if the answer would not be efficient to compute.
     #[must_use]
     pub fn is_efficiently_deadlock_free(&self) -> Option<bool> {
-        if self.has_source_transition() {
-            return Some(true);
-        }
         match self.class() {
             NetClass::Circuit => Some(self.marking.sum() > 0),
+            _ if self.has_source_transition() => Some(true),
             NetClass::StateMachine => Some(
                 self.marking.sum() > 0 && self.deadlock_freedom_via_state_machine_marked_sccs()
             ),

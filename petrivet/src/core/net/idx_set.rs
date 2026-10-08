@@ -20,6 +20,14 @@ macro_rules! define_idx_set {
                 Self(FixedBitSet::with_capacity(size))
             }
 
+            /// Creates a new set of indices containing all indices from 0 to size-1.
+            #[allow(unused)]
+            pub fn all_of(size: usize) -> Self {
+                let mut set = FixedBitSet::with_capacity(size);
+                set.insert_range(..size);
+                Self(set)
+            }
+
             /// Returns an iterator over the indices in the set.
             pub fn $iter_name(&self) -> impl Iterator<Item = $idx_type> + '_ {
                 self.0.ones()

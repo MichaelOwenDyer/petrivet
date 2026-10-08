@@ -78,7 +78,7 @@ impl ReachabilityGraph<'_> {
             .transitions()
             .zip(self.state_space.liveness_levels())
             .collect();
-        LivenessAnalysis { levels }
+        LivenessAnalysis(levels)
     }
 
     /// Returns the maximum value of each place across all markings in the coverability graph.
