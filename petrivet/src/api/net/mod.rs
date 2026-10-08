@@ -7,12 +7,11 @@ pub mod builder;
 pub mod class;
 
 use crate::core::mapping::DenseMapping;
-use crate::core::net::{DenseNet, IdxArc, IdxNode};
+use crate::core::net::{DenseNet, IdxArc};
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
 use builder::NetBuilder;
 use class::NetClass;
-use petgraph::Graph;
 use std::num::NonZeroU32;
 
 /// A *place* is one of the two types of nodes in a Petri net,
@@ -79,8 +78,6 @@ pub struct Net {
     /// Inner net structure, optimized for efficient analysis algorithms.
     #[allow(clippy::struct_field_names)]
     pub(crate) dense_net: DenseNet,
-    /// The bipartite graph structure of the net.
-    pub(crate) graph: Graph<IdxNode, ()>,
 
     /// Monotonic counter used when converting this [`Net`] back to a [`builder::NetBuilder`]
     /// so new nodes continue to receive unused ids. Ids are never reused for removed nodes.

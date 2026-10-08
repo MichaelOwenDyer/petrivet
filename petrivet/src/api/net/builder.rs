@@ -491,35 +491,31 @@ impl NetBuilder {
         let preset_p = map_neighbors(&ordered_places, &self.preset_p, &transition_to_index);
         let postset_p = map_neighbors(&ordered_places, &self.postset_p, &transition_to_index);
 
-        let graph = {
-            let node_count = ordered_places.len() + ordered_transitions.len();
-            let mut graph =
-                petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
-            let p_indices: Vec<NodeIndex> = (0..ordered_places.len())
-                .map(|p_idx| graph.add_node(IdxNode::Place(p_idx)))
-                .collect();
-            let t_indices: Vec<NodeIndex> = (0..ordered_transitions.len())
-                .map(|t_idx| graph.add_node(IdxNode::Transition(t_idx)))
-                .collect();
-            (0 as TransitionIdx..)
-                .zip(preset_t.iter().zip(postset_t.iter()))
-                .flat_map(|(t_idx, (preset, postset))| {
-                    let transition_node = t_indices[t_idx];
-                    let preset = preset
-                        .iter()
-                        .map(|&p_idx| p_indices[p_idx])
-                        .map(move |place_node| (place_node, transition_node));
-                    let postset = postset
-                        .iter()
-                        .map(|&p_idx| p_indices[p_idx])
-                        .map(move |place_node| (transition_node, place_node));
-                    iter::chain(preset, postset)
-                })
-                .for_each(|(from, to)| {
-                    graph.add_edge(from, to, ());
-                });
-            graph
-        };
+        let node_count = ordered_places.len() + ordered_transitions.len();
+        let mut graph = petgraph::Graph::<IdxNode, ()>::with_capacity(node_count, self.arc_count());
+        let p_indices: Vec<NodeIndex> = (0..ordered_places.len())
+            .map(|p_idx| graph.add_node(IdxNode::Place(p_idx)))
+            .collect();
+        let t_indices: Vec<NodeIndex> = (0..ordered_transitions.len())
+            .map(|t_idx| graph.add_node(IdxNode::Transition(t_idx)))
+            .collect();
+        (0 as TransitionIdx..)
+            .zip(preset_t.iter().zip(postset_t.iter()))
+            .flat_map(|(t_idx, (preset, postset))| {
+                let transition_node = t_indices[t_idx];
+                let preset = preset
+                    .iter()
+                    .map(|&p_idx| p_indices[p_idx])
+                    .map(move |place_node| (place_node, transition_node));
+                let postset = postset
+                    .iter()
+                    .map(|&p_idx| p_indices[p_idx])
+                    .map(move |place_node| (transition_node, place_node));
+                iter::chain(preset, postset)
+            })
+            .for_each(|(from, to)| {
+                graph.add_edge(from, to, ());
+            });
 
         let is_strongly_connected = petgraph::algo::tarjan_scc(&graph).len() == 1;
         let incidence_matrix = IdxIncidenceMatrix::from_preset_and_postset(
@@ -532,6 +528,9 @@ impl NetBuilder {
             class,
             is_strongly_connected,
             incidence_matrix,
+            graph,
+            graph_place_indices: p_indices.into_boxed_slice(),
+            graph_transition_indices: t_indices.into_boxed_slice(),
             preset_t,
             postset_t,
             preset_p,
@@ -547,7 +546,6 @@ impl NetBuilder {
 
         Ok(Net {
             dense_net: core_net,
-            graph,
             next_place_id,
             next_transition_id,
             mapping,
@@ -1219,9 +1217,10 @@ mod tests {
 
         // The same set reconstructed from the petgraph mirror's node weights.
         let mut graph_arcs: Vec<((u8, usize), (u8, usize))> = net
+            .dense_net
             .graph
             .edge_references()
-            .map(|e| (key(net.graph[e.source()]), key(net.graph[e.target()])))
+            .map(|e| (key(net.dense_net.graph[e.source()]), key(net.dense_net.graph[e.target()])))
             .collect();
         graph_arcs.sort_unstable();
 

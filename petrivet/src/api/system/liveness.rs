@@ -329,7 +329,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
         }
 
-        let condensation_graph = petgraph::algo::condensation(self.graph.clone(), true);
+        let condensation_graph = petgraph::algo::condensation(self.dense_net.graph.clone(), true);
         let mut liveness = vec![LivenessLevel::L0; condensation_graph.node_count()];
         let mut visited = vec![false; condensation_graph.node_count()];
         // perform the depth-first search from each marked SCC
@@ -408,8 +408,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
         // unmarked circuits are nontrivial strongly connected components of the subgraph
         // of unmarked places and all transitions.
-        let unmarked_subgraph = NodeFiltered::from_fn(&self.graph, |node| {
-            match self.graph[node] {
+        let unmarked_subgraph = NodeFiltered::from_fn(&self.dense_net.graph, |node| {
+            match self.dense_net.graph[node] {
                 IdxNode::Place(p_idx) => self.marking[p_idx] == 0,
                 IdxNode::Transition(_) => true,
             }
@@ -418,7 +418,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             .into_iter()
             .filter(|scc| scc.len() > 1) // nontrivial SCCs
             .flat_map(|scc| scc.into_iter())
-            .filter_map(|node| match self.graph[node] {
+            .filter_map(|node| match self.dense_net.graph[node] {
                 IdxNode::Transition(t_idx) => Some(t_idx),
                 _ => None,
             })

@@ -4,6 +4,10 @@ use crate::core::state_space::TokenOps;
 use crate::core::system::marking::IdxMarking;
 use crate::net::class::NetClass;
 use incidence::IdxIncidenceMatrix;
+use petgraph::Graph;
+use petgraph::algo::dijkstra;
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
 
 pub mod path;
 pub mod idx_set;
@@ -38,7 +42,7 @@ pub enum IdxNode {
 }
 
 /// The structure of a Net compressed into a packed format optimized for analysis.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct DenseNet {
     /// Structural class of the net, used for optimizations.
     pub class: NetClass,
@@ -48,6 +52,12 @@ pub struct DenseNet {
     pub is_strongly_connected: bool,
     /// The incidence matrix of the net, which encodes the net effect of each transition on each place.
     pub incidence_matrix: IdxIncidenceMatrix,
+    /// The directed bipartite graph of the net, with places and transitions as nodes.
+    pub graph: Graph<IdxNode, ()>,
+    /// Reverse mapping from internal place indices to graph node indices.
+    pub graph_place_indices: Box<[NodeIndex]>,
+    /// Reverse mapping from internal transition indices to graph node indices.
+    pub graph_transition_indices: Box<[NodeIndex]>,
     /// Transition presets: for each transition t, the set of places in `•t`.
     pub preset_t: Box<[Box<[PlaceIdx]>]>,
     /// Transition postsets: for each transition t, the set of places in `t•`.
@@ -159,6 +169,26 @@ impl DenseNet {
     pub fn is_deadlock<T: TokenOps>(&self, marking: &IdxMarking<T>) -> bool {
         self.transition_indices()
             .all(|t| !self.is_enabled_in(t, marking))
+    }
+
+    /// Returns the minimum number of tokens in any circuit containing the given place,
+    /// or None if the place is not part of any circuit.
+    pub fn minimum_tokens_in_circuit_containing(&self, p_idx: PlaceIdx, marking: &IdxMarking<u32>) -> Option<u32> {
+        self.postset_p[p_idx]
+            .iter()
+            .filter_map(|&t_idx| {
+                let dist = dijkstra(
+                    &self.graph,
+                    self.graph_transition_indices[t_idx],
+                    Some(self.graph_place_indices[p_idx]),
+                    |e| match self.graph[e.target()] {
+                        IdxNode::Place(q) => marking[q],
+                        IdxNode::Transition(_) => 0,
+                    }
+                );
+                dist.get(&self.graph_place_indices[p_idx]).copied()
+            })
+            .min()
     }
 
     /// Computes the incidence matrix N of the net.

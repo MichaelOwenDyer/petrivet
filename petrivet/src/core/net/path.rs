@@ -101,11 +101,12 @@ impl Deref for IdxCircuit {
 impl Net {
     /// Returns an iterator over all circuits in the net.
     pub(crate) fn circuits(&self) -> impl Iterator<Item = IdxCircuit> + '_ {
-        self.graph.cycles().into_iter().map(|cycle| {
+        self.dense_net.graph.cycles().into_iter().map(|cycle| {
             cycle
                 .into_iter()
                 .map(|node_index| {
                     *self
+                        .dense_net
                         .graph
                         .node_weight(node_index)
                         .expect("the cycle should only contain valid node indices")
@@ -125,8 +126,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// An unmarked circuit is a nontrivial SCC of the subgraph of the net induced by the unmarked
     /// places and all transitions.
     pub fn has_unmarked_circuit(&self) -> bool {
-        let unmarked_subgraph = NodeFiltered::from_fn(&self.graph, |node| {
-            match self.graph[node] {
+        let unmarked_subgraph = NodeFiltered::from_fn(&self.dense_net.graph, |node| {
+            match self.dense_net.graph[node] {
                 IdxNode::Place(p_idx) => self.marking[p_idx] == 0,
                 IdxNode::Transition(_) => true,
             }

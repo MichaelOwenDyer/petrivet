@@ -121,7 +121,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
         }
 
-        let condensation_graph = petgraph::algo::condensation(self.graph.clone(), true);
+        let condensation_graph = petgraph::algo::condensation(self.dense_net.graph.clone(), true);
         let mut all_terminals_nontrivial;
         let mut visited = vec![false; condensation_graph.node_count()];
         // perform the depth-first search from each marked SCC
