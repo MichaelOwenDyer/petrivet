@@ -147,7 +147,7 @@ pub enum NetClass {
     /// ```
     ///
     /// References:
-    /// - [Murata 1989, Theorem 21]
+    /// - [Murata 1989]
     /// - Lautenbach & Thiagarajan 1979 (original result)
     StateMachine,
 
@@ -277,7 +277,7 @@ pub enum NetClass {
     /// contains a trap marked at M₀.
     ///
     /// Boundedness Theorem:
-    /// (Heck's Boundedness Theorem)
+    /// (Hack's Boundedness Theorem)
     /// Let (N, M₀) be a live free-choice system.
     /// Then (N, M₀) is bounded iff every place of N belongs to an S-component.
     /// An S-component is a subnet N' = (S', T', F') of a net N such that:
@@ -302,7 +302,7 @@ pub enum NetClass {
     /// A marking M is reachable from M₀ iff there exists X ∈ N<sup>|T|</sup> such that:
     /// - M = M₀ + N * X, where N is the incidence matrix of N
     /// - (N<sub>U</sub>, M<sub>U</sub>) has no unmarked traps,
-    ///   where U = {t ∈ T | X(t) = 0}, N<sub>U</sub> is the subnet induced by U,
+    ///   where U = {t ∈ T | X(t) > 0}, N<sub>U</sub> is the subnet induced by U,
     ///   and M<sub>U</sub> is the projection of M onto the places of N<sub>U</sub>.
     ///
     /// This problem is decidable in polynomial time (!).
