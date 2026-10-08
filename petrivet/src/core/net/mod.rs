@@ -137,6 +137,12 @@ impl DenseNet {
         }
     }
 
+    /// Returns true if the net has a source transition, i.e. a transition with no preset places.
+    #[must_use]
+    pub fn has_source_transition(&self) -> bool {
+        self.transition_indices().any(|t| self.preset_t[t].is_empty())
+    }
+
     /// Returns true if the given marking enables no transitions in the net.
     pub fn is_deadlock<T: TokenOps>(&self, marking: &IdxMarking<T>) -> bool {
         self.transition_indices()

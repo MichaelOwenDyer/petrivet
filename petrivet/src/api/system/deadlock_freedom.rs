@@ -1,9 +1,12 @@
-use crate::net::class::NetClass;
+use crate::core::net::IdxNode;
 use crate::net::Net;
+use crate::net::class::NetClass;
 use crate::state_space::{ExplorationOrder, ReachabilityGraphExplorer};
-use crate::system::liveness::LivenessLevel;
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
+use petgraph::Graph;
+use petgraph::graph::NodeIndex;
+use petgraph::visit::IntoNodeReferences;
 
 /// A **deadlock** is a [`Marking`] which enables no [`Transition`](crate::net::Transition).
 ///
@@ -46,12 +49,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns None if the answer would not be efficient to compute.
     #[must_use]
     pub fn is_efficiently_deadlock_free(&self) -> Option<bool> {
+        if self.has_source_transition() {
+            return Some(true);
+        }
         match self.class() {
             NetClass::Circuit => Some(self.marking.sum() > 0),
             NetClass::StateMachine => Some(
-                // some token must land in a terminal non-trivial SCC where it can circulate forever
-                self.marking.sum() > 0
-                    && self.liveness_via_state_machine_marked_sccs().values().any(LivenessLevel::is_live)
+                self.marking.sum() > 0 && self.deadlock_freedom_via_state_machine_marked_sccs()
             ),
             NetClass::MarkedGraph => Some(!self.has_unmarked_circuit()),
             _ => None,
@@ -75,6 +79,75 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[must_use]
     pub fn is_deadlock_free(&self) -> bool {
         self.deadlocks().next().is_none()
+    }
+}
+
+impl<N: AsRef<Net>> PetriNet<N> {
+    /// For a state machine, we can determine deadlock-freedom via DFS through the
+    /// condensation graph of strongly connected components (SCCs).
+    /// The system is deadlock-free iff some marked SCC is upstream of only nontrivial terminal SCCs.
+    /// TODO: Proof sketch
+    fn deadlock_freedom_via_state_machine_marked_sccs(&self) -> bool {
+        /// Perform a depth-first search through the condensation graph from a marked source SCC,
+        /// keeping track of whether all reachable terminal SCCs are nontrivial.
+        /// If a trivial terminal SCC is found, the search can stop early and return false.
+        fn dfs_from_markable_scc_all_terminals_are_nontrivial(
+            condensation_graph: &Graph<Vec<IdxNode>, ()>,
+            scc: NodeIndex,
+            all_terminals_nontrivial: &mut bool,
+            visited: &mut [bool],
+        ) {
+            if visited[scc.index()] {
+                return;
+            }
+            visited[scc.index()] = true;
+            let mut neighbors = condensation_graph.neighbors(scc).peekable();
+            if neighbors.peek().is_some() {
+                for neighbor in neighbors {
+                    dfs_from_markable_scc_all_terminals_are_nontrivial(
+                        condensation_graph,
+                        neighbor,
+                        all_terminals_nontrivial,
+                        visited,
+                    );
+                    if !*all_terminals_nontrivial {
+                        // if we have already found a terminal SCC that is trivial,
+                        // we can stop the search early.
+                        return;
+                    }
+                }
+            } else {
+                // we have reached a terminal SCC:
+                // check if it is trivial (contains only one node).
+                *all_terminals_nontrivial &= condensation_graph[scc].len() > 1;
+            }
+        }
+
+        let condensation_graph = petgraph::algo::condensation(self.graph.clone(), true);
+        let mut all_terminals_nontrivial;
+        let mut visited = vec![false; condensation_graph.node_count()];
+        // perform the depth-first search from each marked SCC
+        for (marked_scc, _) in condensation_graph.node_references().filter(|(_, scc)| {
+            scc.iter().any(|node| matches!(node, &IdxNode::Place(p_idx) if self.marking[p_idx] > 0))
+        }) {
+            all_terminals_nontrivial = true;
+            visited.fill(false);
+            dfs_from_markable_scc_all_terminals_are_nontrivial(
+                &condensation_graph,
+                marked_scc,
+                &mut all_terminals_nontrivial,
+                &mut visited,
+            );
+            if all_terminals_nontrivial {
+                // if we found a marked SCC from which all reachable terminal SCCs are nontrivial,
+                // then the system is deadlock-free.
+                return true;
+            }
+        }
+        // if we have not found any marked SCC from which all reachable terminal SCCs are nontrivial,
+        // then there must exist a firing sequence which puts all tokens into trivial terminal SCCs,
+        // which is a deadlock.
+        false
     }
 }
 

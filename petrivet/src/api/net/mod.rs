@@ -259,6 +259,12 @@ impl Net {
             }
         })
     }
+    
+    /// Returns true if the net has a source transition, i.e. a transition with no preset places.
+    #[must_use]
+    pub fn has_source_transition(&self) -> bool {
+        self.dense_net.has_source_transition()
+    }
 
     /// Returns true if the given marking enables no transitions in this net
     #[must_use]
