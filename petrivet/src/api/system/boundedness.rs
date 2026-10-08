@@ -123,10 +123,6 @@ impl BoundednessAnalysis {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum BoundednessAnalysisMethod {
-    /// Structural LP found a positive vector y with yᵀN ≤ 0.
-    /// Bounds are derived as M\[p\] ≤ ⌊(y·M₀) / y\[p\]⌋: valid but
-    /// potentially loose.
-    PositivePlaceSubinvariant(Box<[f64]>),
     /// Full coverability graph explored. Bounds are exact.
     CoverabilityGraph,
 }
@@ -148,6 +144,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
         }
     }
 
+    /// Checks if a specific place is bounded if an efficient (polynomial-time) procedure is known for this Petri net.
+    /// Otherwise, returns None.
+    #[must_use]
     pub fn is_place_efficiently_bounded(&self, place: Place) -> Option<bool> {
         match self.class() {
             // conservative - token count never changes
@@ -189,6 +188,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         }
     }
 
+    /// Returns the boundedness of a specific place in the system, if it can be efficiently computed.
     pub fn efficient_place_boundedness(&self, place: Place) -> Option<Boundedness> {
         match self.class() {
             NetClass::Circuit => Some(Boundedness::Bounded(self.marking.sum() as K)),
@@ -250,6 +250,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             .unwrap_or_else(|| self.boundedness_via_coverability_graph().global_bound())
     }
 
+    /// Returns the boundedness of a specific place in the system.
     pub fn place_boundedness(&self, place: Place) -> Boundedness {
         self.efficient_place_boundedness(place)
             .unwrap_or_else(|| self.boundedness_via_coverability_graph().place_bound(place))
