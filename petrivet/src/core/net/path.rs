@@ -1,10 +1,11 @@
-use crate::core::net::{DenseNet, IdxNode, PlaceIdx, TransitionIdx};
+use crate::core::net::{IdxNode, PlaceIdx, TransitionIdx};
 use crate::net::Net;
 use crate::system::PetriNet;
 use graph_cycles::Cycles;
+use petgraph::algo::tarjan_scc;
+use petgraph::visit::NodeFiltered;
 use std::ops::Deref;
 use tap::TryConv;
-use crate::core::net::idx_set::PlaceIdxSet;
 
 /// A path through the directed bipartite graph of a Petri net.
 ///
@@ -119,83 +120,19 @@ impl Net {
 }
 
 impl<N: AsRef<Net>> PetriNet<N> {
-    /// Returns an iterator over all unmarked circuits in the Petri net.
-    pub(crate) fn unmarked_circuits(&self) -> impl Iterator<Item = IdxCircuit> {
-        self.circuits().filter(|circuit| {
-            circuit
-                .place_indices()
-                .all(|p_idx| self.marking[p_idx] == 0)
-        })
-    }
-
     /// Returns true if there exists a directed circuit in which every place has zero tokens.
     ///
-    /// In a strongly connected marked graph, such a circuit implies the net is not live
-    /// (no transition on the circuit can ever fire).
-    ///
-    /// Efficiency: runs a DFS in `O(n + m)`.
+    /// An unmarked circuit is a nontrivial SCC of the subgraph of the net induced by the unmarked
+    /// places and all transitions.
     pub fn has_unmarked_circuit(&self) -> bool {
-        let place_count = self.dense_net.place_count();
-        let unmarked_places = {
-            let mut is_zero = PlaceIdxSet::none_of(place_count);
-            for p in self.dense_net.place_indices() {
-                is_zero.set(p, self.marking[p] == 0);
+        let unmarked_subgraph = NodeFiltered::from_fn(&self.graph, |node| {
+            match self.graph[node] {
+                IdxNode::Place(p_idx) => self.marking[p_idx] == 0,
+                IdxNode::Transition(_) => true,
             }
-            is_zero
-        };
-
-        if unmarked_places.is_empty() {
-            return false;
-        }
-
-        let mut visited = PlaceIdxSet::none_of(place_count);
-        let mut in_stack = PlaceIdxSet::none_of(place_count);
-
-        for start in self.dense_net.place_indices() {
-            if unmarked_places[start]
-                && !visited[start]
-                && dfs_zero_circuit(
-                    start,
-                    &unmarked_places,
-                    &self.dense_net,
-                    &mut visited,
-                    &mut in_stack,
-                )
-            {
-                return true;
-            }
-        }
-        false
+        });
+        tarjan_scc(&unmarked_subgraph)
+            .into_iter()
+            .any(|scc| scc.len() > 1)
     }
-}
-
-/// Performs a depth-first search through the nodes of the net starting from place `p`,
-/// trying to find a circuit of zero-token places. `is_zero` is a precomputed vector
-/// indicating which places have zero tokens. `visited` and `in_stack` are used to
-/// track the DFS state and detect cycles.
-fn dfs_zero_circuit(
-    p_idx: PlaceIdx,
-    is_zero: &PlaceIdxSet,
-    dense_net: &DenseNet,
-    visited: &mut PlaceIdxSet,
-    in_circuit: &mut PlaceIdxSet,
-) -> bool {
-    visited.add(p_idx);
-    in_circuit.add(p_idx);
-    for &t in &dense_net.postset_p[p_idx] {
-        for &next_p in &dense_net.postset_t[t] {
-            if !is_zero[next_p] {
-                continue;
-            }
-            if in_circuit[next_p] {
-                return true;
-            }
-            if !visited[next_p] && dfs_zero_circuit(next_p, is_zero, dense_net, visited, in_circuit)
-            {
-                return true;
-            }
-        }
-    }
-    in_circuit.remove(p_idx);
-    false
 }
