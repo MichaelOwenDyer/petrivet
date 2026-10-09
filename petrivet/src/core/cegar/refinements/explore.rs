@@ -199,7 +199,7 @@ impl GuidedExplorer {
         // Look for an enabled transition that shares NO input places with any other active transition.
         // Such a transition can always be fired without affecting the executability of any other
         // transition in the budget, so we do not need to branch on any other transitions in the ample set.
-        'singleton_search: for t_idx in active_enabled.transition_indices() {
+        'singleton_search: for t_idx in &active_enabled {
             for &p_idx in &problem.net.preset_t[t_idx] {
                 for &t_rival in &problem.net.postset_p[p_idx] {
                     if t_rival != t_idx && budget.by_transition[t_rival] > 0 {
@@ -216,7 +216,7 @@ impl GuidedExplorer {
         let mut worklist = TransitionIdxSet::none_of(problem.net.transition_count());
 
         // Initialize with the first enabled active transition
-        let t0: TransitionIdx = active_enabled.transition_indices().next().expect("there should be at least one enabled transition");
+        let t0: TransitionIdx = active_enabled.iter().next().expect("there should be at least one enabled transition");
         stubborn_set.add(t0);
         worklist.add(t0);
 
@@ -378,8 +378,8 @@ fn external_consumers(
     component_transitions: &TransitionIdxSet,
 ) -> TransitionIdxSet {
     let mut xi = TransitionIdxSet::none_of(problem.net.transition_count());
-    for t_idx in component_transitions.complement_transition_indices() {
-        if remaining_budget.by_transition[t_idx] > 0 && component_places.place_indices().any(|p_idx| {
+    for t_idx in component_transitions.complement() {
+        if remaining_budget.by_transition[t_idx] > 0 && component_places.iter().any(|p_idx| {
             u32::from(problem.net.incidence_matrix.get_consume(t_idx, p_idx)) > marking[p_idx]
         }) {
             xi.add(t_idx);
@@ -404,9 +404,9 @@ fn estimate_needed_tokens(
         // many tokens they give back to `s` when they fire (some are net-neutral loops, not pure
         // sinks), and process the highest-value groups first, so a group's leftover can offset
         // the token need of the next (lower-value) group instead of being double-counted.
-        let s = component_places.place_indices().next().expect("non-empty component");
+        let s = component_places.iter().next().expect("non-empty component");
         let mut groups: HashMap<u8, (u32, u32)> = HashMap::new(); // production-back j -> (count, total consumption)
-        for t in external_consumers.transition_indices() {
+        for t in external_consumers {
             let produce_back = incidence_matrix.get_produce(t, s);
             let consume = u32::from(incidence_matrix.get_consume(t, s));
             let (count, consumption) = groups.entry(produce_back).or_insert((0, 0));
@@ -434,10 +434,10 @@ fn estimate_needed_tokens(
         // becomes enabled, it can produce tokens for the rest of the component in turn.
         // n := min_{t∈Ti} Σ_{s∈Si} (F(s,t) - m̂(s))
         component_transitions
-            .transition_indices()
+            .iter()
             .map(|t| {
                 component_places
-                    .place_indices()
+                    .iter()
                     .map(|p| {
                         let consume = u32::from(incidence_matrix.get_consume(t, p));
                         consume.saturating_sub(marking[p])
@@ -488,7 +488,7 @@ impl IncrementRefinement {
             for t in problem.net.transition_indices() {
                 if self.remaining_budget.by_transition[t] == 0 {
                     let net_production: i32 = component_places
-                        .place_indices()
+                        .iter()
                         .map(|p| i32::from(problem.net.incidence_matrix.get_effect(t, p)))
                         .sum();
 

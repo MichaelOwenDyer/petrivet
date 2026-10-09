@@ -1,9 +1,10 @@
-use crate::core::net::IdxNode;
+use crate::core::net::idx_set::PlaceIdxSet;
+use crate::core::net::structural_boundedness::find_place_subinvariant;
+use crate::core::system::boundedness::{BoundsCache, Effort, Goal, Scope};
 use crate::net::class::NetClass;
 use crate::net::{Net, Place};
 use crate::state_space::ExplorationOrder;
 use crate::system::PetriNet;
-use ahash::HashMap;
 
 /// Boundedness describes the maximum number of tokens that can
 /// appear on a place in any reachable marking of a Petri net.
@@ -20,16 +21,12 @@ pub enum Boundedness {
     /// the number of tokens it can hold is less than or equal to `k`.
     ///
     /// A [`PetriNet`] is (k-)bounded if all of its places are (k-)bounded.
-    ///
-    /// Note that `k` might be a loose upper bound: `k` might not
-    /// be the smallest integer for which the place is k-bounded,
-    /// depending on the method used to determine it.
     Bounded(K),
 
     /// *Unboundedness* describes the situation where there is
     /// no upper limit on the number of tokens that can appear
-    /// on a [Place](crate::net::Place) in a reachable marking
-    /// of a [Petri net](crate::system::PetriNet).
+    /// on a [Place](Place) in a reachable marking
+    /// of a [Petri net](PetriNet).
     ///
     /// It occurs if and only if a transition firing sequence
     /// turns some marking `M` into a different marking
@@ -54,6 +51,26 @@ pub enum Boundedness {
 
 /// A type alias for the upper bound `k` in k-boundedness.
 pub type K = usize;
+
+/// Evidence for a boundedness result.
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub enum BoundednessAnalysisMethod {
+    /// This bound was derived from the initial marking.
+    InitialMarking,
+    /// In a strongly connected state machine, the sum of tokens is conserved,
+    /// and every token can reach every place independently.
+    StronglyConnectedStateMachine,
+    /// In a state machine, the sum of tokens is conserved,
+    /// but some tokens may not be able to reach every place independently.
+    StateMachine,
+    /// In a marked graph, the sum of tokens in a circuit is conserved.
+    MarkedGraph,
+    /// Upper bound derived from the structure of the net using a linear programming formulation.
+    StructuralLP,
+    /// Full coverability graph explored.
+    CoverabilityGraph,
+}
 
 impl Boundedness {
     /// Returns `true` if the place or Petri net is bounded.
@@ -84,179 +101,148 @@ impl Boundedness {
     }
 }
 
-/// Result of boundedness analysis.
-///
-/// `place_bound` returns the bound for any place in the net by its key.
-/// When proved via the structural LP, bounds are derived upper estimates
-/// (potentially loose). When proved via the coverability graph, bounds are exact.
-#[derive(Debug, Clone)]
-pub struct BoundednessAnalysis {
-    /// All places in the net paired with their bounds. The order is not guaranteed.
-    pub bounds: HashMap<Place, Boundedness>,
-    /// How the result was obtained.
-    pub method: BoundednessAnalysisMethod,
-}
-
-impl BoundednessAnalysis {
-    /// Returns the bound of the system as a whole: the maximum over all places.
-    #[must_use]
-    pub fn global_bound(&self) -> Boundedness {
-        self.bounds
-            .values()
-            .copied()
-            .max()
-            .unwrap_or(Boundedness::Bounded(0))
-    }
-
-    /// Returns the bound for a specific place identified by its [`Place`].
-    ///
-    /// Returns `None` if the place does not belong to the analysed net.
-    #[must_use]
-    pub fn place_bound(&self, place: Place) -> Boundedness {
-        self.bounds
-            .get(&place)
-            .map_or(Boundedness::Bounded(0), |&bound| bound)
-    }
-}
-
-/// Evidence for a boundedness result.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub enum BoundednessAnalysisMethod {
-    /// Full coverability graph explored. Bounds are exact.
-    CoverabilityGraph,
-}
-
 impl<N: AsRef<Net>> PetriNet<N> {
-    /// If an efficient (polynomial-time) procedure for boundedness
-    /// is known for this Petri net, returns Some(_) with the answer.
-    /// Returns None if the answer would not be efficient to compute.
-    #[must_use]
-    pub fn is_efficiently_bounded(&self) -> Option<bool> {
-        match self.class() {
-            // conservative - token count never changes
-            NetClass::Circuit | NetClass::StateMachine => Some(true),
-            // A live marked graph is bounded iff it is strongly connected
-            NetClass::MarkedGraph if self.is_efficiently_live()? => Some(
-                self.is_strongly_connected()
-            ),
-            _ => None,
-        }
-    }
-
-    /// Checks if a specific place is bounded if an efficient (polynomial-time) procedure is known for this Petri net.
-    /// Otherwise, returns None.
-    #[must_use]
-    pub fn is_place_efficiently_bounded(&self, place: Place) -> Option<bool> {
-        match self.class() {
-            // conservative - token count never changes
-            NetClass::Circuit | NetClass::StateMachine => Some(true),
-            // A place in a marked graph is bounded iff it belongs to some circuit
-            NetClass::MarkedGraph => {
-                // todo: optimize by only constructing circuits which contain the place
-                self.mapping.place_idx(place).map_or(Some(true), |p_idx| {
-                    Some(
-                        self.circuits()
-                            .any(|circuit| circuit.contains(&IdxNode::Place(p_idx))),
-                    )
-                })
-            }
-            _ => None,
-        }
-    }
-
-    /// Returns the boundedness of the entire system, if it can be efficiently computed.
-    #[must_use]
-    pub fn efficient_boundedness(&self) -> Option<Boundedness> {
-        match self.class() {
-            NetClass::Circuit => Some(Boundedness::Bounded(self.marking.sum() as K)),
-            NetClass::StateMachine => {
-                if self.is_strongly_connected() {
-                    Some(Boundedness::Bounded(self.marking.sum() as K))
-                } else {
-                    None // todo
-                }
-            }
-            NetClass::MarkedGraph => {
-                if self.is_strongly_connected() {
-                    None // todo
-                } else {
-                    Some(Boundedness::Unbounded)
-                }
-            }
-            _ => None,
-        }
-    }
-
-    /// Returns the boundedness of a specific place in the system, if it can be efficiently computed.
-    pub fn efficient_place_boundedness(&self, place: Place) -> Option<Boundedness> {
-        match self.class() {
-            NetClass::Circuit => Some(Boundedness::Bounded(self.marking.sum() as K)),
-            NetClass::StateMachine => {
-                if self.is_strongly_connected() {
-                    Some(Boundedness::Bounded(self.marking.sum() as K))
-                } else {
-                    None
-                }
-            }
-            NetClass::MarkedGraph => {
-                self.mapping
-                    .place_idx(place)
-                    .map_or(Some(Boundedness::Bounded(0)), |p_idx| {
-                        Some(
-                            self.circuits()
-                                .filter(|circuit| circuit.contains(&IdxNode::Place(p_idx)))
-                                .map(|circuit| {
-                                    circuit
-                                        .place_indices()
-                                        .map(|p_idx| self.marking[p_idx])
-                                        .sum::<u32>() as K
-                                })
-                                .min()
-                                .map_or(Boundedness::Unbounded, Boundedness::Bounded),
-                        )
-                    })
-            }
-            _ => None,
-        }
-    }
-
-    /// Returns true if the entire system is bounded.
+    /// Returns true if the Petri net is bounded, and false if it is unbounded.
     #[must_use]
     pub fn is_bounded(&self) -> bool {
-        self.is_efficiently_bounded().unwrap_or_else(|| {
-            self.net.as_ref().is_structurally_bounded()
-                || self
-                .boundedness_via_coverability_graph()
-                .global_bound()
-                .is_bounded()
-        })
+        let scope = Scope::PetriNet;
+        self.with_bounds(|cache| {
+            self.refine(cache, scope, Goal::Bounded, Effort::Any);
+            cache.read_bounded(scope)
+        }).expect("Effort::Any always decides")
     }
 
-    /// Returns true iff the given place is bounded.
+    /// Returns true if the given place is bounded, and false if it is unbounded.
+    #[must_use]
     pub fn is_place_bounded(&self, place: Place) -> bool {
-        self.is_place_efficiently_bounded(place).unwrap_or_else(|| {
-            self.net.as_ref().is_place_structurally_bounded(place)
-                || self
-                .boundedness_via_coverability_graph()
-                .place_bound(place)
-                .is_bounded()
+        self.mapping.place_idx(place).is_none_or(|p_idx| {
+            self.with_bounds(|cache| {
+                let scope = Scope::Place(p_idx);
+                self.refine(cache, scope, Goal::Bounded, Effort::Any);
+                cache.read_bounded(scope)
+            }).expect("Effort::Any always decides")
         })
     }
 
-    /// Returns the boundedness of the entire system.
-    pub fn boundedness(&self) -> Boundedness {
-        self.efficient_boundedness()
-            .unwrap_or_else(|| self.boundedness_via_coverability_graph().global_bound())
+    /// Returns Some(true) if the Petri net is bounded,
+    /// Some(false) if it is not bounded,
+    /// and None if the answer cannot be efficiently computed.
+    #[must_use]
+    pub fn is_efficiently_bounded(&self) -> Option<bool> {
+        self.with_bounds(|cache| {
+            let scope = Scope::PetriNet;
+            self.refine(cache, scope, Goal::Bounded, Effort::Efficient);
+            cache.read_bounded(scope)
+        })
     }
 
-    /// Returns the boundedness of a specific place in the system.
+    /// Returns Some(true) if the given place is bounded,
+    /// Some(false) if it is not bounded,
+    /// and None if the answer cannot be efficiently computed.
+    #[must_use]
+    pub fn is_place_efficiently_bounded(&self, place: Place) -> Option<bool> {
+        self.mapping.place_idx(place).map_or(Some(true), |p_idx| {
+            self.with_bounds(|cache| {
+                let scope = Scope::Place(p_idx);
+                self.refine(cache, scope, Goal::Bounded, Effort::Efficient);
+                cache.read_bounded(scope)
+            })
+        })
+    }
+
+    /// Returns true if the Petri net is k-bounded for the given k,
+    /// and false if it is unbounded or bounded with a bound greater than k.
+    #[must_use]
+    pub fn is_k_bounded(&self, k: K) -> bool {
+        self.with_bounds(|cache| {
+            let scope = Scope::PetriNet;
+            self.refine(cache, scope, Goal::KBounded(k), Effort::Any);
+            cache.read_k_bounded(scope, k)
+        }).expect("Effort::Any always decides")
+    }
+
+    /// Returns true if the given place is k-bounded for the given k,
+    /// and false if it is unbounded or bounded with a bound greater than k.
+    #[must_use]
+    pub fn is_place_k_bounded(&self, place: Place, k: K) -> bool {
+        self.mapping.place_idx(place).is_none_or(|p_idx| {
+            self.with_bounds(|cache| {
+                let scope = Scope::Place(p_idx);
+                self.refine(cache, scope, Goal::KBounded(k), Effort::Any);
+                cache.read_k_bounded(scope, k)
+            }).expect("Effort::Any always decides")
+        })
+    }
+
+    /// Returns Some(true) if the Petri net is k-bounded for the given k,
+    /// Some(false) if it is unbounded or bounded with a bound greater than k,
+    /// and None if the answer cannot be efficiently computed.
+    #[must_use]
+    pub fn is_efficiently_k_bounded(&self, k: K) -> Option<bool> {
+        self.with_bounds(|cache| {
+            let scope = Scope::PetriNet;
+            self.refine(cache, scope, Goal::KBounded(k), Effort::Efficient);
+            cache.read_k_bounded(scope, k)
+        })
+    }
+
+    /// Returns Some(true) if the given place is k-bounded for the given k,
+    /// Some(false) if it is unbounded or bounded with a bound greater than k,
+    /// and None if the answer cannot be efficiently computed.
+    #[must_use]
+    pub fn is_place_efficiently_k_bounded(&self, place: Place, k: K) -> Option<bool> {
+        self.mapping.place_idx(place).map_or(Some(true), |p_idx| {
+            self.with_bounds(|cache| {
+                let scope = Scope::Place(p_idx);
+                self.refine(cache, scope, Goal::KBounded(k), Effort::Efficient);
+                cache.read_k_bounded(scope, k)
+            })
+        })
+    }
+
+    /// Returns the exact boundedness of the Petri net.
+    pub fn boundedness(&self) -> Boundedness {
+        self.with_bounds(|cache| {
+            let scope = Scope::PetriNet;
+            self.refine(cache, scope, Goal::Exact, Effort::Any);
+            cache.read_exact(scope)
+        }).expect("Effort::Any always decides")
+    }
+
+    /// Returns the exact boundedness of the given place.
     pub fn place_boundedness(&self, place: Place) -> Boundedness {
-        self.efficient_place_boundedness(place)
-            .unwrap_or_else(|| self.boundedness_via_coverability_graph().place_bound(place))
+        self.mapping.place_idx(place).map_or(Boundedness::Bounded(0), |p_idx| {
+            self.with_bounds(|cache| {
+                let scope = Scope::Place(p_idx);
+                self.refine(cache, scope, Goal::Exact, Effort::Any);
+                cache.read_exact(scope)
+            }).expect("Effort::Any always decides")
+        })
+    }
+
+    /// Returns the exact boundedness of the Petri net, if it can be efficiently computed.
+    #[must_use]
+    pub fn efficient_boundedness(&self) -> Option<Boundedness> {
+        self.with_bounds(|cache| {
+            let scope = Scope::PetriNet;
+            self.refine(cache, scope, Goal::Exact, Effort::Efficient);
+            cache.read_exact(scope)
+        })
+    }
+
+    /// Returns the exact boundedness of the given place, if it can be efficiently computed.
+    pub fn efficient_place_boundedness(&self, place: Place) -> Option<Boundedness> {
+        self.mapping.place_idx(place).map_or(Some(Boundedness::Bounded(0)), |p_idx| {
+            self.with_bounds(|cache| {
+                let scope = Scope::Place(p_idx);
+                self.refine(cache, scope, Goal::Exact, Effort::Efficient);
+                cache.read_exact(scope)
+            })
+        })
     }
 
     /// Returns true if some reachable marking puts more than one token in any place.
+    #[deprecated(note = "Use `is_k_bounded(1)` instead.")]
     pub fn has_reachable_unsafe_marking(&self) -> bool {
         self.explore_reachability_graph(ExplorationOrder::BreadthFirst)
             .core
@@ -264,46 +250,148 @@ impl<N: AsRef<Net>> PetriNet<N> {
             .is_some()
     }
 
-    /// Analyzes boundedness and returns per-place bounds with evidence.
-    #[must_use]
-    fn boundedness_via_coverability_graph(&self) -> BoundednessAnalysis {
-        BoundednessAnalysis {
-            bounds: self.build_coverability_graph().place_bounds(),
-            method: BoundednessAnalysisMethod::CoverabilityGraph,
+    /// Adds new information to the bounds cache for the given scope and goal,
+    /// using the specified effort level. If the goal has already been answered
+    /// for the given scope, this method does nothing.
+    fn refine(&self, cache: &mut BoundsCache, scope: Scope, goal: Goal, effort: Effort) {
+        if cache.is_answered(scope, goal) {
+            return;
+        }
+        self.refine_efficient_subclasses(scope, cache);
+        if cache.is_answered(scope, goal) {
+            return;
+        }
+        self.refine_structural_lp(scope, cache);
+        if cache.is_answered(scope, goal) {
+            return;
+        }
+        if matches!(effort, Effort::Efficient) {
+            return;
+        }
+        self.refine_via_coverability_graph(cache);
+    }
+
+    /// Refines the bounds for subclasses of Petri nets that have efficient
+    /// (polynomial-time) procedures for boundedness.
+    fn refine_efficient_subclasses(&self, scope: Scope, cache: &mut BoundsCache) {
+        let places = scope
+            .places(self.dense_net.place_count())
+            .intersection(&cache.should_refine_by_subclass);
+        if places.is_empty() {
+            return;
+        }
+        match self.class() {
+            NetClass::Circuit | NetClass::StateMachine if self.is_strongly_connected() => {
+                let marking_sum = Boundedness::Bounded(self.marking.sum() as K);
+                for bounds in &mut cache.by_place.iter_mut() {
+                    bounds.update_exact(marking_sum, BoundednessAnalysisMethod::StronglyConnectedStateMachine);
+                }
+                cache.should_refine_by_subclass.set_all(false);
+            }
+            NetClass::StateMachine => {
+                for p_idx in places {
+                    let mut place = PlaceIdxSet::none_of(self.dense_net.place_count());
+                    place.add(p_idx);
+                    let marking_sum = self.dense_net
+                        .pre_star(place)
+                        .iter()
+                        .map(|p_idx| self.marking[p_idx])
+                        .sum::<u32>() as K;
+                    let bound = Boundedness::Bounded(marking_sum);
+                    cache.by_place[p_idx].update_exact(bound, BoundednessAnalysisMethod::StateMachine);
+                    cache.should_refine_by_subclass.remove(p_idx);
+                }
+            }
+            NetClass::MarkedGraph if self.is_live().unwrap() => {
+                for p_idx in places {
+                    let minimum_tokens = self.dense_net.minimum_tokens_in_circuit_containing(p_idx, &self.marking);
+                    let bound = minimum_tokens.map_or(
+                        Boundedness::Unbounded,
+                        |token_sum| Boundedness::Bounded(token_sum as K)
+                    );
+                    cache.by_place[p_idx].update_exact(
+                        bound,
+                        BoundednessAnalysisMethod::MarkedGraph
+                    );
+                    cache.should_refine_by_subclass.remove(p_idx);
+                }
+            }
+            NetClass::MarkedGraph => {
+                for p_idx in places {
+                    let minimum_tokens = self.dense_net.minimum_tokens_in_circuit_containing(p_idx, &self.marking);
+                    let bound = minimum_tokens.map_or(
+                        Boundedness::Unbounded,
+                        |token_sum| Boundedness::Bounded(token_sum as K)
+                    );
+                    cache.by_place[p_idx].update_upper(
+                        bound,
+                        BoundednessAnalysisMethod::MarkedGraph
+                    );
+                    cache.should_refine_by_subclass.remove(p_idx);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Refines the bounds for the given scope by searching for a place subinvariant
+    /// covering the given places.
+    fn refine_structural_lp(&self, scope: Scope, cache: &mut BoundsCache) {
+        let places = scope
+            .places(self.dense_net.place_count())
+            .intersection(&cache.should_refine_by_structural_lp);
+        if places.is_empty() {
+            return;
+        }
+        let Some(place_subinvariant) = find_place_subinvariant(
+            &self.dense_net,
+            |&p| places.contains(p)
+        ) else {
+            cache.should_refine_by_structural_lp.remove_all(&places);
+            return;
+        };
+        let weighted_sum_m0 = self
+            .dense_net
+            .place_indices()
+            .zip(place_subinvariant.iter())
+            .map(|(p_idx, weight)| *weight * u64::from(self.marking[p_idx]))
+            .sum::<u64>();
+        self.dense_net
+            .place_indices()
+            .zip(place_subinvariant)
+            .for_each(|(p_idx, weight)| {
+                if let Some(upper_bound) = weighted_sum_m0.checked_div(weight) {
+                    cache.by_place[p_idx].update_upper(
+                        Boundedness::Bounded(upper_bound as K),
+                        BoundednessAnalysisMethod::StructuralLP,
+                    );
+                    cache.should_refine_by_structural_lp.remove(p_idx);
+                }
+            });
+    }
+
+    /// Refines the bounds for the entire Petri net using the coverability graph.
+    fn refine_via_coverability_graph(&self, bounds: &mut BoundsCache) {
+        let place_bounds = self.build_coverability_graph().place_bounds();
+        // todo: avoid mapping place to place_idx twice
+        for (place, bound) in place_bounds {
+            if let Some(p_idx) = self.mapping.place_idx(place) {
+                bounds.by_place[p_idx].update_exact(
+                    bound,
+                    BoundednessAnalysisMethod::CoverabilityGraph
+                );
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::net::builder::NetBuilder;
     use crate::system::boundedness::Boundedness;
 
     #[test]
     fn boundedness_ord() {
         assert!(Boundedness::Bounded(0) < Boundedness::Bounded(1));
         assert!(Boundedness::Bounded(usize::MAX) < Boundedness::Unbounded);
-    }
-
-    #[test]
-    fn cycle_is_structurally_bounded() {
-        let (net, p0, _t0, _p1, _t1) = crate::system::tests::two_place_cycle();
-        assert!(net.is_structurally_bounded());
-        let sys = net.with_initial_marking([(p0, 1)]);
-        assert!(sys.is_bounded());
-    }
-
-    #[test]
-    fn unbounded_not_structurally_bounded() {
-        let mut b = NetBuilder::new();
-        let [p0, p1] = b.add_places();
-        let [t0] = b.add_transitions();
-        b.add_arc((p0, t0));
-        b.add_arc((t0, p0));
-        b.add_arc((t0, p1));
-        let net = b.build().expect("valid net");
-        assert!(!net.is_structurally_bounded());
-        let sys = net.with_initial_marking([(p0, 1)]);
-        assert!(!sys.is_bounded());
     }
 }

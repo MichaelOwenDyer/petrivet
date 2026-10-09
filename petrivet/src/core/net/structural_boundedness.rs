@@ -68,7 +68,7 @@ use good_lp::{
 /// returns the weight vector y. Given a specific initial marking M₀,
 /// per-place upper bounds can be derived: `M[p] ≤ ⌊(y·M₀) / y[p]⌋`.
 #[must_use]
-pub fn find_positive_place_subinvariant(net: &DenseNet) -> Option<Box<[f64]>> {
+pub fn find_positive_place_subinvariant(net: &DenseNet) -> Option<Box<[u64]>> {
     find_place_subinvariant(net, |_| true)
 }
 
@@ -88,7 +88,7 @@ pub fn find_positive_place_subinvariant(net: &DenseNet) -> Option<Box<[f64]>> {
 pub fn find_place_subinvariant<F: FnMut(&PlaceIdx) -> bool>(
     net: &DenseNet,
     mut in_support: F,
-) -> Option<Box<[f64]>> {
+) -> Option<Box<[u64]>> {
     let mut variables = ProblemVariables::new();
     let place_weights: Box<[Variable]> = net
         .place_indices()
@@ -110,7 +110,7 @@ pub fn find_place_subinvariant<F: FnMut(&PlaceIdx) -> bool>(
         constraint!(token_delta <= 0.0)
     });
 
-    variables
+    let floats = variables
         .minimise(Expression::from(0))
         .using(good_lp::microlp)
         .with_all(constraints)
@@ -119,9 +119,40 @@ pub fn find_place_subinvariant<F: FnMut(&PlaceIdx) -> bool>(
         .map(|solution| {
             place_weights
                 .into_iter()
-                .map(|v| solution.value(v))
-                .collect()
-        })
+                .map(|v| solution.value(v).max(0.0))
+                .collect::<Vec<_>>()
+        })?;
+
+    // Convert the floating-point weights to integers by finding a suitable multiplier.
+    let epsilon = 1e-5;
+    let mut best_multiplier = 1_000_000;
+
+    for m in 1..=10_000 {
+        if floats.iter().all(|&f| {
+            let scaled = f * (m as f64);
+            (scaled.round() - scaled).abs() < epsilon
+        }) {
+            best_multiplier = m;
+            break;
+        }
+    }
+
+    let int_weights: Box<[u64]> = floats
+        .into_iter()
+        .map(|f| (f * best_multiplier as f64).round() as u64)
+        .collect();
+
+    // final defensive check: ensure that the integer weights satisfy the S-sub-invariant condition
+    is_place_subinvariant(net, &int_weights).then_some(int_weights)
+}
+
+/// Checks whether a given weight vector is an S-sub-invariant of the net.
+fn is_place_subinvariant(net: &DenseNet, y: &[u64]) -> bool {
+    net.transition_indices().all(|t| {
+        let out: i128 = net.postset_t[t].iter().map(|&p| i128::from(y[p])).sum();
+        let inn: i128 = net.preset_t[t].iter().map(|&p| i128::from(y[p])).sum();
+        out <= inn
+    })
 }
 
 #[cfg(test)]

@@ -38,7 +38,7 @@ impl InitiallyMarkedTrapRule {
             }
         }
 
-        if trap.place_indices().any(|p| problem.m0[p] > 0) {
+        if trap.iter().any(|p| problem.m0[p] > 0) {
             Some(InitiallyMarkedTrapRefinement { trap })
         } else {
             None
@@ -62,7 +62,7 @@ impl InitiallyMarkedTrapRefinement {
         place_terms: &[S::Int],
         callback: Option<&dyn Fn(IdxLemma)>,
     ) {
-        let trap_sum = solver.add(self.trap.place_indices().map(|p| place_terms[p].clone()));
+        let trap_sum = solver.add(self.trap.iter().map(|p| place_terms[p].clone()));
         let zero = solver.mk_int(0);
         let constraint = solver.gt(&trap_sum, &zero);
         let lemma = IdxLemma::InitiallyMarkedTrap(self.trap);

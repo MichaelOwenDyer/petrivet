@@ -24,7 +24,7 @@ pub fn maximal_siphon_in(
 ) -> IdxSiphon {
     loop {
         let to_remove: Vec<PlaceIdx> = places
-            .place_indices()
+            .iter()
             .filter(|&p| {
                 // Check if some t ∈ •p has no input place in D.
                 net.preset_p[p].iter().any(|&t_idx| {
@@ -61,7 +61,7 @@ pub fn maximal_trap_in(
 ) -> IdxTrap {
     loop {
         let to_remove: Vec<PlaceIdx> = places
-            .place_indices()
+            .iter()
             .filter(|&p_idx| {
                 // Check if some t ∈ p• has no output place in Q.
                 // p• = transitions that consume from p = postset_p(p)

@@ -66,9 +66,11 @@ pub mod reachability;
 pub mod marking;
 pub mod parikh_vector;
 
+use crate::core::system::boundedness::BoundsCache;
 use crate::core::system::marking::IdxMarking;
 use crate::net::{Net, Place, Transition};
 use crate::system::marking::Marking;
+use std::cell::RefCell;
 use std::fmt;
 use std::ops::Deref;
 
@@ -127,14 +129,16 @@ pub struct PetriNet<N: AsRef<Net> = Net> {
     ///
     /// The current state of this marking is used as the starting point, or "initial marking",
     /// for all analysis procedures.
-    // todo: make private
-    pub(crate) marking: IdxMarking<u32>,
+    marking: IdxMarking<u32>,
     /// The marking which the Petri net was initialized with. This will never change.
     ///
     /// This is purposefully not called the *initial* marking because the other marking
     /// field serves as the de-facto initial marking for analysis questions, even if it
     /// was previously mutated through simulation.
     reset_marking: IdxMarking<u32>,
+    /// Cache of computed bounds for places, used to avoid recomputing them in repeated queries.
+    /// Invalidated whenever the marking is mutated, since bounds depend on the current marking.
+    bounds: RefCell<Option<BoundsCache>>,
 }
 
 impl<N: AsRef<Net>> Deref for PetriNet<N> {
@@ -151,10 +155,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn new(net: N, initial_marking: impl Into<Marking<u32>>) -> Self {
         let initial_marking = net.as_ref().mapping.idx_marking(initial_marking.into());
         let reset_marking = initial_marking.clone();
+        let bounds_cache = RefCell::new(None);
         Self {
             net,
             marking: initial_marking,
             reset_marking,
+            bounds: bounds_cache,
         }
     }
 
@@ -165,6 +171,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             net,
             marking,
             reset_marking,
+            bounds: _,
         } = self;
         let marking = net.as_ref().mapping.marking(marking);
         let reset_marking = net.as_ref().mapping.marking(reset_marking);
@@ -176,6 +183,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn marking(&self) -> Marking<u32> {
         let current_marking = self.marking.clone();
         self.mapping.marking(current_marking)
+    }
+
+    /// Returns the current marking of the system as an index-based marking.
+    pub(crate) fn idx_marking(&self) -> &IdxMarking<u32> {
+        &self.marking
     }
 
     /// Returns the token count at a place identified by its [`Place`].
@@ -191,6 +203,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns the marking before the reset.
     pub fn reset(&mut self) -> Marking<u32> {
         let previous = std::mem::replace(&mut self.marking, self.reset_marking.clone());
+        *self.bounds.get_mut() = None;
         self.mapping.marking(previous)
     }
 
@@ -265,7 +278,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn fire_unchecked(&mut self, t: Transition) {
         if let Some(t_idx) = self.mapping.transition_idx(t) {
             self.net.as_ref().dense_net.fire(t_idx, &mut self.marking);
+            *self.bounds.get_mut() = None;
         }
+    }
+
+    /// Provides access to the bounds cache, computing it if necessary.
+    pub(crate) fn with_bounds<R>(&self, f: impl FnOnce(&mut BoundsCache) -> R) -> R {
+        let mut slot = self.bounds.borrow_mut();
+        f(slot.get_or_insert_with(|| BoundsCache::new(&self.marking)))
     }
 }
 
@@ -345,7 +365,7 @@ mod pnml {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crate::net::builder::NetBuilder;
     use crate::net::{Net, Place, Transition};
     use crate::system::marking::Marking;

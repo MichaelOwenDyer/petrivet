@@ -406,16 +406,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "graph-cycles"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27b92c49194cd4f20bad0d9875503c951993f4249c0cfd210a49ed39ef072a0c"
-dependencies = [
- "ahash",
- "petgraph",
-]
-
-[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -859,7 +849,6 @@ dependencies = [
  "criterion",
  "fixedbitset",
  "good_lp",
- "graph-cycles",
  "oxiz",
  "petgraph",
  "quick-xml",

@@ -9,7 +9,6 @@ use petgraph::algo::dijkstra;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 
-pub mod path;
 pub mod idx_set;
 pub mod siphon_trap;
 pub mod incidence;
@@ -165,15 +164,35 @@ impl DenseNet {
         !maximal_siphon_in(self, unmarked_places).is_empty()
     }
 
+    /// Places which can reach the given set of places through any number of transitions.
+    /// Only really meaningful for state machines, but can be computed for any net.
+    pub fn pre_star(&self, mut places: PlaceIdxSet) -> PlaceIdxSet {
+        let mut search_stack = places.iter().collect::<Vec<_>>();
+        while let Some(p_idx) = search_stack.pop() {
+            for &t_idx in &self.preset_p[p_idx] {
+                for &p_idx in &self.preset_t[t_idx] {
+                    if !places.contains(p_idx) {
+                        places.add(p_idx);
+                        search_stack.push(p_idx);
+                    }
+                }
+            }
+        }
+        places
+    }
+
     /// Returns true if the given marking enables no transitions in the net.
     pub fn is_deadlock<T: TokenOps>(&self, marking: &IdxMarking<T>) -> bool {
-        self.transition_indices()
-            .all(|t| !self.is_enabled_in(t, marking))
+        self.transition_indices().all(|t| !self.is_enabled_in(t, marking))
     }
 
     /// Returns the minimum number of tokens in any circuit containing the given place,
     /// or None if the place is not part of any circuit.
-    pub fn minimum_tokens_in_circuit_containing(&self, p_idx: PlaceIdx, marking: &IdxMarking<u32>) -> Option<u32> {
+    pub fn minimum_tokens_in_circuit_containing(
+        &self,
+        p_idx: PlaceIdx,
+        marking: &IdxMarking<u32>
+    ) -> Option<u32> {
         self.postset_p[p_idx]
             .iter()
             .filter_map(|&t_idx| {

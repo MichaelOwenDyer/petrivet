@@ -145,7 +145,7 @@ impl DenseMapping {
 
     /// Convert a set of internal indices to a `HashSet<Place>`.
     pub fn place_set(&self, places: &PlaceIdxSet) -> HashSet<Place> {
-        places.place_indices().map(|p_idx| self.place(p_idx)).collect()
+        places.iter().map(|p_idx| self.place(p_idx)).collect()
     }
 
     /// Convert a slice of public transitions to a set of internal indices.
@@ -161,8 +161,8 @@ impl DenseMapping {
     }
 
     /// Convert a set of internal indices to a `HashSet<Transition>`.
-    pub fn transition_set(&self, transitions: &TransitionIdxSet) -> HashSet<Transition> {
-        transitions.transition_indices().map(|p_idx| self.transition(p_idx)).collect()
+    pub fn transition_set(&self, transition_indices: &TransitionIdxSet) -> HashSet<Transition> {
+        transition_indices.iter().map(|t_idx| self.transition(t_idx)).collect()
     }
 
     /// Convert a sequence of internal transition indices to a `Vec<Transition>`.

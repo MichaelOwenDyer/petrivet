@@ -6,11 +6,8 @@ macro_rules! define_idx_set {
     (
         $struct_name:ident,
         $idx_type:ty,
-        $iter_name:ident,
-        $into_iter_name:ident,
-        $complement_iter_name:ident
     ) => {
-        /// A compact `Set<$idx_type>`, implemented as a fixed-size bitset.
+        /// A compact index set, implemented as a fixed-size bitset.
         #[derive(Debug, Clone, PartialEq, Eq, Hash)]
         pub struct $struct_name(pub FixedBitSet);
 
@@ -28,21 +25,23 @@ macro_rules! define_idx_set {
                 Self(set)
             }
 
+            /// Returns the number of indices in the set.
+            #[allow(unused)]
+            pub fn count(&self) -> usize {
+                self.0.count_ones(..)
+            }
+
             /// Returns an iterator over the indices in the set.
-            pub fn $iter_name(&self) -> impl Iterator<Item = $idx_type> + '_ {
+            pub fn iter(&self) -> impl Iterator<Item = $idx_type> + '_ {
                 self.0.ones()
             }
 
-            /// Consumes the set and returns an iterator over the indices in the set.
+            /// Returns the complement of the set, i.e., all indices not in the set.
             #[allow(unused)]
-            pub fn $into_iter_name(self) -> impl Iterator<Item = $idx_type> {
-                self.0.into_ones()
-            }
-
-            /// Returns an iterator over the indices not in the set.
-            #[allow(unused)]
-            pub fn $complement_iter_name(&self) -> impl Iterator<Item = $idx_type> + '_ {
-                self.0.zeroes()
+            pub fn complement(&self) -> Self {
+                let mut complement = self.0.clone();
+                complement.toggle_range(..);
+                Self(complement)
             }
 
             /// Returns true if the set is empty.
@@ -55,6 +54,16 @@ macro_rules! define_idx_set {
                 self.0.set(idx, value);
             }
 
+            /// Sets all indices in the set to the given value.
+            #[allow(unused)]
+            pub fn set_all(&mut self, value: bool) {
+                if value {
+                    self.0.insert_range(..);
+                } else {
+                    self.0.clear();
+                }
+            }
+
             /// Adds an index into the set.
             pub fn add(&mut self, idx: $idx_type) {
                 self.0.insert(idx);
@@ -64,6 +73,12 @@ macro_rules! define_idx_set {
             #[allow(unused)]
             pub fn remove(&mut self, idx: $idx_type) {
                 self.0.remove(idx)
+            }
+
+            /// Removes all indices in the other set from this set.
+            #[allow(unused)]
+            pub fn remove_all(&mut self, other: &Self) {
+                self.0.difference_with(&other.0);
             }
 
             /// Removes and returns the first index in the set, if any.
@@ -87,6 +102,12 @@ macro_rules! define_idx_set {
             pub fn is_disjoint(&self, other: &Self) -> bool {
                 self.0.is_disjoint(&other.0)
             }
+
+            /// Returns the intersection of this set with another set of indices.
+            #[allow(unused)]
+            pub fn intersection(self, other: &Self) -> Self {
+                Self(self.0.intersection(&other.0).collect())
+            }
         }
 
         impl Index<$idx_type> for $struct_name {
@@ -100,21 +121,33 @@ macro_rules! define_idx_set {
                 }
             }
         }
+
+        impl IntoIterator for $struct_name {
+            type Item = $idx_type;
+            type IntoIter = fixedbitset::IntoOnes;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.0.into_ones()
+            }
+        }
+
+        impl<'a> IntoIterator for &'a $struct_name {
+            type Item = $idx_type;
+            type IntoIter = fixedbitset::Ones<'a>;
+
+            fn into_iter(self) -> Self::IntoIter {
+                self.0.ones()
+            }
+        }
     };
 }
 
 define_idx_set!(
     PlaceIdxSet,
     PlaceIdx,
-    place_indices,
-    into_place_indices,
-    complement_place_indices
 );
 
 define_idx_set!(
     TransitionIdxSet,
     TransitionIdx,
-    transition_indices,
-    into_transition_indices,
-    complement_transition_indices
 );

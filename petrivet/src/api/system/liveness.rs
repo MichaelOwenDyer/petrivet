@@ -372,6 +372,22 @@ impl<N: AsRef<Net>> PetriNet<N> {
             .collect()
     }
 
+    /// Returns true if there exists a directed circuit in which every place has zero tokens.
+    ///
+    /// An unmarked circuit is a nontrivial SCC of the subgraph of the net induced by the unmarked
+    /// places and all transitions.
+    pub fn has_unmarked_circuit(&self) -> bool {
+        let unmarked_subgraph = NodeFiltered::from_fn(&self.dense_net.graph, |node| {
+            match self.dense_net.graph[node] {
+                IdxNode::Place(p_idx) => self.idx_marking()[p_idx] == 0,
+                IdxNode::Transition(_) => true,
+            }
+        });
+        tarjan_scc(&unmarked_subgraph)
+            .into_iter()
+            .any(|scc| scc.len() > 1)
+    }
+
     /// For a marked graph, we can determine liveness levels by analyzing which transitions
     /// are on unmarked circuits (L0), and which transitions can be reached from them via pathways
     /// which may contain some marked places (L1) or only unmarked places (L0).
