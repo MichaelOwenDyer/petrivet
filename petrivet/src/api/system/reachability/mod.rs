@@ -1,5 +1,5 @@
 use crate::net::p_invariant::PInvariant;
-use crate::net::siphon_trap::Trap;
+use crate::net::siphon_trap::{Siphon, Trap};
 use crate::net::{Place, Transition};
 use crate::prelude::Marking;
 use crate::system::parikh_vector::ParikhVector;
@@ -21,6 +21,9 @@ pub enum Lemma {
     /// A Trap that is marked in the initial marking, and therefore must
     /// remain marked in all reachable markings.
     InitiallyMarkedTrap(Trap),
+    /// A Siphon that is unmarked in the initial marking, and therefore must
+    /// remain unmarked in all reachable markings.
+    InitiallyUnmarkedSiphon(Siphon),
     /// A component of the marking equation which any reachable marking must satisfy.
     MarkingEquation {
         /// A place in the net.
@@ -58,14 +61,16 @@ pub enum Lemma {
     },
 }
 
-/// A `SpuriousSolutionEliminatedEvent` is emitted by the CEGAR-based analysis whenever a spurious candidate
-/// is found and a lemma is derived to eliminate it.
+/// A `SpuriousSolutionEliminatedEvent` is emitted by the CEGAR analysis engine whenever a
+/// lemma is derived to eliminate spurious solutions from the search space.
 #[derive(Debug, Clone)]
 pub struct SpuriousSolutionEliminatedEvent {
-    /// The spurious marking the solver has proposed at this point in the search.
-    pub spurious_marking: Marking<u32>,
-    /// The spurious Parikh vector the solver has proposed at this point in the search.
+    /// The marking which triggered the derivation of a lemma to eliminate spurious solutions
+    /// from the search space, if any.
+    pub spurious_marking: Option<Marking<u32>>,
+    /// The Parikh vector which triggered the derivation of a lemma to eliminate spurious solutions
+    /// from the search space, if any.
     pub spurious_parikh_vector: Option<ParikhVector<u32>>,
-    /// The lemma derived to eliminate this spurious candidate.
+    /// The lemma which was derived to eliminate spurious solutions from the search space.
     pub lemma: Lemma,
 }

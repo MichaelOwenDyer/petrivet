@@ -1,4 +1,5 @@
 use crate::core::net::TransitionIdx;
+use crate::core::net::idx_set::TransitionIdxSet;
 use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -11,6 +12,18 @@ impl<T> IdxParikhVector<T> {
 
     pub fn iter(&self) -> std::slice::Iter<'_, T> {
         self.0.iter()
+    }
+}
+
+impl<T: Default + PartialEq> IdxParikhVector<T> {
+    pub fn support(&self) -> TransitionIdxSet {
+        let mut support = TransitionIdxSet::none_of(self.0.len());
+        for (t_idx, value) in self.0.iter().enumerate() {
+            if *value != Default::default() {
+                support.set(t_idx as TransitionIdx, true);
+            }
+        }
+        support
     }
 }
 

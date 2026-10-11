@@ -88,7 +88,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
         }
         let places_that_can_reach_a_sink = self.dense_net.pre_star(sinks);
-        self.marking.support().any(|p| !places_that_can_reach_a_sink.contains(p))
+        !self.marking.support().is_subset(&places_that_can_reach_a_sink)
     }
 }
 

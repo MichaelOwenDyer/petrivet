@@ -33,8 +33,8 @@ fn main() {
     // dangerous situation: both processes in critical section at the same time
     let dangerous = [(crit1, 1), (crit2, 1)];
 
-    assert!(
-        !PetriNet::new(&net, initial_marking).is_coverable(dangerous),
+    assert_eq!(
+        PetriNet::new(&net, initial_marking).is_coverable(dangerous), Some(false),
         "Mutual exclusion failed: both processes can be in critical section simultaneously."
     );
     println!(

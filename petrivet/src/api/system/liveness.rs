@@ -3,8 +3,8 @@ use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
 use crate::system::PetriNet;
 use ahash::HashMap;
-use petgraph::algo::tarjan_scc;
 use petgraph::Graph;
+use petgraph::algo::tarjan_scc;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::{IntoNodeReferences, NodeFiltered};
 

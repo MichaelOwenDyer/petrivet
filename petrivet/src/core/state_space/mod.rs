@@ -112,6 +112,7 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     ) -> Vec<TransitionIdx> {
         let mut transitions = marking
             .support()
+            .into_iter()
             .flat_map(|p| postset_p[p].iter().copied())
             .collect::<Vec<_>>();
         transitions.sort_unstable();

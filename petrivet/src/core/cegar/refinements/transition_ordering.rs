@@ -4,10 +4,10 @@ use crate::core::net::{DenseNet, IdxNode, PlaceIdx, TransitionIdx};
 use crate::core::solver::SmtSolver;
 use crate::core::system::marking::IdxMarking;
 use ahash::{HashMap, HashMapExt};
-use petgraph::Graph;
 use petgraph::algo::tarjan_scc;
 use petgraph::graph::NodeIndex;
 use petgraph::prelude::EdgeRef;
+use petgraph::visit::{EdgeFiltered, IntoEdgeReferences};
 
 /// Checks for `(transition, place)` pairs where `transition` consumes more of `place` than
 /// `m0` provides, and that dependency is part of a cycle in the graph of all such dependencies.
@@ -35,47 +35,25 @@ impl TransitionOrderingRule {
         net: &DenseNet,
         m0: &IdxMarking<u32>,
     ) -> Option<TransitionOrderingRefinement> {
-        let mut graph: Graph<IdxNode, ()> = Graph::new();
-        let mut node_index: HashMap<IdxNode, NodeIndex> = HashMap::new();
-
-        // place -> transition: transition needs more tokens from place than m0 provides.
-        for t_idx in net.transition_indices() {
-            for &p_idx in &net.preset_t[t_idx] {
-                if u32::from(net.incidence_matrix.get_consume(t_idx, p_idx)) > m0[p_idx] {
-                    let p_node = *node_index.entry(IdxNode::Place(p_idx))
-                        .or_insert_with(|| graph.add_node(IdxNode::Place(p_idx)));
-                    let t_node = *node_index.entry(IdxNode::Transition(t_idx))
-                        .or_insert_with(|| graph.add_node(IdxNode::Transition(t_idx)));
-                    graph.add_edge(p_node, t_node, ());
+        let graph = &net.graph;
+        let subgraph = EdgeFiltered::from_fn(graph, |edge| {
+            match (net.graph[edge.source()], net.graph[edge.target()]) {
+                (IdxNode::Place(p_idx), IdxNode::Transition(t_idx)) => {
+                    u32::from(net.incidence_matrix.get_consume(t_idx, p_idx)) > m0[p_idx]
                 }
+                (IdxNode::Transition(_), IdxNode::Place(_)) => true,
+                _ => false,
             }
-        }
+        });
 
-        // transition -> place: transition produces into place (only meaningful for a place already
-        // known to be in the graph, i.e. already insufficiently marked for someone).
-        for t_idx in net.transition_indices() {
-            for &p_idx in &net.postset_t[t_idx] {
-                if let Some(&p_node) = node_index.get(&IdxNode::Place(p_idx))
-                    && net.incidence_matrix.get_effect(t_idx, p_idx) > 0 {
-                    let t_node = *node_index.entry(IdxNode::Transition(t_idx))
-                        .or_insert_with(|| graph.add_node(IdxNode::Transition(t_idx)));
-                    graph.add_edge(t_node, p_node, ());
-                }
-            }
-        }
-
-        if graph.node_count() == 0 {
-            return None;
-        }
-
-        let scc_id: HashMap<NodeIndex, usize> = tarjan_scc(&graph)
+        let scc_id: HashMap<NodeIndex, usize> = tarjan_scc(&subgraph)
             .into_iter()
             .enumerate()
             .flat_map(|(i, members)| members.into_iter().map(move |n| (n, i)))
             .collect();
 
         let mut cyclic_dependencies = Vec::new();
-        for edge in graph.edge_references() {
+        for edge in subgraph.edge_references() {
             let src = edge.source();
             let dst = edge.target();
             // Only place -> transition edges within the same SCC are relevant to the refinement.

@@ -1,6 +1,6 @@
 use crate::core::cegar::refinements::p_invariant::IdxPInvariant;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
-use crate::core::net::siphon_trap::IdxTrap;
+use crate::core::net::siphon_trap::{IdxSiphon, IdxTrap};
 use crate::core::net::{PlaceIdx, TransitionIdx};
 
 /// A single, independently-verifiable fact about the net that was used as a hypothesis in
@@ -18,6 +18,9 @@ pub enum IdxLemma {
     /// An invariant: the sum of tokens in the trap is always positive, because it was positive
     /// in m0 and can never be emptied.
     InitiallyMarkedTrap(IdxTrap),
+    /// An invariant: the sum of tokens in the siphon is always zero, because it was zero
+    /// in m0 and can never be filled.
+    InitiallyUnmarkedSiphon(IdxSiphon),
     /// An implication: if `feeder` ever fires, `trap` must become (and stay) marked.
     TrapBecomesMarked {
         /// A trap of the net, initially unmarked.

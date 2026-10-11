@@ -11,7 +11,9 @@ use std::sync::{Arc, mpsc};
 pub struct IdxCegarEvent {
     /// The marking which the SMT solver thought was a possible solution,
     /// but was actually spurious.
-    pub spurious_marking: IdxMarking<u32>,
+    /// This may not be present for the first refinement, but will be present
+    /// for all subsequent refinements.
+    pub spurious_marking: Option<IdxMarking<u32>>,
     /// The Parikh vector which the SMT solver thought was a possible solution,
     /// but was actually spurious. This is only present if transition variables
     /// have been added to the SMT problem.
@@ -56,7 +58,7 @@ impl CegarObserver {
     /// cheap (one allocation per CEGAR step, not per lemma).
     pub fn with_context(
         &self,
-        marking: IdxMarking<u32>,
+        marking: Option<IdxMarking<u32>>,
         parikh_vector: Option<IdxParikhVector<u32>>,
     ) -> Option<Box<dyn Fn(IdxLemma) + '_>> {
         self.callback.as_deref().map(|sink| {

@@ -19,6 +19,8 @@ pub enum ReachabilityResult {
     Unreachable {
         contradiction: Vec<Lemma>,
     },
+    /// The reachability of the target marking is inconclusive.
+    Inconclusive,
 }
 
 impl ReachabilityResult {
@@ -59,10 +61,15 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Delegates to [`analyze_reachability`](Self::analyze_reachability).
     /// Returns `false` for inconclusive results.
     #[must_use]
-    pub fn is_reachable(&self, target: impl Into<Marking<u32>>) -> bool {
+    pub fn is_reachable(&self, target: impl Into<Marking<u32>>) -> Option<bool> {
         let target = target.into();
-        self.is_efficiently_reachable(&target)
-            .unwrap_or_else(|| self.analyze_reachability(target, None).is_reachable())
+        self.is_efficiently_reachable(&target).or_else(|| {
+            match self.analyze_reachability(target, None) {
+                ReachabilityResult::Reachable { .. } => Some(true),
+                ReachabilityResult::Unreachable { .. } => Some(false),
+                ReachabilityResult::Inconclusive => None,
+            }
+        })
     }
 
     /// Analyzes reachability of a target marking.
@@ -110,10 +117,10 @@ mod tests {
     fn s_net_reachability_dispatches() {
         let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
         let sys = net.with_initial_marking([(p0, 1)]);
-        assert!(sys.is_reachable([(p1, 1)]));
-        assert!(sys.is_reachable([(p0, 1)]));
-        assert!(!sys.is_reachable([(p0, 2)]));
-        assert!(!sys.is_reachable([]));
+        assert_eq!(sys.is_reachable([(p1, 1)]), Some(true));
+        assert_eq!(sys.is_reachable([(p0, 1)]), Some(true));
+        assert_eq!(sys.is_reachable([(p0, 2)]), Some(false));
+        assert_eq!(sys.is_reachable([]), Some(false));
     }
 
     #[test]
@@ -129,9 +136,9 @@ mod tests {
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::MarkedGraph);
         let sys = net.with_initial_marking([(p0, 1), (p1, 1)]);
-        assert!(sys.is_reachable([(p2, 1)]));
-        assert!(sys.is_reachable([(p0, 1), (p1, 1)]));
-        assert!(!sys.is_reachable([(p1, 1)]));
+        assert_eq!(sys.is_reachable([(p2, 1)]), Some(true));
+        assert_eq!(sys.is_reachable([(p0, 1), (p1, 1)]), Some(true));
+        assert_eq!(sys.is_reachable([(p1, 1)]), Some(false));
     }
 
     #[test]
@@ -147,7 +154,7 @@ mod tests {
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::General);
         let sys = net.with_initial_marking([(p0, 1)]);
-        assert!(sys.is_reachable([(p0, 1)]));
-        assert!(sys.is_reachable([(p1, 1)]));
+        assert_eq!(sys.is_reachable([(p0, 1)]), Some(true));
+        assert_eq!(sys.is_reachable([(p1, 1)]), Some(true));
     }
 }

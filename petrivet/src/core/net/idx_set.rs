@@ -6,6 +6,7 @@ macro_rules! define_idx_set {
     (
         $struct_name:ident,
         $idx_type:ty,
+        $iter_name:ident,
     ) => {
         /// A compact index set, implemented as a fixed-size bitset.
         #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -34,14 +35,6 @@ macro_rules! define_idx_set {
             /// Returns an iterator over the indices in the set.
             pub fn iter(&self) -> impl Iterator<Item = $idx_type> + '_ {
                 self.0.ones()
-            }
-
-            /// Returns the complement of the set, i.e., all indices not in the set.
-            #[allow(unused)]
-            pub fn complement(&self) -> Self {
-                let mut complement = self.0.clone();
-                complement.toggle_range(..);
-                Self(complement)
             }
 
             /// Returns true if the set is empty.
@@ -97,6 +90,14 @@ macro_rules! define_idx_set {
                 self.0.contains(idx)
             }
 
+            /// Returns the complement of the set, i.e., all indices not in the set.
+            #[allow(unused)]
+            pub fn complement(&self) -> Self {
+                let mut complement = self.0.clone();
+                complement.toggle_range(..);
+                Self(complement)
+            }
+
             /// Returns true if the set of indices is disjoint from another set of indices.
             #[allow(unused)]
             pub fn is_disjoint(&self, other: &Self) -> bool {
@@ -107,6 +108,12 @@ macro_rules! define_idx_set {
             #[allow(unused)]
             pub fn intersection(self, other: &Self) -> Self {
                 Self(self.0.intersection(&other.0).collect())
+            }
+
+            /// Returns true if this set is a subset of another set of indices.
+            #[allow(unused)]
+            pub fn is_subset(&self, other: &Self) -> bool {
+                self.0.is_subset(&other.0)
             }
         }
 
@@ -124,19 +131,19 @@ macro_rules! define_idx_set {
 
         impl IntoIterator for $struct_name {
             type Item = $idx_type;
-            type IntoIter = fixedbitset::IntoOnes;
+            type IntoIter = std::iter::Map<fixedbitset::IntoOnes, fn(usize) -> $idx_type>;
 
             fn into_iter(self) -> Self::IntoIter {
-                self.0.into_ones()
+                self.0.into_ones().map(|idx| idx as $idx_type)
             }
         }
 
         impl<'a> IntoIterator for &'a $struct_name {
             type Item = $idx_type;
-            type IntoIter = fixedbitset::Ones<'a>;
+            type IntoIter = std::iter::Map<fixedbitset::Ones<'a>, fn(usize) -> $idx_type>;
 
             fn into_iter(self) -> Self::IntoIter {
-                self.0.ones()
+                self.0.ones().map(|idx| idx as $idx_type)
             }
         }
     };
@@ -145,9 +152,11 @@ macro_rules! define_idx_set {
 define_idx_set!(
     PlaceIdxSet,
     PlaceIdx,
+    PlaceIndices,
 );
 
 define_idx_set!(
     TransitionIdxSet,
     TransitionIdx,
+    TransitionIndices,
 );

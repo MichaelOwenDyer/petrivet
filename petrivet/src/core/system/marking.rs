@@ -3,6 +3,7 @@ use crate::core::state_space::TokenOps;
 use std::cmp::Ordering;
 use std::ops::{Index, IndexMut};
 use std::{iter, vec};
+use crate::core::net::idx_set::PlaceIdxSet;
 
 /// A marking: one value of type `T` per place, indexed by [`PlaceIdx`].
 ///
@@ -37,11 +38,14 @@ impl<T> IdxMarking<T> {
 
 impl<T: TokenOps> IdxMarking<T> {
     /// Returns the dense indices of the places which have a nonzero token count in the marking.
-    pub fn support(&self) -> impl Iterator<Item = PlaceIdx> {
-        self.iter()
-            .enumerate()
-            .filter(|&(_, tokens)| tokens != &T::ZERO)
-            .map(|(idx, _)| idx)
+    pub fn support(&self) -> PlaceIdxSet {
+        let mut support = PlaceIdxSet::none_of(self.place_count());
+        for (idx, tokens) in self.iter().enumerate() {
+            if tokens != &T::ZERO {
+                support.set(idx, true);
+            }
+        }
+        support
     }
 
     /// Returns the sum of all tokens in the marking.

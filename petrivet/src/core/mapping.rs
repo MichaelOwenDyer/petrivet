@@ -183,7 +183,7 @@ impl DenseMapping {
     /// Translates an internal dense-indexed [`IdxCegarEvent`](IdxCegarEvent) to its public equivalent.
     pub fn cegar_event(&self, event: IdxCegarEvent) -> SpuriousSolutionEliminatedEvent {
         SpuriousSolutionEliminatedEvent {
-            spurious_marking: self.marking(event.spurious_marking),
+            spurious_marking: event.spurious_marking.map(|m| self.marking(m)),
             spurious_parikh_vector: event.spurious_parikh_vector.map(|pv| self.parikh_vector(pv)),
             lemma: self.lemma(event.lemma),
         }
@@ -199,6 +199,7 @@ impl DenseMapping {
             CegarResult::Unsatisfiable { contradiction } => ReachabilityResult::Unreachable {
                 contradiction: contradiction.into_iter().map(|lemma| self.lemma(lemma)).collect(),
             },
+            CegarResult::Inconclusive => ReachabilityResult::Inconclusive,
         }
     }
 
@@ -212,6 +213,7 @@ impl DenseMapping {
             CegarResult::Unsatisfiable { contradiction } => CoverabilityResult::Uncoverable {
                 contradiction: contradiction.into_iter().map(|lemma| self.lemma(lemma)).collect(),
             },
+            CegarResult::Inconclusive => CoverabilityResult::Inconclusive,
         }
     }
 
@@ -227,6 +229,9 @@ impl DenseMapping {
             }),
             IdxLemma::InitiallyMarkedTrap(trap) => Lemma::InitiallyMarkedTrap(
                 self.place_set(&trap)
+            ),
+            IdxLemma::InitiallyUnmarkedSiphon(siphon) => Lemma::InitiallyUnmarkedSiphon(
+                self.place_set(&siphon)
             ),
             IdxLemma::MarkingEquation {
                 place, initial_marking, net_effects,

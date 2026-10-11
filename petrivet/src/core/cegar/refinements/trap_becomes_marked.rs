@@ -28,10 +28,7 @@ impl TrapBecomesMarkedRule {
 
         // U = support of the candidate Parikh vector: the transitions a real firing sequence
         // realizing it would actually fire.
-        let mut support = TransitionIdxSet::none_of(net.transition_count());
-        for t_idx in net.transition_indices() {
-            support.set(t_idx, candidate_parikh_vector[t_idx] > 0);
-        }
+        let support = candidate_parikh_vector.support();
 
         // The unmarked places in the subnet induced by U (•U ∪ U•)
         let mut unmarked_places_in_subnet = PlaceIdxSet::none_of(net.place_count());

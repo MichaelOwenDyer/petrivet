@@ -1,8 +1,6 @@
 use crate::core::cegar::CegarProblem;
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::net::PlaceIdx;
-use crate::core::net::idx_set::PlaceIdxSet;
-use crate::core::net::siphon_trap::IdxTrap;
+use crate::core::net::siphon_trap::{IdxTrap, maximal_trap_in};
 use crate::core::solver::SmtSolver;
 use crate::core::system::marking::IdxMarking;
 
@@ -15,29 +13,7 @@ impl InitiallyMarkedTrapRule {
         problem: &CegarProblem,
         candidate_marking: &IdxMarking<u32>,
     ) -> Option<InitiallyMarkedTrapRefinement> {
-        let mut trap = PlaceIdxSet::none_of(problem.net.place_count());
-        for p_idx in problem.net.place_indices() {
-            trap.set(p_idx, candidate_marking[p_idx] == 0);
-        }
-
-        let mut worklist: Vec<PlaceIdx> = problem.net.place_indices().filter(|&p| trap[p]).collect();
-
-        while let Some(p_idx) = worklist.pop() {
-            let violates = problem.net.postset_p[p_idx]
-                .iter()
-                .any(|&t| problem.net.postset_t[t].iter().all(|&q| !trap[q]));
-            if violates {
-                trap.remove(p_idx);
-                for &t in &problem.net.preset_p[p_idx] {
-                    for &q in &problem.net.preset_t[t] {
-                        if trap[q] {
-                            worklist.push(q);
-                        }
-                    }
-                }
-            }
-        }
-
+        let trap = maximal_trap_in(problem.net, candidate_marking.support().complement());
         if trap.iter().any(|p| problem.m0[p] > 0) {
             Some(InitiallyMarkedTrapRefinement { trap })
         } else {

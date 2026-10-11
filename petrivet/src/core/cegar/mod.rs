@@ -11,6 +11,7 @@ use lemma::IdxLemma;
 use observe::CegarCallbackFn;
 use refinements::explore::GuidedExplorer;
 use refinements::initially_marked_trap::InitiallyMarkedTrapRule;
+use refinements::initially_unmarked_siphon::InitiallyUnmarkedSiphonRule;
 use refinements::marking_equation::MarkingEquationRefinement;
 use refinements::p_invariant::PInvariantRule;
 use refinements::transition_ordering::TransitionOrderingRule;
@@ -69,7 +70,7 @@ pub struct CegarProblem<'a> {
 ///
 /// `Cegar` is generic over the [`SmtSolver`] backend `S` so that the algorithm below is written
 /// once and can be driven by any conforming SMT solver (see `crate::core::cegar::solver`).
-pub struct Cegar<'a, T, S: SmtSolver> {
+struct Cegar<'a, T, S: SmtSolver> {
     /// The Petri net, initial marking, and target marking for the CEGAR analysis.
     pub problem: CegarProblem<'a>,
     /// The SMT solver used for the analysis.
@@ -91,7 +92,7 @@ fn extract_marking<S: SmtSolver>(
 
 /// Read the model value of every term in `transition_terms` into an [`IdxParikhVector`].
 /// Only valid to call after a `Satisfiability::Sat` result.
-pub fn extract_parikh_vector<S: SmtSolver>(
+fn extract_parikh_vector<S: SmtSolver>(
     solver: &S,
     transition_terms: &[S::Int],
 ) -> Option<IdxParikhVector<u32>> {
@@ -123,15 +124,24 @@ fn encode_place_terms<S: SmtSolver>(
 impl<'a, S: SmtSolver + Default> Cegar<'a, Structural<S>, S> {
     /// Create a new CEGAR context with the given Petri net, initial marking, target marking,
     /// and operation type.
-    pub fn new(
+    fn new(
         problem: CegarProblem<'a>,
         callback: Option<CegarCallbackFn>,
     ) -> Self {
         let mut solver = S::default();
         let places = encode_place_terms(&mut solver, &problem);
+        let callback = CegarObserver { callback };
+
+        if let Some(initially_unmarked_siphon_refinement) = InitiallyUnmarkedSiphonRule::check(&problem) {
+            initially_unmarked_siphon_refinement.encode_into(
+                &mut solver,
+                &places,
+                callback.with_context(None, None).as_deref(),
+            );
+        }
+
         let p_invariant_rule = PInvariantRule::new(&problem.net.incidence_matrix);
         let context = Structural { places, p_invariant_rule };
-        let callback = CegarObserver { callback };
 
         Self {
             problem,
@@ -148,7 +158,7 @@ impl<'a, S: SmtSolver + Default> Cegar<'a, Structural<S>, S> {
 /// During this phase, the SMT problem stays within the space of place variables only,
 /// which is very lightweight, and allows us to quickly eliminate many spurious solutions
 /// before we move on to the more expensive transition-based phase.
-pub struct Structural<S: SmtSolver> {
+struct Structural<S: SmtSolver> {
     /// The SMT variables corresponding to the place markings.
     /// We extract the values of these variables to form a candidate
     /// marking when the SMT solver returns a SAT result.
@@ -159,59 +169,65 @@ pub struct Structural<S: SmtSolver> {
 
 /// The result of a single CEGAR step during the structural,
 /// places-only phase of the algorithm.
-pub enum StructuralStep<'a, S: SmtSolver> {
+enum StructuralStep<'a, S: SmtSolver> {
     /// The SMT solver returned a SAT result, and we encoded a
     /// reason why it cannot be a valid solution into the SMT problem.
     /// We can continue with the next step.
-    Refined(Cegar<'a, Structural<S>, S>),
+    AddedConstraint(Cegar<'a, Structural<S>, S>),
     /// The SMT solver returned a SAT result, and we exhausted our
     /// checklist of structural refinements. We now transition to
     /// the next phase of the algorithm: introducing transition
     /// variables into the problem and encoding the state equation.
-    Upgraded(Cegar<'a, Behavioral<S>, S>),
+    AddedTransitionVariables(Cegar<'a, Behavioral<S>, S>),
     /// Success! The SMT solver returned an UNSAT result, which proves that the
     /// target marking is unreachable/uncoverable in the actual Petri net.
     /// Contains a domain-native representation of the UNSAT core from the solver,
     /// describing a set of structural insights about the net which contradict the
     /// target marking constraints.
-    Unsat(Vec<IdxLemma>),
+    Unsatisfiable(Vec<IdxLemma>),
 }
 
 impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
     /// Call the SMT solver to check if the current problem is satisfiable.
-    /// We hope to receive an UNSAT result, in which case we can terminate
-    /// early. In the much more likely case of a SAT result, we go down a
-    /// checklist of structural properties looking for
-    pub fn step(mut self) -> StructuralStep<'a, S> {
+    /// In case of an UNSAT result, we can terminate early.
+    /// In case of a SAT result, we check a series of properties
+    /// looking for a reason why the candidate solution is spurious.
+    /// If we find a reason, we encode it into the SMT problem to eliminate
+    /// the spurious solution (and hopefully many others) from the search space.
+    /// If we cannot find a reason, we transition to the next phase of the algorithm:
+    /// introducing transition variables into the problem and encoding the state equation.
+    fn step(mut self) -> StructuralStep<'a, S> {
         let candidate_marking = match self.solver.check() {
             Satisfiability::Sat => {
                 extract_marking(&self.solver, &self.context.places)
                     .expect("Failed to extract marking from model")
             }
-            Satisfiability::Unsat => return StructuralStep::Unsat(self.solver.unsat_core()),
+            Satisfiability::Unsat => return StructuralStep::Unsatisfiable(self.solver.unsat_core()),
         };
-        if let Some(p_invariant_refinement) = self.context.p_invariant_rule.check(&self.problem, &candidate_marking) {
-            p_invariant_refinement.encode_into(
-                &mut self.solver,
-                &self.context.places,
-                self.callback.with_context(candidate_marking, None).as_deref(),
-            );
-            return StructuralStep::Refined(self);
-        }
         if let Some(trap_refinement) = InitiallyMarkedTrapRule::check(&self.problem, &candidate_marking) {
             trap_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.callback.with_context(candidate_marking, None).as_deref(),
+                self.callback.with_context(Some(candidate_marking), None).as_deref(),
             );
-            return StructuralStep::Refined(self);
+            return StructuralStep::AddedConstraint(self);
         }
-        StructuralStep::Upgraded(Cegar::<Behavioral<S>, S>::from(self, candidate_marking))
+        if let Some(p_invariant_refinement) = self.context.p_invariant_rule.check(&self.problem, &candidate_marking) {
+            p_invariant_refinement.encode_into(
+                &mut self.solver,
+                &self.context.places,
+                self.callback.with_context(Some(candidate_marking), None).as_deref(),
+            );
+            return StructuralStep::AddedConstraint(self);
+        }
+        StructuralStep::AddedTransitionVariables(Cegar::<Behavioral<S>, S>::from(self, candidate_marking))
     }
 }
 
 impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
-    pub fn from(
+    /// Enter the behavioral phase of CEGAR refinement, where we introduce transition variables
+    /// and the state equation into the SMT problem.
+    fn from(
         Cegar {
             problem,
             mut solver,
@@ -222,7 +238,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
     ) -> Self {
         // Encode the transition variables into the SMT solver, and assert that they are all
         // non-negative. We will extract the values of these variables to form a candidate
-        // Parikh vector when the SMT solver returns a SAT result.
+        // Parikh vector in case of a SAT result.
         let transitions: Vec<S::Int> = {
             let zero = solver.mk_int(0);
             problem.net.transition_indices()
@@ -234,9 +250,8 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                 })
                 .collect()
         };
-
         {
-            let callback = callback.with_context(candidate_marking, None);
+            let callback = callback.with_context(Some(candidate_marking), None);
 
             MarkingEquationRefinement::encode_into(
                 &mut solver,
@@ -274,42 +289,48 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
 
 /// The second phase of CEGAR refinement, where the SMT works to find a valid
 /// assignment for the transition variables within the Petri net's state equation.
-pub struct Behavioral<S: SmtSolver> {
+struct Behavioral<S: SmtSolver> {
     /// The SMT variables corresponding to the place markings.
     /// We extract the values of these variables to form a candidate
     /// marking when the SMT solver returns a SAT result.
-    pub places: Vec<S::Int>,
+    places: Vec<S::Int>,
     /// The P-invariant rule, instantiated with its own persistent solver state.
-    pub p_invariant_rule: PInvariantRule<S>,
+    p_invariant_rule: PInvariantRule<S>,
     /// The SMT variables corresponding to the transition firing counts.
     /// We extract the values of these variables to form a candidate
     /// Parikh vector when the SMT solver returns a SAT result.
-    pub transitions: Vec<S::Int>,
+    transitions: Vec<S::Int>,
 }
 
 /// The result of a single CEGAR step during the second phase
 /// of the algorithm, where we have introduced transition variables
 /// and the state equation into the SMT problem.
-pub enum BehavioralStep<'a, S: SmtSolver> {
+enum BehavioralStep<'a, S: SmtSolver> {
     /// The SMT solver returned a SAT result, and we encoded a
     /// reason why it cannot be a valid solution into the SMT problem.
     /// We can continue with the next step.
-    Refined(Cegar<'a, Behavioral<S>, S>),
-    /// Finished! The SMT solver returned a SAT result, and it turned out to be a valid
-    /// solution in the actual Petri net.
-    Witnessed(IdxMarking<u32>, Vec<TransitionIdx>),
+    AddedConstraint(Cegar<'a, Behavioral<S>, S>),
+    /// The SMT solver returned a SAT result, and we exhausted our
+    /// checklist of structural and behavioral refinements. We now attempt to witness
+    /// the candidate Parikh vector as a real firing sequence in the Petri net.
+    FoundFiringSequence(IdxMarking<u32>, Vec<TransitionIdx>),
     /// Finished! The SMT solver returned an UNSAT result, which proves that the
     /// target marking is unreachable/uncoverable in the actual Petri net.
     /// Contains a domain-native representation of the UNSAT core from the solver,
     /// describing a set of structural and behavioral insights about the net which
     /// contradict the target marking constraints.
-    Unsat(Vec<IdxLemma>),
+    Unsatisfiable(Vec<IdxLemma>),
 }
 
 impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
-    /// Step the CEGAR algorithm forward by one iteration.
-    pub fn step(mut self) -> BehavioralStep<'a, S> {
-        let (candidate_marking, candidate_parikh_vector) = match self.solver.check() {
+    /// Call the SMT solver to check if the current problem is satisfiable.
+    /// In case of an UNSAT result, we can terminate early.
+    /// In case of a SAT result, we check a series of properties
+    fn step(mut self) -> BehavioralStep<'a, S> {
+        let (
+            candidate_marking,
+            candidate_parikh_vector,
+        ) = match self.solver.check() {
             Satisfiability::Sat => {
                 let marking = extract_marking(&self.solver, &self.context.places)
                     .expect("Failed to extract marking from model");
@@ -317,27 +338,17 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                     .expect("Failed to extract parikh vector from model");
                 (marking, parikh_vector)
             }
-            Satisfiability::Unsat => return BehavioralStep::Unsat(self.solver.unsat_core()),
+            Satisfiability::Unsat => return BehavioralStep::Unsatisfiable(self.solver.unsat_core()),
         };
-        if let Some(p_invariant_refinement) =
-            self.context.p_invariant_rule.check(&self.problem, &candidate_marking)
-        {
-            p_invariant_refinement.encode_into(
-                &mut self.solver,
-                &self.context.places,
-                self.callback.with_context(candidate_marking, Some(candidate_parikh_vector)).as_deref(),
-            );
-            return BehavioralStep::Refined(self);
-        }
         if let Some(trap_refinement) =
             InitiallyMarkedTrapRule::check(&self.problem, &candidate_marking)
         {
             trap_refinement.encode_into(
                 &mut self.solver,
                 &self.context.places,
-                self.callback.with_context(candidate_marking, Some(candidate_parikh_vector)).as_deref(),
+                self.callback.with_context(Some(candidate_marking), None).as_deref(),
             );
-            return BehavioralStep::Refined(self);
+            return BehavioralStep::AddedConstraint(self);
         }
         if let Some(trap_refinement) = TrapBecomesMarkedRule::check(
             &self.problem,
@@ -348,9 +359,22 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                 &mut self.solver,
                 &self.context.places,
                 &self.context.transitions,
-                self.callback.with_context(candidate_marking, Some(candidate_parikh_vector)).as_deref(),
+                self.callback.with_context(
+                    Some(candidate_marking),
+                    Some(candidate_parikh_vector)
+                ).as_deref(),
             );
-            return BehavioralStep::Refined(self);
+            return BehavioralStep::AddedConstraint(self);
+        }
+        if let Some(p_invariant_refinement) =
+            self.context.p_invariant_rule.check(&self.problem, &candidate_marking)
+        {
+            p_invariant_refinement.encode_into(
+                &mut self.solver,
+                &self.context.places,
+                self.callback.with_context(Some(candidate_marking), None).as_deref(),
+            );
+            return BehavioralStep::AddedConstraint(self);
         }
         match GuidedExplorer::realize_parikh_vector(&self.problem, candidate_parikh_vector.clone())
         {
@@ -359,12 +383,12 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                     marking, candidate_marking,
                     "Guided exploration reached a marking which does not match the candidate marking from the SMT solver"
                 );
-                BehavioralStep::Witnessed(marking, firing_sequence)
+                BehavioralStep::FoundFiringSequence(marking, firing_sequence)
             }
             Err(increment_refinements) => {
                 {
                     let callback = self.callback
-                        .with_context(candidate_marking, Some(candidate_parikh_vector));
+                        .with_context(Some(candidate_marking), Some(candidate_parikh_vector));
                     for increment_refinement in increment_refinements {
                         increment_refinement.encode_into(
                             &self.problem,
@@ -374,7 +398,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                         );
                     }
                 }
-                BehavioralStep::Refined(self)
+                BehavioralStep::AddedConstraint(self)
             }
         }
     }
@@ -395,12 +419,14 @@ pub enum CegarResult {
     Unsatisfiable {
         contradiction: Vec<IdxLemma>,
     },
+    /// The CEGAR algorithm was unable to determine whether the target marking is reachable or coverable.
+    Inconclusive,
 }
 
 /// The unified entry point for both Reachability and Coverability via CEGAR.
 /// Runs a three-phase CEGAR algorithm to determine if the target marking
 /// is reachable/coverable from the initial marking, driven by the SMT solver
-/// backend `S` (see `crate::core::cegar::solver` for the available backends).
+/// backend `S` (see `crate::core::solver` for the available backends).
 pub fn cegar_decide<S: SmtSolver>(
     problem: CegarProblem,
     callback: Option<CegarCallbackFn>,
@@ -408,26 +434,30 @@ pub fn cegar_decide<S: SmtSolver>(
     let mut structural_cegar = Cegar::<Structural<S>, S>::new(problem, callback);
     let mut behavioral_cegar = loop {
         structural_cegar = match structural_cegar.step() {
-            StructuralStep::Refined(refined) => refined,
-            StructuralStep::Unsat(contradiction) => {
-                return CegarResult::Unsatisfiable { contradiction }
+            StructuralStep::Unsatisfiable(contradiction) => {
+                return CegarResult::Unsatisfiable { contradiction };
             }
-            StructuralStep::Upgraded(behavioral_cegar) => {
-                break behavioral_cegar
+            StructuralStep::AddedConstraint(structural_cegar) => {
+                structural_cegar
+            }
+            StructuralStep::AddedTransitionVariables(behavioral_cegar) => {
+                break behavioral_cegar;
             }
         }
     };
     loop {
         behavioral_cegar = match behavioral_cegar.step() {
-            BehavioralStep::Refined(refined) => refined,
-            BehavioralStep::Unsat(contradiction) => {
-                return CegarResult::Unsatisfiable { contradiction }
+            BehavioralStep::Unsatisfiable(contradiction) => {
+                return CegarResult::Unsatisfiable { contradiction };
             }
-            BehavioralStep::Witnessed(marking, firing_sequence) => {
-                return CegarResult::Satisfiable { marking, firing_sequence }
+            BehavioralStep::AddedConstraint(behavioral_cegar) => {
+                behavioral_cegar
+            }
+            BehavioralStep::FoundFiringSequence(marking, firing_sequence) => {
+                return CegarResult::Satisfiable { marking, firing_sequence };
             }
         };
-    };
+    }
 }
 
 #[cfg(test)]
@@ -508,6 +538,7 @@ mod tests {
                     assert_eq!(firing_sequence.len(), 1, "backend {name}");
                 }
                 CegarResult::Unsatisfiable { .. } => panic!("backend {name} wrongly proved unsatisfiable"),
+                CegarResult::Inconclusive => panic!("backend {name} returned UNKNOWN"),
             }
         }
     }
@@ -523,6 +554,7 @@ mod tests {
         ] {
             match result {
                 CegarResult::Satisfiable { .. } => panic!("backend {name} wrongly returned SAT"),
+                CegarResult::Inconclusive => panic!("backend {name} returned UNKNOWN"),
                 CegarResult::Unsatisfiable { contradiction } => {
                     // Regression check: `assert_tracked` must actually surface the lemmas
                     // that proved unsatisfiability.

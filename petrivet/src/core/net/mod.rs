@@ -157,11 +157,7 @@ impl DenseNet {
 
     /// Returns true if the net has a proper siphon unmarked in the given marking.
     pub fn has_unmarked_proper_siphon(&self, marking: &IdxMarking<u32>) -> bool {
-        let mut unmarked_places = PlaceIdxSet::all_of(self.place_count());
-        for p_idx in marking.support() {
-            unmarked_places.set(p_idx, false);
-        }
-        !maximal_siphon_in(self, unmarked_places).is_empty()
+        !maximal_siphon_in(self, marking.support().complement()).is_empty()
     }
 
     /// Places which can reach the given set of places through any number of transitions.

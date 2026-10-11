@@ -20,31 +20,26 @@ pub type IdxTrap = PlaceIdxSet;
 #[must_use]
 pub fn maximal_siphon_in(
     net: &DenseNet,
-    mut places: PlaceIdxSet,
+    mut siphon: PlaceIdxSet,
 ) -> IdxSiphon {
-    loop {
-        let to_remove: Vec<PlaceIdx> = places
+    let mut worklist: Vec<PlaceIdx> = siphon.iter().collect();
+    while let Some(p_idx) = worklist.pop() {
+        // Check if some t ∈ •p has no input place in the siphon. If so, p cannot be in the siphon.
+        let should_remove = net.preset_p[p_idx]
             .iter()
-            .filter(|&p| {
-                // Check if some t ∈ •p has no input place in D.
-                net.preset_p[p].iter().any(|&t_idx| {
-                    // t ∈ •p. For the siphon property, we need t ∈ D•,
-                    // i.e. t consumes from some place in D.
-                    // If it doesn't, then p cannot be in the siphon.
-                    net.preset_t[t_idx]
-                        .iter()
-                        .all(|&p_idx| !places.contains(p_idx))
-                })
-            })
-            .collect();
-        if to_remove.is_empty() {
-            break;
-        }
-        for p_idx in to_remove {
-            places.remove(p_idx);
+            .any(|&t| net.preset_t[t].iter().all(|&q| !siphon[q]));
+        if should_remove {
+            siphon.remove(p_idx);
+            for &t in &net.postset_p[p_idx] {
+                for &q in &net.postset_t[t] {
+                    if siphon[q] {
+                        worklist.push(q);
+                    }
+                }
+            }
         }
     }
-    places
+    siphon
 }
 
 /// Computes the maximal trap contained in a given set of places.
@@ -57,30 +52,26 @@ pub fn maximal_siphon_in(
 #[must_use]
 pub fn maximal_trap_in(
     net: &DenseNet,
-    mut places: PlaceIdxSet,
+    mut trap: PlaceIdxSet,
 ) -> IdxTrap {
-    loop {
-        let to_remove: Vec<PlaceIdx> = places
+    let mut worklist: Vec<PlaceIdx> = trap.iter().collect();
+    while let Some(p_idx) = worklist.pop() {
+        // Check if some t ∈ p• has no output place in the trap. If so, p cannot be in the trap.
+        let should_remove = net.postset_p[p_idx]
             .iter()
-            .filter(|&p_idx| {
-                // Check if some t ∈ p• has no output place in Q.
-                // p• = transitions that consume from p = postset_p(p)
-                net.postset_p[p_idx].iter().any(|&t| {
-                    // t ∈ p•. For the trap property, we need t ∈ •Q,
-                    // i.e. t produces into some place in Q.
-                    // t• = postset_t(t) = output places of t.
-                    !net.postset_t[t].iter().any(|&p_idx| places.contains(p_idx))
-                })
-            })
-            .collect();
-        if to_remove.is_empty() {
-            break;
-        }
-        for p_idx in to_remove {
-            places.remove(p_idx);
+            .any(|&t| net.postset_t[t].iter().all(|&q| !trap[q]));
+        if should_remove {
+            trap.remove(p_idx);
+            for &t in &net.preset_p[p_idx] {
+                for &q in &net.preset_t[t] {
+                    if trap[q] {
+                        worklist.push(q);
+                    }
+                }
+            }
         }
     }
-    places
+    trap
 }
 
 /// Constructs an SMT formula to find a proper siphon whose maximal trap is unmarked
