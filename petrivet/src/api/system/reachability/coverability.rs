@@ -44,10 +44,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Some(false) if it is not coverable, and None if the answer would not be efficient to compute.
     #[must_use]
     pub fn is_efficiently_coverable(&self, target: &Marking<u32>) -> Option<bool> {
+        let target = self.mapping.idx_marking(target.clone());
         match self.class() {
-            NetClass::Circuit => Some(self.marking.sum() >= target.total_tokens()),
+            NetClass::Circuit => Some(self.marking.sum() >= target.sum()),
             NetClass::StateMachine if self.is_strongly_connected() => {
-                Some(self.marking.sum() >= target.total_tokens())
+                Some(self.marking.sum() >= target.sum())
             }
             _ => None,
         }

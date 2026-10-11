@@ -1,5 +1,6 @@
 use crate::core::cegar::observe::ToCegarCallbackFn;
 use crate::core::cegar::{CegarProblem, CegarQuestion, cegar_decide};
+use crate::core::net::siphon_trap::maximal_trap_in;
 use crate::core::solver::DefaultSolver;
 use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
@@ -44,12 +45,16 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns None if the answer would not be efficient to compute.
     #[must_use]
     pub fn is_efficiently_reachable(&self, target: &Marking<u32>) -> Option<bool> {
-        // todo: efficient check necessary for reachability: maximal unmarked trap in target must be unmarked in M0
+        let target = self.mapping.idx_marking(target.clone());
         match self.class() {
-            NetClass::Circuit => Some(self.marking.sum() == target.total_tokens()),
+            NetClass::Circuit => Some(self.marking.sum() == target.sum()),
             NetClass::StateMachine if self.is_strongly_connected() => {
-                Some(self.marking.sum() == target.total_tokens())
+                Some(self.marking.sum() == target.sum())
             }
+            // If the maximal unmarked trap in the target is marked in m0, then the target is unreachable.
+            _ if maximal_trap_in(&self.dense_net, target.support().complement())
+                .into_iter()
+                .any(|p_idx| self.marking[p_idx] > 0) => Some(false),
             // NetClass::MarkedGraph if self.is_live() => Some(self.marking() ~ target) // todo: ~ relation
             // NetClass::FreeChoice if self.is_live() && self.is_bounded() => None, // todo: requires ILP + trap check
             _ => None,
