@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![warn(clippy::pedantic, clippy::nursery, clippy::cargo)]
 #![allow(
     clippy::cargo_common_metadata,
