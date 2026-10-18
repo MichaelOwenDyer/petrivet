@@ -1,4 +1,3 @@
-use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::net::Net;
 use crate::net::class::NetClass;
 use crate::state_space::{ExplorationOrder, ReachabilityGraphExplorer};
@@ -49,8 +48,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
         match self.class() {
             NetClass::Circuit => Some(self.marking.sum() > 0),
             _ if self.has_source_transition() => Some(true),
-            NetClass::StateMachine => Some(self.some_token_can_never_reach_a_sink()),
-            NetClass::MarkedGraph => Some(self.some_transition_is_not_downstream_of_an_unmarked_circuit()),
+            NetClass::StateMachine => Some(self.is_state_machine_deadlock_free()),
+            NetClass::MarkedGraph => Some(self.is_marked_graph_deadlock_free()),
             _ => None,
         }
     }
@@ -76,37 +75,18 @@ impl<N: AsRef<Net>> PetriNet<N> {
 }
 
 impl<N: AsRef<Net>> PetriNet<N> {
-    /// Returns true if some transition is neither on an unmarked circuit nor reachable from one.
-    ///
-    /// In a marked graph the token count of a circuit is invariant, so transitions on
-    /// an unmarked circuit and everything downstream of them fire only finitely often.
-    /// All other transitions are live. The system is deadlock-free iff at least one transition
-    /// is live: a live transition can never be dead at a deadlock, and if every transition fires
-    /// only finitely often then a longest firing sequence ends in a deadlock.
-    fn some_transition_is_not_downstream_of_an_unmarked_circuit(&self) -> bool {
-        let mut live_transitions = TransitionIdxSet::all_of(self.dense_net.transition_count());
-        let mut stack = self.dense_net.transitions_on_unmarked_circuits(&self.marking).collect::<Vec<_>>();
-        while let Some(t_idx) = stack.pop() {
-            if live_transitions.contains(t_idx) {
-                live_transitions.remove(t_idx);
-                for &p_idx in &self.dense_net.postset_t[t_idx] {
-                    stack.extend(self.dense_net.postset_p[p_idx].iter().copied());
-                }
-            }
-        }
-        !live_transitions.is_empty()
+    /// Called only for state machines.
+    /// Returns true if the state machine is deadlock-free,
+    /// i.e. some token can never reach a sink place.
+    fn is_state_machine_deadlock_free(&self) -> bool {
+        self.dense_net.some_token_can_never_reach_a_sink(&self.marking)
     }
 
-    /// Returns true if some marked place can never reach a place with an empty postset.
-    fn some_token_can_never_reach_a_sink(&self) -> bool {
-        let mut sinks = PlaceIdxSet::none_of(self.dense_net.place_count());
-        for p_idx in self.dense_net.place_indices() {
-            if self.dense_net.postset_p[p_idx].is_empty() {
-                sinks.add(p_idx);
-            }
-        }
-        let places_that_can_reach_a_sink = self.dense_net.pre_star(sinks);
-        !self.marking.support().is_subset(&places_that_can_reach_a_sink)
+    /// Called only for marked graphs.
+    /// Returns true if the marked graph is deadlock-free,
+    /// i.e. some transition is not on or downstream of an unmarked circuit.
+    fn is_marked_graph_deadlock_free(&self) -> bool {
+        self.dense_net.some_transition_is_not_downstream_of_an_unmarked_circuit(&self.marking)
     }
 }
 
