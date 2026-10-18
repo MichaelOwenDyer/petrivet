@@ -4,9 +4,8 @@ use crate::net::{Net, Transition};
 use crate::system::PetriNet;
 use ahash::HashMap;
 use fixedbitset::FixedBitSet;
-use petgraph::algo::tarjan_scc;
 use petgraph::graph::NodeIndex;
-use petgraph::visit::{IntoNodeReferences, NodeFiltered};
+use petgraph::visit::IntoNodeReferences;
 
 /// The liveness level of a [`Transition`] describes how often it
 /// can be fired in a [`Petri net`](crate::PetriNet) `(N, M₀)`.
@@ -371,20 +370,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
             .collect()
     }
 
-    /// Returns true if there exists a directed circuit in which every place has zero tokens.
-    ///
-    /// An unmarked circuit is a nontrivial SCC of the subgraph of the net induced by the unmarked
-    /// places and all transitions.
+    /// Returns true if there exists a directed circuit in the net in which every place has zero tokens.
     pub fn has_unmarked_circuit(&self) -> bool {
-        let unmarked_subgraph = NodeFiltered::from_fn(&self.dense_net.graph, |node| {
-            match self.dense_net.graph[node] {
-                IdxNode::Place(p_idx) => self.idx_marking()[p_idx] == 0,
-                IdxNode::Transition(_) => true,
-            }
-        });
-        tarjan_scc(&unmarked_subgraph)
-            .into_iter()
-            .any(|scc| scc.len() > 1)
+        self.dense_net.transitions_on_unmarked_circuits(&self.marking).next().is_some()
     }
 
     /// For a marked graph, we can determine liveness levels by analyzing which transitions
@@ -421,28 +409,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
             }
         }
 
-        // unmarked circuits are nontrivial strongly connected components of the subgraph
-        // of unmarked places and all transitions.
-        let unmarked_subgraph = NodeFiltered::from_fn(&self.dense_net.graph, |node| {
-            match self.dense_net.graph[node] {
-                IdxNode::Place(p_idx) => self.marking[p_idx] == 0,
-                IdxNode::Transition(_) => true,
-            }
-        });
-        let dead_transition_indices = tarjan_scc(&unmarked_subgraph)
-            .into_iter()
-            .filter(|scc| scc.len() > 1) // nontrivial SCCs
-            .flat_map(IntoIterator::into_iter)
-            .filter_map(|node| match self.dense_net.graph[node] {
-                IdxNode::Transition(t_idx) => Some(t_idx),
-                IdxNode::Place(_) => None,
-            })
-            .collect::<Vec<_>>();
-
         // all transitions in an unmarked circuit are L0,
         // and all transitions downstream from them are at most L1. the rest are L4.
         let mut liveness = vec![LivenessLevel::L4; self.transition_count() as usize];
-        for t_idx in dead_transition_indices {
+        for t_idx in self.dense_net.transitions_on_unmarked_circuits(&self.marking) {
             dfs_finite_pathways(self, t_idx, false, &mut liveness);
         }
         self.transitions().zip(liveness).collect()

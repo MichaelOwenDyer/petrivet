@@ -5,9 +5,9 @@ use crate::core::system::marking::IdxMarking;
 use crate::net::class::NetClass;
 use incidence::IdxIncidenceMatrix;
 use petgraph::Graph;
-use petgraph::algo::dijkstra;
+use petgraph::algo::{dijkstra, tarjan_scc};
 use petgraph::graph::NodeIndex;
-use petgraph::visit::EdgeRef;
+use petgraph::visit::{EdgeRef, NodeFiltered};
 
 pub mod idx_set;
 pub mod siphon_trap;
@@ -158,6 +158,28 @@ impl DenseNet {
     /// Returns true if the net has a proper siphon unmarked in the given marking.
     pub fn has_unmarked_proper_siphon(&self, marking: &IdxMarking<u32>) -> bool {
         !maximal_siphon_in(self, marking.support().complement()).is_empty()
+    }
+
+    /// Returns an iterator over all transitions which are part of an unmarked circuit in the net.
+    /// This is relevant for marked graphs.
+    pub fn transitions_on_unmarked_circuits(
+        &self,
+        marking: &IdxMarking<u32>
+    ) -> impl Iterator<Item=TransitionIdx> + '_ {
+        let unmarked_subgraph = NodeFiltered::from_fn(&self.graph, |node| {
+            match self.graph[node] {
+                IdxNode::Place(p_idx) => marking[p_idx] == 0,
+                IdxNode::Transition(_) => true,
+            }
+        });
+        tarjan_scc(&unmarked_subgraph)
+            .into_iter()
+            .filter(|scc| scc.len() > 1)
+            .flat_map(IntoIterator::into_iter)
+            .filter_map(|node| match self.graph[node] {
+                IdxNode::Transition(t_idx) => Some(t_idx),
+                IdxNode::Place(_) => None,
+            })
     }
 
     /// Places which can reach the given set of places through any number of transitions.
