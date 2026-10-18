@@ -1,11 +1,7 @@
-use crate::core::net::{IdxNode, TransitionIdx};
 use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
 use crate::system::PetriNet;
 use ahash::HashMap;
-use fixedbitset::FixedBitSet;
-use petgraph::graph::NodeIndex;
-use petgraph::visit::IntoNodeReferences;
 
 /// The liveness level of a [`Transition`] describes how often it
 /// can be fired in a [`Petri net`](crate::PetriNet) `(N, M₀)`.
@@ -259,7 +255,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
 }
 
 // specialized procedures for state machines and marked graphs
-// TODO: bring core logic to core package
 impl<N: AsRef<Net>> PetriNet<N> {
     /// For a non-strongly-connected state machine, we can determine individual transaction
     /// liveness levels by analyzing the marked strongly connected components of the net
@@ -269,104 +264,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// the components reachable from a marked one, and one pass in reverse topological order
     /// finds, for every component, which terminal components are reachable from it.
     fn liveness_via_state_machine_marked_sccs(&self) -> HashMap<Transition, LivenessLevel> {
-        /// It is important for us to know whether a given token is guaranteed to arrive in exactly
-        /// one terminal nontrivial SCC, because that makes the destination SCC L4-live.
-        /// But if a token might end up in one or another, then we can only conclude L3-liveness
-        /// for all destination SCCs. This is not a final conclusion until we have analyzed
-        /// all marked SCCs, because it only takes one guaranteed token arrival to upgrade an SCC from L3 to L4.
-        #[derive(Clone, Copy)]
-        enum ReachableSinks {
-            One(NodeIndex),
-            Multiple,
-        }
-
-        impl ReachableSinks {
-            /// The terminal SCCs reachable from a node are the union of those reachable
-            /// from its successors, so they are unique iff all successors agree on the same one.
-            fn join(self, other: Self) -> Self {
-                match (self, other) {
-                    (Self::One(a), Self::One(b)) if a == b => Self::One(a),
-                    _ => Self::Multiple,
-                }
-            }
-        }
-
-        let condensation_graph = petgraph::algo::condensation(self.dense_net.graph.clone(), true);
-        let topological_order = petgraph::algo::toposort(&condensation_graph, None)
-            .expect("the condensation graph is acyclic");
-        let is_marked = {
-            let mut is_marked = FixedBitSet::with_capacity(condensation_graph.node_count());
-            for (scc, nodes) in condensation_graph.node_references() {
-                if nodes.iter().any(|node| matches!(node, &IdxNode::Place(p_idx) if self.marking[p_idx] > 0)) {
-                    is_marked.insert(scc.index());
-                }
-            }
-            is_marked
-        };
-
-        // an SCC is reachable if it is marked or downstream of a marked SCC.
-        // topological order guarantees that all predecessors are final when we visit an SCC.
-        let mut reachable = is_marked.clone();
-        for &scc in &topological_order {
-            if reachable[scc.index()] {
-                for neighbor in condensation_graph.neighbors(scc) {
-                    reachable.insert(neighbor.index());
-                }
-            }
-        }
-
-        // the terminal SCCs reachable from each SCC. reverse topological order guarantees
-        // that all successors are final when we visit an SCC.
-        let mut reachable_sinks: Vec<Option<ReachableSinks>> = vec![None; condensation_graph.node_count()];
-        for &scc in topological_order.iter().rev() {
-            reachable_sinks[scc.index()] = condensation_graph
-                .neighbors(scc)
-                .map(|neighbor| reachable_sinks[neighbor.index()].expect("successors are visited first"))
-                .reduce(ReachableSinks::join)
-                // no successors: this is a terminal SCC
-                .or(Some(ReachableSinks::One(scc)));
-        }
-
-        // any token from a marked SCC whose only reachable terminal SCC is nontrivial
-        // is guaranteed to end up there, making all transitions in it L4-live
-        let guaranteed_sinks: FixedBitSet = {
-            let mut guaranteed_sinks = FixedBitSet::with_capacity(condensation_graph.node_count());
-            for scc in condensation_graph.node_indices() {
-                if is_marked[scc.index()]
-                    && let Some(ReachableSinks::One(sink)) = reachable_sinks[scc.index()] {
-                    guaranteed_sinks.insert(sink.index());
-                }
-            }
-            guaranteed_sinks
-        };
-
-        // a reachable trivial SCC can only be L1, a reachable nontrivial SCC is at least L3
-        // and unreachable SCCs are L0.
-        let liveness: Vec<LivenessLevel> = condensation_graph
-            .node_references()
-            .map(|(scc, nodes)| match (reachable[scc.index()], nodes.len()) {
-                (false, _) => LivenessLevel::L0,
-                (true, 1) => LivenessLevel::L1,
-                (true, _) if guaranteed_sinks.contains(scc.index()) => LivenessLevel::L4,
-                (true, _) => LivenessLevel::L3,
-            })
-            .collect();
-
-        // for each SCC, return each of its transitions
-        // with the liveness level we determined for that SCC.
-        condensation_graph
-            .node_references()
-            .flat_map(|(scc, nodes)| {
-                let scc_liveness = &liveness[scc.index()];
-                nodes.iter().filter_map(|node| {
-                    if let &IdxNode::Transition(t_idx) = node {
-                        let transition = self.mapping.transition(t_idx);
-                        Some((transition, *scc_liveness))
-                    } else {
-                        None
-                    }
-                })
-            })
+        self.transitions()
+            .zip(self.dense_net.liveness_via_state_machine_marked_sccs(&self.marking))
             .collect()
     }
 
@@ -380,42 +279,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// which may contain some marked places (L1) or only unmarked places (L0).
     /// All other transitions are L4.
     fn liveness_via_marked_graph_unmarked_circuits(&self) -> HashMap<Transition, LivenessLevel> {
-        /// Perform a depth-first search through the net from a given transition,
-        /// recording L0-liveness if there has been no marked place on the path so far,
-        /// and L1-liveness if there has been and the transition is not already marked L0.
-        fn dfs_finite_pathways<N: AsRef<Net>>(
-            pn: &PetriNet<N>,
-            t_idx: TransitionIdx,
-            marked: bool,
-            liveness: &mut [LivenessLevel],
-        ) {
-            match liveness[t_idx] {
-                LivenessLevel::L0 => return,
-                LivenessLevel::L1 if marked => return,
-                _ => {
-                    liveness[t_idx] = if marked {
-                        LivenessLevel::L1
-                    } else {
-                        LivenessLevel::L0
-                    };
-                }
-            }
-            for &p_idx in &pn.dense_net.postset_t[t_idx] {
-                let marked = marked || pn.marking[p_idx] > 0;
-                let Some(&next_t_idx) = pn.dense_net.postset_p[p_idx].first() else {
-                    continue;
-                };
-                dfs_finite_pathways(pn, next_t_idx, marked, liveness);
-            }
-        }
-
-        // all transitions in an unmarked circuit are L0,
-        // and all transitions downstream from them are at most L1. the rest are L4.
-        let mut liveness = vec![LivenessLevel::L4; self.transition_count() as usize];
-        for t_idx in self.dense_net.transitions_on_unmarked_circuits(&self.marking) {
-            dfs_finite_pathways(self, t_idx, false, &mut liveness);
-        }
-        self.transitions().zip(liveness).collect()
+        self.transitions()
+            .zip(self.dense_net.liveness_via_marked_graph_unmarked_circuits(&self.marking))
+            .collect()
     }
 }
 
