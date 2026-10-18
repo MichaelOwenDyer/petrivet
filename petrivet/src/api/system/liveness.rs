@@ -3,7 +3,7 @@ use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
 use crate::system::PetriNet;
 use ahash::HashMap;
-use petgraph::Graph;
+use fixedbitset::FixedBitSet;
 use petgraph::algo::tarjan_scc;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::{IntoNodeReferences, NodeFiltered};
@@ -265,94 +265,93 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// For a non-strongly-connected state machine, we can determine individual transaction
     /// liveness levels by analyzing the marked strongly connected components of the net
     /// and which other components they can reach.
-    pub(crate) fn liveness_via_state_machine_marked_sccs(&self) -> HashMap<Transition, LivenessLevel> {
-        /// It is important for us to know whether a given token is guaranteed to arrive in some
-        /// terminal nontrivial strongly connected component, because that makes the SCC L4-live.
+    ///
+    /// Runs in linear time: one pass over the condensation graph in topological order finds
+    /// the components reachable from a marked one, and one pass in reverse topological order
+    /// finds, for every component, which terminal components are reachable from it.
+    fn liveness_via_state_machine_marked_sccs(&self) -> HashMap<Transition, LivenessLevel> {
+        /// It is important for us to know whether a given token is guaranteed to arrive in exactly
+        /// one terminal nontrivial SCC, because that makes the destination SCC L4-live.
         /// But if a token might end up in one or another, then we can only conclude L3-liveness
-        /// for all SCCs that might receive it. This is not a final conclusion until we have analyzed
+        /// for all destination SCCs. This is not a final conclusion until we have analyzed
         /// all marked SCCs, because it only takes one guaranteed token arrival to upgrade an SCC from L3 to L4.
+        #[derive(Clone, Copy)]
         enum ReachableSinks {
-            NoneYet,
             One(NodeIndex),
             Multiple,
         }
 
-        /// Perform a depth-first search through the condensation graph from a marked source SCC,
-        /// recording L1-liveness for trivial SCCs we pass through and L3 for nontrivial ones,
-        /// and keeping track of whether we reach a single terminal nontrivial SCC (L4) or multiple (L3).
-        ///
-        /// This function assumes that the condensation graph is acyclic, otherwise we would need
-        /// to keep track of visited nodes to avoid infinite recursion.
-        fn dfs_from_markable_scc(
-            condensation_graph: &Graph<Vec<IdxNode>, ()>,
-            scc: NodeIndex,
-            liveness: &mut [LivenessLevel],
-            reachable_sinks: &mut ReachableSinks,
-            visited: &mut [bool],
-        ) {
-            if visited[scc.index()] {
-                return;
-            }
-            visited[scc.index()] = true;
-            let scc_nodes = &condensation_graph[scc];
-            if scc_nodes.len() == 1 {
-                // a trivial SCC can only be L1
-                liveness[scc.index()] = LivenessLevel::L1;
-            } else {
-                // a reachable nontrivial SCC could be L3 or L4,
-                // depending on whether this is the only reachable terminal SCC or not.
-                // mark provisionally as L3, we might overwrite this with L4 later.
-                if liveness[scc.index()] < LivenessLevel::L3 {
-                    liveness[scc.index()] = LivenessLevel::L3;
+        impl ReachableSinks {
+            /// The terminal SCCs reachable from a node are the union of those reachable
+            /// from its successors, so they are unique iff all successors agree on the same one.
+            fn join(self, other: Self) -> Self {
+                match (self, other) {
+                    (Self::One(a), Self::One(b)) if a == b => Self::One(a),
+                    _ => Self::Multiple,
                 }
-            }
-            let mut neighbors = condensation_graph.neighbors(scc).peekable();
-            if neighbors.peek().is_some() {
-                for neighbor in neighbors {
-                    dfs_from_markable_scc(
-                        condensation_graph,
-                        neighbor,
-                        liveness,
-                        reachable_sinks,
-                        visited,
-                    );
-                }
-            } else {
-                // we have reached a terminal SCC.
-                // keep track of whether this is the only one possible to reach (L4)
-                // or if there are multiple possibilities (L3)
-                *reachable_sinks = match *reachable_sinks {
-                    ReachableSinks::NoneYet => ReachableSinks::One(scc),
-                    ReachableSinks::One(sink) if sink == scc => ReachableSinks::One(sink),
-                    _ => ReachableSinks::Multiple,
-                };
             }
         }
 
         let condensation_graph = petgraph::algo::condensation(self.dense_net.graph.clone(), true);
-        let mut liveness = vec![LivenessLevel::L0; condensation_graph.node_count()];
-        let mut visited = vec![false; condensation_graph.node_count()];
-        // perform the depth-first search from each marked SCC
-        for (marked_scc, _) in condensation_graph.node_references().filter(|(_, scc)| {
-            scc.iter().any(|node| matches!(node, &IdxNode::Place(p_idx) if self.marking[p_idx] > 0))
-        }) {
-            let mut reachable_sinks = ReachableSinks::NoneYet;
-            visited.fill(false);
-            dfs_from_markable_scc(
-                &condensation_graph,
-                marked_scc,
-                &mut liveness,
-                &mut reachable_sinks,
-                &mut visited,
-            );
-            if let ReachableSinks::One(sink) = reachable_sinks
-                && condensation_graph[sink].len() > 1
-            {
-                // any token from this source SCC is guaranteed to end up in
-                // this non-trivial terminal SCC, making all transitions in it L4-live
-                liveness[sink.index()] = LivenessLevel::L4;
+        let topological_order = petgraph::algo::toposort(&condensation_graph, None)
+            .expect("the condensation graph is acyclic");
+        let is_marked = {
+            let mut is_marked = FixedBitSet::with_capacity(condensation_graph.node_count());
+            for (scc, nodes) in condensation_graph.node_references() {
+                if nodes.iter().any(|node| matches!(node, &IdxNode::Place(p_idx) if self.marking[p_idx] > 0)) {
+                    is_marked.insert(scc.index());
+                }
+            }
+            is_marked
+        };
+
+        // an SCC is reachable if it is marked or downstream of a marked SCC.
+        // topological order guarantees that all predecessors are final when we visit an SCC.
+        let mut reachable = is_marked.clone();
+        for &scc in &topological_order {
+            if reachable[scc.index()] {
+                for neighbor in condensation_graph.neighbors(scc) {
+                    reachable.insert(neighbor.index());
+                }
             }
         }
+
+        // the terminal SCCs reachable from each SCC. reverse topological order guarantees
+        // that all successors are final when we visit an SCC.
+        let mut reachable_sinks: Vec<Option<ReachableSinks>> = vec![None; condensation_graph.node_count()];
+        for &scc in topological_order.iter().rev() {
+            reachable_sinks[scc.index()] = condensation_graph
+                .neighbors(scc)
+                .map(|neighbor| reachable_sinks[neighbor.index()].expect("successors are visited first"))
+                .reduce(ReachableSinks::join)
+                // no successors: this is a terminal SCC
+                .or(Some(ReachableSinks::One(scc)));
+        }
+
+        // any token from a marked SCC whose only reachable terminal SCC is nontrivial
+        // is guaranteed to end up there, making all transitions in it L4-live
+        let guaranteed_sinks: FixedBitSet = {
+            let mut guaranteed_sinks = FixedBitSet::with_capacity(condensation_graph.node_count());
+            for scc in condensation_graph.node_indices() {
+                if is_marked[scc.index()]
+                    && let Some(ReachableSinks::One(sink)) = reachable_sinks[scc.index()] {
+                    guaranteed_sinks.insert(sink.index());
+                }
+            }
+            guaranteed_sinks
+        };
+
+        // a reachable trivial SCC can only be L1, a reachable nontrivial SCC is at least L3
+        // and unreachable SCCs are L0.
+        let liveness: Vec<LivenessLevel> = condensation_graph
+            .node_references()
+            .map(|(scc, nodes)| match (reachable[scc.index()], nodes.len()) {
+                (false, _) => LivenessLevel::L0,
+                (true, 1) => LivenessLevel::L1,
+                (true, _) if guaranteed_sinks.contains(scc.index()) => LivenessLevel::L4,
+                (true, _) => LivenessLevel::L3,
+            })
+            .collect();
 
         // for each SCC, return each of its transitions
         // with the liveness level we determined for that SCC.
@@ -433,10 +432,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
         let dead_transition_indices = tarjan_scc(&unmarked_subgraph)
             .into_iter()
             .filter(|scc| scc.len() > 1) // nontrivial SCCs
-            .flat_map(|scc| scc.into_iter())
+            .flat_map(IntoIterator::into_iter)
             .filter_map(|node| match self.dense_net.graph[node] {
                 IdxNode::Transition(t_idx) => Some(t_idx),
-                _ => None,
+                IdxNode::Place(_) => None,
             })
             .collect::<Vec<_>>();
 
@@ -606,6 +605,70 @@ mod tests {
         assert_eq!(analysis.level(t1), LivenessLevel::L0);
         assert_eq!(analysis.level(t2), LivenessLevel::L0);
         assert_eq!(analysis.level(t3), LivenessLevel::L0);
+    }
+
+    /// Builds a marked cycle `a` that can move its token into either of two sink cycles `b` and `c`.
+    fn cycle_with_two_sink_cycles() -> (
+        crate::net::Net,
+        [crate::net::Place; 3],
+        [crate::net::Transition; 4],
+        [crate::net::Transition; 4],
+    ) {
+        let mut b = NetBuilder::new();
+        let [a0, a1] = b.add_places();
+        let [ta0, ta1] = b.add_transitions();
+        b.add_arcs((a0, ta0, a1, ta1, a0));
+        let [b0, b1] = b.add_places();
+        let [tb0, tb1] = b.add_transitions();
+        b.add_arcs((b0, tb0, b1, tb1, b0));
+        let [c0, c1] = b.add_places();
+        let [tc0, tc1] = b.add_transitions();
+        b.add_arcs((c0, tc0, c1, tc1, c0));
+        let [to_b, to_c] = b.add_transitions();
+        b.add_arcs((a0, to_b, b0));
+        b.add_arcs((a0, to_c, c0));
+        (
+            b.build().unwrap(),
+            [a0, b0, c0],
+            [ta0, ta1, to_b, to_c],
+            [tb0, tb1, tc0, tc1],
+        )
+    }
+
+    /// Non-SC S-net: a token that may end up in either of two sink SCCs is not
+    /// guaranteed to arrive in any of them → everything on a cycle is L3, nothing is L4.
+    #[test]
+    fn s_net_two_reachable_sinks_l3() {
+        let (net, [a0, ..], [ta0, ta1, to_b, to_c], [tb0, tb1, tc0, tc1]) = cycle_with_two_sink_cycles();
+        assert_eq!(net.class(), NetClass::StateMachine);
+        let analysis = PetriNet::new(net, [(a0, 1)]).liveness().unwrap();
+
+        for t in [ta0, ta1, tb0, tb1, tc0, tc1] {
+            assert_eq!(analysis.level(t), LivenessLevel::L3);
+        }
+        for t in [to_b, to_c] {
+            assert_eq!(analysis.level(t), LivenessLevel::L1);
+        }
+    }
+
+    /// Non-SC S-net: one marked source that is guaranteed to arrive in a sink SCC is enough
+    /// to make it L4, even if another marked source reaches several sinks.
+    #[test]
+    fn s_net_second_marked_source_upgrades_sink() {
+        let (net, [a0, b0, _], [ta0, ta1, to_b, to_c], [tb0, tb1, tc0, tc1]) = cycle_with_two_sink_cycles();
+        let analysis = PetriNet::new(net, [(a0, 1), (b0, 1)]).liveness().unwrap();
+
+        // the token that starts inside the sink cycle `b` can never leave it
+        for t in [tb0, tb1] {
+            assert_eq!(analysis.level(t), LivenessLevel::L4);
+        }
+        // the token on `a` may still end up in either sink
+        for t in [ta0, ta1, tc0, tc1] {
+            assert_eq!(analysis.level(t), LivenessLevel::L3);
+        }
+        for t in [to_b, to_c] {
+            assert_eq!(analysis.level(t), LivenessLevel::L1);
+        }
     }
 
     /// SC T-net: all circuits marked → all L4.
