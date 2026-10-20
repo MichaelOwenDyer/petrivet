@@ -8,6 +8,7 @@ use crate::system::marking::Marking;
 use crate::system::reachability::Lemma;
 use crate::system::reachability::SpuriousSolutionEliminatedEvent;
 use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub enum CoverabilityResult {
@@ -79,6 +80,27 @@ impl<N: AsRef<Net>> PetriNet<N> {
         target: impl Into<Marking<u32>>,
         observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
     ) -> CoverabilityResult {
+        self.analyze_coverability_until(target, observer, None)
+    }
+
+    /// Like [`analyze_coverability`](Self::analyze_coverability), but gives up after `timeout`
+    /// and returns [`CoverabilityResult::Inconclusive`] if the search has not finished by then.
+    #[must_use]
+    pub fn analyze_coverability_within(
+        &self,
+        target: impl Into<Marking<u32>>,
+        timeout: Duration,
+        observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
+    ) -> CoverabilityResult {
+        self.analyze_coverability_until(target, observer, Instant::now().checked_add(timeout))
+    }
+
+    fn analyze_coverability_until(
+        &self,
+        target: impl Into<Marking<u32>>,
+        observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
+        deadline: Option<Instant>,
+    ) -> CoverabilityResult {
         let m0 = &self.marking;
         let target = &self.mapping.idx_marking(target.into());
 
@@ -94,6 +116,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             m0,
             target,
             question: CegarQuestion::Coverable,
+            deadline,
         };
         let observer_fn = observer.map(|sender| {
             sender.to_cegar_callback_fn(Arc::clone(&self.mapping))
@@ -110,6 +133,27 @@ mod tests {
     use crate::system::marking::Marking;
     use crate::system::reachability::CoverabilityResult;
     use std::sync::mpsc;
+
+    /// A deadline that has already passed makes the SMT solver give up, which must surface as
+    /// `Inconclusive` (not a panic), while a generous deadline still yields the definite answer.
+    #[test]
+    fn coverability_within_gives_up_at_the_deadline() {
+        use std::time::Duration;
+        let mut b = NetBuilder::new();
+        let [p0, p1] = b.add_places();
+        let [t0, t1] = b.add_transitions();
+        b.add_arcs((p0, t0, p1, t1, p0));
+        let net = b.build().unwrap();
+        let sys = PetriNet::new(net, [(p0, 1), (p1, 0)]);
+
+        assert!(matches!(
+            sys.analyze_coverability_within([(p1, 1)], Duration::ZERO, None),
+            CoverabilityResult::Inconclusive
+        ));
+        assert!(sys
+            .analyze_coverability_within([(p1, 1)], Duration::from_secs(60), None)
+            .is_coverable());
+    }
 
     #[test]
     fn coverability_initial_marking_covers() {

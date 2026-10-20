@@ -16,6 +16,7 @@ use refinements::marking_equation::MarkingEquationRefinement;
 use refinements::p_invariant::PInvariantRule;
 use refinements::transition_ordering::TransitionOrderingRule;
 use refinements::trap_becomes_marked::TrapBecomesMarkedRule;
+use std::time::Instant;
 
 /// Whether we are checking for reachability or coverability of the target marking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +37,8 @@ pub struct CegarProblem<'a> {
     pub target: &'a IdxMarking<u32>,
     /// Whether we are checking for reachability or coverability.
     pub question: CegarQuestion,
+    /// Give up with [`CegarResult::Inconclusive`] if the analysis is not finished by then.
+    pub deadline: Option<Instant>,
 }
 
 /// CEGAR ("Counterexample-Guided Abstraction Refinement"), was first described by Clarke et al. (2000).
@@ -129,6 +132,7 @@ impl<'a, S: SmtSolver + Default> Cegar<'a, Structural<S>, S> {
         callback: Option<CegarCallbackFn>,
     ) -> Self {
         let mut solver = S::default();
+        solver.set_deadline(problem.deadline);
         let places = encode_place_terms(&mut solver, &problem);
         let callback = CegarObserver { callback };
 
@@ -185,6 +189,8 @@ enum StructuralStep<'a, S: SmtSolver> {
     /// describing a set of structural insights about the net which contradict the
     /// target marking constraints.
     Unsatisfiable(Vec<IdxLemma>),
+    /// The SMT solver could not decide.
+    Inconclusive,
 }
 
 impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
@@ -203,6 +209,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Structural<S>, S> {
                     .expect("Failed to extract marking from model")
             }
             Satisfiability::Unsat => return StructuralStep::Unsatisfiable(self.solver.unsat_core()),
+            Satisfiability::Unknown => return StructuralStep::Inconclusive,
         };
         if let Some(trap_refinement) = InitiallyMarkedTrapRule::check(&self.problem, &candidate_marking) {
             trap_refinement.encode_into(
@@ -320,6 +327,8 @@ enum BehavioralStep<'a, S: SmtSolver> {
     /// describing a set of structural and behavioral insights about the net which
     /// contradict the target marking constraints.
     Unsatisfiable(Vec<IdxLemma>),
+    /// The SMT solver could not decide.
+    Inconclusive,
 }
 
 impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
@@ -339,6 +348,7 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                 (marking, parikh_vector)
             }
             Satisfiability::Unsat => return BehavioralStep::Unsatisfiable(self.solver.unsat_core()),
+            Satisfiability::Unknown => return BehavioralStep::Inconclusive,
         };
         if let Some(trap_refinement) =
             InitiallyMarkedTrapRule::check(&self.problem, &candidate_marking)
@@ -434,6 +444,9 @@ pub fn cegar_decide<S: SmtSolver>(
     let mut structural_cegar = Cegar::<Structural<S>, S>::new(problem, callback);
     let mut behavioral_cegar = loop {
         structural_cegar = match structural_cegar.step() {
+            StructuralStep::Inconclusive => {
+                return CegarResult::Inconclusive
+            },
             StructuralStep::Unsatisfiable(contradiction) => {
                 return CegarResult::Unsatisfiable { contradiction };
             }
@@ -447,6 +460,9 @@ pub fn cegar_decide<S: SmtSolver>(
     };
     loop {
         behavioral_cegar = match behavioral_cegar.step() {
+            BehavioralStep::Inconclusive => {
+                return CegarResult::Inconclusive
+            },
             BehavioralStep::Unsatisfiable(contradiction) => {
                 return CegarResult::Unsatisfiable { contradiction };
             }
@@ -520,6 +536,7 @@ mod tests {
             m0,
             target,
             question,
+            deadline: None,
         };
         cegar_decide::<S>(problem, None)
     }

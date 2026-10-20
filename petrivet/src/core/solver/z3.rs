@@ -3,6 +3,7 @@
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::solver::{Satisfiability, SmtSolver};
 use ahash::{HashMap, HashMapExt};
+use std::time::Instant;
 use z3::SatResult;
 use z3::ast::{Bool, Int};
 
@@ -12,6 +13,8 @@ pub struct Z3 {
     /// Maps a tracking literal (passed to `Solver::assert_and_track`) to the refinement it was
     /// tagged with, so it can be recovered when the literal is later found in an unsat core.
     tracked: HashMap<Bool, IdxLemma>,
+    /// If set, `check` gives up once this instant has passed.
+    deadline: Option<Instant>,
 }
 
 impl Z3 {
@@ -19,6 +22,7 @@ impl Z3 {
         Self {
             solver: z3::Solver::new(),
             tracked: HashMap::new(),
+            deadline: None,
         }
     }
 }
@@ -114,14 +118,26 @@ impl SmtSolver for Z3 {
         self.solver.pop(1);
     }
 
+    fn set_deadline(&mut self, deadline: Option<Instant>) {
+        self.deadline = deadline;
+    }
+
     fn check(&mut self) -> Satisfiability {
+        if let Some(deadline) = self.deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Satisfiability::Unknown;
+            }
+            // Z3 treats a timeout of 0 as "no timeout", so round up to at least one millisecond.
+            let millis = u32::try_from(remaining.as_millis()).unwrap_or(u32::MAX).max(1);
+            let mut params = z3::Params::new();
+            params.set_u32("timeout", millis);
+            self.solver.set_params(&params);
+        }
         match self.solver.check() {
             SatResult::Sat => Satisfiability::Sat,
             SatResult::Unsat => Satisfiability::Unsat,
-            SatResult::Unknown => panic!(
-                "z3 solver returned Unknown result! Reason: {:?}",
-                self.solver.get_reason_unknown()
-            ),
+            SatResult::Unknown => Satisfiability::Unknown,
         }
     }
 

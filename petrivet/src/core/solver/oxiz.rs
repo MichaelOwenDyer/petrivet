@@ -3,6 +3,7 @@
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::solver::{Satisfiability, SmtSolver};
 use ahash::{HashMap, HashMapExt};
+use std::time::Instant;
 
 /// An incremental SMT solver backed by the pure-Rust `oxiz` SMT solver.
 pub struct OxiZ {
@@ -10,22 +11,27 @@ pub struct OxiZ {
     solver: Box<oxiz::Solver>,
     /// The `oxiz` term manager, which owns all terms and sorts.
     terms: Box<oxiz::TermManager>,
-    /// Maps a tracking literal to the refinement it was tagged with, so that it can be
-    /// recovered when the literal is later found in an unsat core.
-    tracked: HashMap<oxiz::TermId, IdxLemma>,
-    /// Counter used to give every tracking literal a unique name. `oxiz::TermManager::mk_var`
-    /// hash-conses on `(name, sort)`, so two calls with the same name return the *same* term -
-    /// a fixed literal name here would silently alias every tracked constraint onto one literal.
+    /// Maps the name of a tracked assertion to the refinement it was tagged with, so that it can be
+    /// recovered when the assertion is later found in an unsat core.
+    tracked: HashMap<String, IdxLemma>,
+    /// Counter used to give every tracked assertion a unique name.
     next_tracking_id: u32,
+    /// If set, `check` gives up once this instant has passed.
+    deadline: Option<Instant>,
 }
 
 impl OxiZ {
     pub fn new() -> Self {
         Self {
-            solver: Box::new(oxiz::Solver::new()),
+            solver: {
+                let mut solver = Box::new(oxiz::Solver::new());
+                solver.set_produce_unsat_cores(true);
+                solver
+            },
             terms: Box::new(oxiz::TermManager::new()),
             tracked: HashMap::new(),
             next_tracking_id: 0,
+            deadline: None,
         }
     }
 }
@@ -110,11 +116,8 @@ impl SmtSolver for OxiZ {
     fn assert_tracked(&mut self, constraint: &Self::Bool, lemma: IdxLemma) {
         let name = format!("t{}", self.next_tracking_id);
         self.next_tracking_id += 1;
-        let lit = self.terms.mk_var(&name, self.terms.sorts.bool_sort);
-        let tracked_constraint = self.terms.mk_implies(lit, *constraint);
-        self.solver.assert(tracked_constraint, &mut self.terms);
-        self.solver.assert(lit, &mut self.terms);
-        self.tracked.insert(lit, lemma);
+        self.solver.assert_named(*constraint, &name, &mut self.terms);
+        self.tracked.insert(name, lemma);
     }
 
     fn push(&mut self) {
@@ -124,14 +127,22 @@ impl SmtSolver for OxiZ {
         self.solver.pop();
     }
 
+    fn set_deadline(&mut self, deadline: Option<Instant>) {
+        self.deadline = deadline;
+    }
+
     fn check(&mut self) -> Satisfiability {
+        if let Some(deadline) = self.deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Satisfiability::Unknown;
+            }
+            self.solver.set_timeout(remaining);
+        }
         match self.solver.check(&mut self.terms) {
             oxiz::SolverResult::Sat => Satisfiability::Sat,
             oxiz::SolverResult::Unsat => Satisfiability::Unsat,
-            oxiz::SolverResult::Unknown => panic!(
-                "oxiz solver returned Unknown result! Debug info: {:?}",
-                self.solver
-            ),
+            oxiz::SolverResult::Unknown => Satisfiability::Unknown,
         }
     }
 
@@ -158,12 +169,13 @@ impl SmtSolver for OxiZ {
     }
 
     fn unsat_core(&mut self) -> Vec<IdxLemma> {
-        self.solver
-            .get_unsat_core()
-            .into_iter()
-            .flat_map(|core| core.indices.iter().copied())
-            .map(|assertion_index| self.solver.assertions[assertion_index as usize])
-            .filter_map(|term_id| self.tracked.remove(&term_id))
+        let core = self
+            .solver
+            .minimize_unsat_core(&mut self.terms)
+            .or_else(|| self.solver.get_unsat_core().cloned());
+        core.into_iter()
+            .flat_map(|core| core.names)
+            .filter_map(|name| self.tracked.remove(&name))
             .collect()
     }
 }

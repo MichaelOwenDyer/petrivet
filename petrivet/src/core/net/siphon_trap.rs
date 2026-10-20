@@ -74,6 +74,15 @@ pub fn maximal_trap_in(
     trap
 }
 
+pub enum ProperSiphonWithNoMarkedTrapResult {
+    /// Found a proper siphon whose maximal trap is unmarked in the given marking.
+    Found(IdxSiphon, IdxTrap),
+    /// No proper siphon exists whose maximal trap is unmarked in the given marking.
+    None,
+    /// The solver could not determine whether such a siphon exists.
+    Unknown,
+}
+
 /// Constructs an SMT formula to find a proper siphon whose maximal trap is unmarked
 /// in the given marking.
 ///
@@ -81,7 +90,7 @@ pub fn maximal_trap_in(
 pub fn find_proper_siphon_with_no_marked_trap<S: SmtSolver>(
     net: &DenseNet,
     marking: &IdxMarking<u32>,
-) -> Option<(IdxSiphon, IdxTrap)> {
+) -> ProperSiphonWithNoMarkedTrapResult {
     let mut solver = S::default();
 
     // let solver choose which places to include in the siphon
@@ -147,7 +156,8 @@ pub fn find_proper_siphon_with_no_marked_trap<S: SmtSolver>(
 
     // is there a siphon whose maximal trap is unmarked?
     match solver.check() {
-        Satisfiability::Unsat => None,
+        Satisfiability::Unknown => ProperSiphonWithNoMarkedTrapResult::Unknown,
+        Satisfiability::Unsat => ProperSiphonWithNoMarkedTrapResult::None,
         Satisfiability::Sat => {
             let mut siphon = PlaceIdxSet::none_of(net.place_count());
             let mut trap = PlaceIdxSet::none_of(net.place_count());
@@ -161,7 +171,7 @@ pub fn find_proper_siphon_with_no_marked_trap<S: SmtSolver>(
                 }
             }
 
-            Some((siphon, trap))
+            ProperSiphonWithNoMarkedTrapResult::Found(siphon, trap)
         }
     }
 }

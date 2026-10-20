@@ -1,4 +1,4 @@
-use crate::core::net::siphon_trap::{find_proper_siphon_with_no_marked_trap, maximal_siphon_in, maximal_trap_in};
+use crate::core::net::siphon_trap::{find_proper_siphon_with_no_marked_trap, maximal_siphon_in, maximal_trap_in, ProperSiphonWithNoMarkedTrapResult};
 use crate::core::solver::DefaultSolver;
 use crate::net::{Net, Place};
 use crate::net::siphon_trap::{Siphon, Trap};
@@ -28,6 +28,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// a sufficient condition for liveness in [asymmetric-choice nets],
     /// and a sufficient condition for deadlock-freedom in general.
     ///
+    /// Returns `None` if no conclusion could be reached (the problem overwhelmed the solver).
+    ///
     /// # Errors
     ///
     /// Returns `Err` with a `(Siphon, Trap)` counterexample if the criterion is violated:
@@ -40,12 +42,16 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ///
     /// [free-choice nets]: crate::net::class::NetClass::FreeChoice
     /// [asymmetric-choice nets]: crate::net::class::NetClass::AsymmetricChoice
-    pub fn commoner_hack_criterion(&self) -> CommonerHackCriterionResult {
-        find_proper_siphon_with_no_marked_trap::<DefaultSolver>(&self.dense_net, &self.marking)
-            .map_or(Ok(()), |(siphon, trap)| Err(Box::new((
+    pub fn commoner_hack_criterion(&self) -> Option<CommonerHackCriterionResult> {
+        let result = find_proper_siphon_with_no_marked_trap::<DefaultSolver>(&self.dense_net, &self.marking);
+        match result {
+            ProperSiphonWithNoMarkedTrapResult::Found(siphon, trap) => Some(Err(Box::new((
                 self.mapping.place_set(&siphon),
                 self.mapping.place_set(&trap)
-            ))))
+            )))),
+            ProperSiphonWithNoMarkedTrapResult::None => Some(Ok(())),
+            ProperSiphonWithNoMarkedTrapResult::Unknown => None,
+        }
     }
 
     /// Computes the maximal [`Siphon`] contained in a given set of places.

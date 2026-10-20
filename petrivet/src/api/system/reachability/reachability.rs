@@ -9,6 +9,7 @@ use crate::system::marking::Marking;
 use crate::system::reachability::Lemma;
 use crate::system::reachability::SpuriousSolutionEliminatedEvent;
 use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub enum ReachabilityResult {
@@ -88,6 +89,27 @@ impl<N: AsRef<Net>> PetriNet<N> {
         target: impl Into<Marking<u32>>,
         observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
     ) -> ReachabilityResult {
+        self.analyze_reachability_until(target, observer, None)
+    }
+
+    /// Like [`analyze_reachability`](Self::analyze_reachability), but gives up after `timeout`
+    /// and returns [`ReachabilityResult::Inconclusive`] if the search has not finished by then.
+    #[must_use]
+    pub fn analyze_reachability_within(
+        &self,
+        target: impl Into<Marking<u32>>,
+        timeout: Duration,
+        observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
+    ) -> ReachabilityResult {
+        self.analyze_reachability_until(target, observer, Instant::now().checked_add(timeout))
+    }
+
+    fn analyze_reachability_until(
+        &self,
+        target: impl Into<Marking<u32>>,
+        observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
+        deadline: Option<Instant>,
+    ) -> ReachabilityResult {
         let m0 = &self.marking;
         let target = &self.mapping.idx_marking(target.into());
 
@@ -102,6 +124,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             m0,
             target,
             question: CegarQuestion::Reachable,
+            deadline,
         };
         // Wrap the provided observer in a type-erased closure
         // that maps the internal `IdxCegarEvent` to the public `CegarEvent`.
@@ -117,6 +140,23 @@ impl<N: AsRef<Net>> PetriNet<N> {
 mod tests {
     use crate::net::builder::NetBuilder;
     use crate::net::class::NetClass;
+
+    /// A deadline that has already passed makes the SMT solver give up, which must surface as
+    /// `Inconclusive` (not a panic), while a generous deadline still yields the definite answer.
+    #[test]
+    fn reachability_within_gives_up_at_the_deadline() {
+        use crate::system::reachability::ReachabilityResult;
+        use std::time::Duration;
+        let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
+        let sys = net.with_initial_marking([(p0, 1)]);
+        assert!(matches!(
+            sys.analyze_reachability_within([(p1, 1)], Duration::ZERO, None),
+            ReachabilityResult::Inconclusive
+        ));
+        assert!(sys
+            .analyze_reachability_within([(p1, 1)], Duration::from_secs(60), None)
+            .is_reachable());
+    }
 
     #[test]
     fn s_net_reachability_dispatches() {

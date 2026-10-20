@@ -10,12 +10,17 @@ pub mod oxiz;
 pub mod z3;
 
 use crate::core::cegar::lemma::IdxLemma;
+use std::time::Instant;
 
 /// The result of an SMT satisfiability check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Satisfiability {
+    /// The solver found a satisfying assignment for the current assertions.
     Sat,
+    /// The solver found that the current assertions are unsatisfiable.
     Unsat,
+    /// The solver could not decide satisfiability.
+    Unknown,
 }
 
 #[cfg(feature = "oxiz")]
@@ -82,7 +87,12 @@ pub trait SmtSolver: Default {
     /// Does nothing if there is no matching `push` (i.e. the solver is at the root scope).
     fn pop(&mut self);
 
-    /// Check satisfiability of the current assertions. Panics if the underlying solver answers "unknown".
+    /// Stop checking after `deadline`: a [`check`](SmtSolver::check) that cannot finish in time,
+    /// or that starts after the deadline, returns [`Satisfiability::Unknown`]. `None` means no limit.
+    fn set_deadline(&mut self, deadline: Option<Instant>);
+
+    /// Check satisfiability of the current assertions.
+    /// Returns [`Satisfiability::Unknown`] if the solver gives up, e.g. at the deadline.
     fn check(&mut self) -> Satisfiability;
     /// Read the concrete value assigned to `term` by the model of the last [`Satisfiability::Sat`]
     /// result. Only valid to call after `check` returned `Sat`.
