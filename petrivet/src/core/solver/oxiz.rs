@@ -84,7 +84,7 @@ impl SmtSolver for OxiZ {
         if terms.is_empty() {
             self.terms.mk_true()
         } else {
-            self.terms.mk_and(terms)
+            self.terms.mk_and(terms.iter().copied())
         }
     }
 
@@ -92,7 +92,7 @@ impl SmtSolver for OxiZ {
         if terms.is_empty() {
             self.terms.mk_false()
         } else {
-            self.terms.mk_or(terms)
+            self.terms.mk_or(terms.iter().copied())
         }
     }
 

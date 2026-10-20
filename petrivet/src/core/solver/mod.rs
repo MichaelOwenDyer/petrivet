@@ -24,6 +24,8 @@ pub type DefaultSolver = oxiz::OxiZ;
 pub type DefaultSolver = z3::Z3;
 #[cfg(all(feature = "z3", feature = "oxiz"))]
 compile_error!("features `z3` and `oxiz` are mutually exclusive; pick one backend");
+#[cfg(not(any(feature = "z3", feature = "oxiz")))]
+compile_error!("petrivet requires an SMT solver backend; enable exactly one of the features `z3` (default) or `oxiz`");
 
 /// An incremental SMT solver.
 pub trait SmtSolver: Default {
