@@ -1,0 +1,20 @@
+[package]
+name = "petrivet-cli"
+version = "0.1.0"
+edition = "2024"
+description = "Command-line interface for petrivet"
+repository = "https://github.com/MichaelOwenDyer/petrivet"
+keywords = ["petrinets", "modeling", "analysis"]
+
+[[bin]]
+name = "petrivet"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.7", default-features = false, features = ["derive", "std", "help", "usage", "error-context"] }
+petrivet = { path = "../petrivet", default-features = false, features = ["pnml"] }
+
+[features]
+default = ["z3"]
+z3 = ["petrivet/z3"]
+oxiz = ["petrivet/oxiz"]
