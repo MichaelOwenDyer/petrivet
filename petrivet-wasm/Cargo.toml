@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-petrivet = { path = "../petrivet", features = ["pnml"] }
+petrivet = { path = "../petrivet", default-features = false, features = ["pnml", "oxiz"] }
 wasm-bindgen = "0.2.114"
 tsify-next = { version = "0.5.6", features = ["js"] }
 serde = { version = "1.0.228", features = ["derive"] }
