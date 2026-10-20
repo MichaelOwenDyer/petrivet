@@ -164,7 +164,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         }
     }
 
-    /// Consumes the system and returns (`net`, `initial_marking`, `current_marking`).
+    /// Consumes the system and returns (`net`, `current_marking`, `original_marking`).
     #[must_use]
     pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
         let PetriNet {
@@ -307,7 +307,7 @@ impl std::error::Error for NotEnabled {}
 mod pnml {
     use crate::net::Net;
     use crate::pnml::PnmlDocument;
-    use crate::pnml::convert::PnmlConversionError;
+    use crate::pnml::import::PnmlConversionError;
     use crate::system::PetriNet;
     use std::error::Error;
     use std::fmt;

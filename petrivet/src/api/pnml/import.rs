@@ -218,7 +218,7 @@ impl<'a> FlatNet<'a> {
 /// representation of a P/T net. This function contains all the business logic
 /// shared by `to_petri_net` and `to_pt_system`.
 #[expect(clippy::too_many_lines)]
-fn convert_pt_net(pnml_net: &net::PnmlNet) -> Result<PetriNet<Net>, PnmlConversionError> {
+fn import_pt_net(pnml_net: &net::PnmlNet) -> Result<PetriNet<Net>, PnmlConversionError> {
     let mut flat = FlatNet::new();
     for page in &pnml_net.pages {
         flat.visit_page(page)?;
@@ -464,7 +464,7 @@ impl net::PnmlNet {
     pub fn to_petri_net(&self) -> Result<PetriNetKind, PnmlConversionError> {
         match self.net_type.as_str() {
             net_type::PT_NET => {
-                let sys = convert_pt_net(self)?;
+                let sys = import_pt_net(self)?;
                 Ok(PetriNetKind::PtNet(Box::new(sys)))
             }
             other => Ok(PetriNetKind::Unsupported {
@@ -477,7 +477,7 @@ impl net::PnmlNet {
     /// Converts this PNML net into a P/T net system, asserting that the net's
     /// type URI is [`net_type::PT_NET`].
     ///
-    /// Returns `(System<Net>, NetLabels, PnmlGraphics)`.
+    /// Returns Ok(`PetriNet<Net>`) if the conversion succeeds, or
     ///
     /// # Errors
     ///
@@ -489,7 +489,7 @@ impl net::PnmlNet {
         if self.net_type != net_type::PT_NET {
             return Err(PnmlConversionError::WrongNetType(self.net_type.clone()));
         }
-        convert_pt_net(self)
+        import_pt_net(self)
     }
 }
 

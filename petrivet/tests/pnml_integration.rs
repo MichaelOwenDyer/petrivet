@@ -10,7 +10,7 @@
 
 use petrivet::net::Net;
 use petrivet::pnml::PnmlDocument;
-use petrivet::pnml::convert::PetriNetKind;
+use petrivet::pnml::import::PetriNetKind;
 use petrivet::pnml::labels::NetLabels;
 use petrivet::system::PetriNet;
 
@@ -238,4 +238,43 @@ fn mcc_cops_and_robers_circular_small_parses() {
     assert!(sys.place_count() >= 8);
     assert!(sys.transition_count() >= 1);
     assert!(labels.nupn().is_none(), "this fixture has no NUPN block");
+}
+
+// ── Export round trips ────────────────────────────────────────────────────────
+
+fn assert_round_trips(path: &str) {
+    let (sys, labels) = first_pt_net(&load(path));
+    let xml = sys.to_pnml().expect("export failed");
+    let again = PetriNet::from_pnml(&xml).expect("re-import failed");
+    let again_labels = again.labels.as_ref().unwrap();
+
+    assert_eq!(again.place_count(), sys.place_count(), "{path}");
+    assert_eq!(again.transition_count(), sys.transition_count(), "{path}");
+    assert_eq!(again.arc_count(), sys.arc_count(), "{path}");
+    assert_eq!(
+        again.marking().total_tokens(),
+        sys.marking().total_tokens(),
+        "{path}"
+    );
+    assert_eq!(again_labels.net_id(), labels.net_id(), "{path}");
+    assert_eq!(again_labels.net_name(), labels.net_name(), "{path}");
+    assert_eq!(
+        again_labels.named_places().count(),
+        labels.named_places().count(),
+        "{path}"
+    );
+    assert_eq!(again_labels.nupn(), labels.nupn(), "{path}");
+}
+
+#[test]
+fn export_round_trips_fixtures() {
+    for entry in std::fs::read_dir("tests/fixtures").unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|e| e == "pnml") {
+            let doc = load(path.to_str().unwrap());
+            if doc.nets[0].to_pt_system().is_ok() {
+                assert_round_trips(path.to_str().unwrap());
+            }
+        }
+    }
 }
