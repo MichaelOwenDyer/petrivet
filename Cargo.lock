@@ -671,13 +671,15 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "oxiz"
-version = "0.3.1"
-source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=pub-assertions#00ff4c10d99aabb602a7e31e634bd81984ed4d87"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17f7151c29f5ea33747e77df74cbb9a56ec613bd5e874f0ab06d836552ce711b"
 dependencies = [
  "num-bigint",
  "num-traits",
  "oxiz-core",
  "oxiz-math",
+ "oxiz-nlsat",
  "oxiz-sat",
  "oxiz-solver",
  "oxiz-theories",
@@ -685,18 +687,18 @@ dependencies = [
 
 [[package]]
 name = "oxiz-core"
-version = "0.3.1"
-source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=pub-assertions#00ff4c10d99aabb602a7e31e634bd81984ed4d87"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2288903969df07d2679656c418671be93a8787d74071610eb7066c2fa2d5f7d8"
 dependencies = [
  "bumpalo",
  "hashbrown 0.17.1",
- "indexmap",
  "lasso",
  "num-bigint",
  "num-integer",
  "num-rational",
  "num-traits",
- "oxiz-math",
+ "oxiz-time",
  "parking_lot",
  "portable-atomic",
  "portable-atomic-util",
@@ -712,14 +714,16 @@ dependencies = [
 
 [[package]]
 name = "oxiz-math"
-version = "0.3.1"
-source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=pub-assertions#00ff4c10d99aabb602a7e31e634bd81984ed4d87"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b509a1b624ba5d066a32112c8791cfedc77924eccc44c5fabb64e41a090a8010"
 dependencies = [
  "hashbrown 0.17.1",
  "num-bigint",
  "num-integer",
  "num-rational",
  "num-traits",
+ "oxiz-time",
  "rand",
  "rustc-hash",
  "smallvec",
@@ -728,46 +732,46 @@ dependencies = [
 
 [[package]]
 name = "oxiz-nlsat"
-version = "0.3.1"
-source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=pub-assertions#00ff4c10d99aabb602a7e31e634bd81984ed4d87"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca7b564e24dacaaf1a77477885e34eb412ddf6c3dd868c428bb5dc2b2b6d5f4c"
 dependencies = [
  "num-bigint",
  "num-rational",
  "num-traits",
  "num_cpus",
- "oxiz-core",
  "oxiz-math",
+ "oxiz-time",
  "rayon",
  "rustc-hash",
  "smallvec",
- "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
 name = "oxiz-proof"
-version = "0.3.1"
-source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=pub-assertions#00ff4c10d99aabb602a7e31e634bd81984ed4d87"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "376c65dd65b19f18c1abbed07bcd6b784c5cb111e3e7e7bb18c43771a660709a"
 dependencies = [
- "num-bigint",
  "num-rational",
- "num-traits",
  "oxiz-core",
+ "oxiz-time",
  "regex",
  "rustc-hash",
  "smallvec",
  "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
 name = "oxiz-sat"
-version = "0.3.1"
-source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=pub-assertions#00ff4c10d99aabb602a7e31e634bd81984ed4d87"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "631dcbac92b0cff3158525bfbb5df193e948479ebad666c44b202bb5aedc9b26"
 dependencies = [
  "hashbrown 0.17.1",
  "libm",
  "oxiz-core",
+ "oxiz-time",
  "portable-atomic-util",
  "rayon",
  "rustc-hash",
@@ -777,8 +781,9 @@ dependencies = [
 
 [[package]]
 name = "oxiz-solver"
-version = "0.3.1"
-source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=pub-assertions#00ff4c10d99aabb602a7e31e634bd81984ed4d87"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f1fbc781eb6120f6a187710164da607acdd23339b6f46cee934271f707d48cf"
 dependencies = [
  "hashbrown 0.17.1",
  "num-bigint",
@@ -788,6 +793,7 @@ dependencies = [
  "oxiz-proof",
  "oxiz-sat",
  "oxiz-theories",
+ "oxiz-time",
  "portable-atomic-util",
  "rayon",
  "rustc-hash",
@@ -797,23 +803,32 @@ dependencies = [
 
 [[package]]
 name = "oxiz-theories"
-version = "0.3.1"
-source = "git+https://github.com/MichaelOwenDyer/oxiz.git?branch=pub-assertions#00ff4c10d99aabb602a7e31e634bd81984ed4d87"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e6cab9c13bd66c9075380f255ec63e477835eed2d424522c52e49ce9c9da563"
 dependencies = [
  "egg",
  "hashbrown 0.17.1",
  "num-bigint",
+ "num-integer",
  "num-rational",
  "num-traits",
  "oxiz-core",
  "oxiz-math",
  "oxiz-nlsat",
  "oxiz-sat",
+ "oxiz-time",
  "portable-atomic-util",
  "rustc-hash",
  "smallvec",
  "tracing",
 ]
+
+[[package]]
+name = "oxiz-time"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b206e1a0f0bc347ab0a07e24d7e8c6778a716436aa470e9af420300d02ecb6b"
 
 [[package]]
 name = "page_size"
