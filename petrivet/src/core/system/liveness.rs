@@ -76,6 +76,13 @@ impl LivenessCache {
         liveness.most = level;
     }
 
+    /// Updates the least known liveness level for a transition to the given level.
+    pub fn update_lower_bound(&mut self, t_idx: TransitionIdx, level: LivenessLevel) {
+        let liveness = &mut self.by_transition[t_idx];
+        debug_assert!(liveness.least <= level, "cannot decrease the least known liveness level");
+        liveness.least = level;
+    }
+
     /// Returns true if we can answer the liveness question for the given scope and query
     /// with the current liveness cache.
     pub fn is_answered(&self, scope: LivenessScope, query: LivenessQuery) -> bool {

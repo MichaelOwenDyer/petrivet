@@ -92,6 +92,16 @@ pub fn find_proper_siphon_with_no_marked_trap<S: SmtSolver>(
     marking: &IdxMarking<u32>,
     deadline: Option<std::time::Instant>,
 ) -> ProperSiphonWithNoMarkedTrapResult {
+    // the formula has a term for every arc in every one of |P| rounds, so for a large net
+    // building and asserting it is slow enough to need bounding by more than the final `check`
+    S::with_deadline(deadline, || find_proper_siphon_with_no_marked_trap_unbounded::<S>(net, marking, deadline))
+}
+
+fn find_proper_siphon_with_no_marked_trap_unbounded<S: SmtSolver>(
+    net: &DenseNet,
+    marking: &IdxMarking<u32>,
+    deadline: Option<std::time::Instant>,
+) -> ProperSiphonWithNoMarkedTrapResult {
     let mut solver = S::default();
     solver.set_deadline(deadline);
 
@@ -128,8 +138,13 @@ pub fn find_proper_siphon_with_no_marked_trap<S: SmtSolver>(
     // Start with the siphon itself as the initial candidate for the trap, and "iteratively" remove
     // places that violate the trap property Q• ⊆ •Q. This is done by unrolling the loop for a fixed
     // upper bound of iterations (number of places in the net).
-    let in_trap = (0..net.place_count()).fold(in_siphon.clone(), |in_trap, _| {
-        net.postset_p
+    let mut in_trap = in_siphon.clone();
+    for _ in 0..net.place_count() {
+        // each round adds a term for every arc, so on a large net building the formula alone takes a while
+        if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            return ProperSiphonWithNoMarkedTrapResult::Unknown;
+        }
+        in_trap = net.postset_p
             .iter()
             .zip(in_trap.iter())
             .map(|(consuming_transitions, currently_in_trap)| {
@@ -147,8 +162,8 @@ pub fn find_proper_siphon_with_no_marked_trap<S: SmtSolver>(
                 );
                 solver.and(&[currently_in_trap.clone(), trap_condition_continues_to_hold])
             })
-            .collect::<Vec<_>>()
-    });
+            .collect::<Vec<_>>();
+    }
 
     // look for an unmarked trap
     for p_idx in marking.support() {

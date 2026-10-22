@@ -3,8 +3,9 @@
 use crate::core::cegar::lemma::IdxLemma;
 use crate::core::solver::{Satisfiability, SmtSolver};
 use ahash::{HashMap, HashMapExt};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Instant;
-use z3::SatResult;
+use z3::{Config, Context, SatResult};
 use z3::ast::{Bool, Int};
 
 /// An incremental SMT solver backed by the `z3` SMT solver via its Rust bindings.
@@ -116,6 +117,40 @@ impl SmtSolver for Z3 {
 
     fn pop(&mut self) {
         self.solver.pop(1);
+    }
+
+    /// Z3's `timeout` parameter only bounds `check`. Asserting a very large formula makes Z3
+    /// rewrite it first, which can take far longer than solving and is not covered by that
+    /// parameter, but an interrupt cancels it.
+    ///
+    /// An interrupt that no running `check` consumes stays pending on its context and
+    /// makes later work on that context misbehave, so the work runs in a context of its own,
+    /// which is discarded afterwards together with any pending interrupt.
+    fn with_deadline<R: Send + Sync>(
+        deadline: Option<Instant>,
+        work: impl FnOnce() -> R + Send + Sync,
+    ) -> R {
+        let Some(deadline) = deadline else {
+            return work();
+        };
+        z3::with_z3_config(&Config::new(), move || {
+            // inside the closure, the thread-local context is the fresh one
+            let context = Context::thread_local();
+            let (finished, is_finished) = mpsc::channel::<()>();
+            std::thread::scope(|scope| {
+                let handle = context.handle();
+                scope.spawn(move || {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    // only a timeout interrupts: finishing drops the sender and wakes this thread
+                    if let Err(RecvTimeoutError::Timeout) = is_finished.recv_timeout(remaining) {
+                        handle.interrupt();
+                    }
+                });
+                let result = work();
+                drop(finished);
+                result
+            })
+        })
     }
 
     fn set_deadline(&mut self, deadline: Option<Instant>) {

@@ -9,6 +9,24 @@ use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, Explore
 use crate::net::{Net, Place, Transition};
 use crate::system::{PetriNet, marking::Marking};
 use std::iter::Sum;
+use std::time::{Duration, Instant};
+
+/// Exploration stopped because its deadline passed before it could finish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeadlineExceeded;
+
+impl std::fmt::Display for DeadlineExceeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the deadline passed before exploration finished")
+    }
+}
+
+impl std::error::Error for DeadlineExceeded {}
+
+/// The point in time `timeout` from now, or `None` (no deadline) if that is out of range.
+fn deadline_after(timeout: Duration) -> Option<Instant> {
+    Instant::now().checked_add(timeout)
+}
 
 /// Controls frontier traversal order.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
@@ -146,12 +164,52 @@ where
             .map(|idx_marking| self.mapping.marking(idx_marking.clone()))
     }
 
+    /// Like [`find_cover`](StateGraphExplorer::find_cover), but gives up after `timeout` has elapsed.
+    ///
+    /// # Errors
+    /// Returns [`DeadlineExceeded`] if the timeout elapsed before a covering marking was found
+    /// or the state space was exhausted. Exploration keeps its progress, so it can be resumed.
+    pub fn find_cover_timeout(
+        &mut self,
+        target: Marking<T>,
+        timeout: Duration,
+    ) -> Result<Option<Marking<T>>, DeadlineExceeded> {
+        self.find_cover_until(target, deadline_after(timeout))
+    }
+
+    /// Like [`find_cover`](StateGraphExplorer::find_cover), but gives up once `deadline` has passed.
+    ///
+    /// The clock is read periodically, not after every marking, so exploration may run slightly
+    /// past the deadline. `Ok(None)` means the whole state space was explored without finding a
+    /// covering marking, which is different from running out of time.
+    ///
+    /// # Errors
+    /// Returns [`DeadlineExceeded`] if the deadline passed before a covering marking was found
+    /// or the state space was exhausted. Exploration keeps its progress, so it can be resumed.
+    pub fn find_cover_until(
+        &mut self,
+        target: Marking<T>,
+        deadline: Option<Instant>,
+    ) -> Result<Option<Marking<T>>, DeadlineExceeded> {
+        let target_idx_marking = self.mapping.idx_marking(target);
+        let found = self
+            .core
+            .search(|idx_marking| *idx_marking >= target_idx_marking, deadline)
+            .map(|idx_marking| self.mapping.marking(idx_marking.clone()));
+        // `search` also returns `None` when it runs out of time, which proves nothing
+        if found.is_none() && !self.is_fully_explored() {
+            return Err(DeadlineExceeded);
+        }
+        Ok(found)
+    }
+
     /// Drive exploration until the entire reachable state space is discovered,
     /// returning the resulting state graph.
     ///
     /// **Note**: if the graph is large, this may take a long time and consume a lot of memory.
     /// If the state space is infinite, this will not terminate and will eventually exhaust all available memory.
-    /// Use with caution, and consider incremental exploration via `explore_next` or `explore_iter` instead.
+    /// Use with caution, and consider incremental exploration via `explore_next` or `explore_iter` instead,
+    /// or bound the time with [`build_graph_timeout`](StateGraphExplorer::build_graph_timeout).
     #[must_use]
     pub fn build_graph(mut self) -> StateGraph<'a, T> {
         while self.core.explore_next().is_some() {}
@@ -159,6 +217,38 @@ where
             state_space: self.core.state_space,
             mapping: self.mapping,
         }
+    }
+
+    /// Like [`build_graph`](StateGraphExplorer::build_graph), but gives up after `timeout` has elapsed.
+    ///
+    /// # Errors
+    /// Returns the partially explored explorer if the timeout elapsed first.
+    /// Its frontier is preserved, so exploration can be resumed if desired.
+    #[allow(clippy::result_large_err)]
+    pub fn build_graph_timeout(self, timeout: Duration) -> Result<StateGraph<'a, T>, Self> {
+        self.build_graph_until(deadline_after(timeout))
+    }
+
+    /// Like [`build_graph`](StateGraphExplorer::build_graph), but gives up once `deadline` has passed.
+    ///
+    /// The clock is read periodically, not after every marking, so exploration may run slightly
+    /// past the deadline.
+    ///
+    /// # Errors
+    /// Returns the partially explored explorer if the deadline passed first.
+    /// Its frontier is preserved, so exploration can be resumed if desired.
+    #[allow(clippy::result_large_err)]
+    pub fn build_graph_until(mut self, deadline: Option<Instant>) -> Result<StateGraph<'a, T>, Self> {
+        let mut time_is_up = crate::core::state_space::deadline_checker(deadline);
+        while self.core.explore_next().is_some() {
+            if time_is_up() && !self.is_fully_explored() {
+                return Err(self);
+            }
+        }
+        Ok(StateGraph {
+            state_space: self.core.state_space,
+            mapping: self.mapping,
+        })
     }
 }
 
@@ -333,6 +423,19 @@ impl<N: AsRef<Net>> PetriNet<N> {
         self.explore_coverability_graph(ExplorationOrder::BreadthFirst).build_graph()
     }
 
+    /// Like [`build_coverability_graph`](PetriNet::build_coverability_graph),
+    /// but gives up after `timeout` has elapsed.
+    ///
+    /// # Errors
+    /// Returns the partially explored coverability explorer if the timeout elapsed first.
+    #[allow(clippy::result_large_err)]
+    pub fn build_coverability_graph_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<CoverabilityGraph<'_>, CoverabilityExplorer<'_>> {
+        self.explore_coverability_graph(ExplorationOrder::BreadthFirst).build_graph_timeout(timeout)
+    }
+
     /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
     /// returning either itself if the system is bounded or a partially-explored
     /// [`CoverabilityExplorer`] if it is unbounded.
@@ -360,10 +463,97 @@ impl<N: AsRef<Net>> PetriNet<N> {
         self.explore_coverability_graph(ExplorationOrder::BreadthFirst).try_build_reachability_graph()
     }
 
+    /// Like [`try_build_reachability_graph`](PetriNet::try_build_reachability_graph),
+    /// but gives up after `timeout` has elapsed.
+    ///
+    /// # Errors
+    /// Returns the partially explored coverability explorer, with the reason it stopped:
+    /// the system is unbounded, or the timeout elapsed.
+    #[allow(clippy::result_large_err)]
+    pub fn try_build_reachability_graph_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<ReachabilityGraph<'_>, ReachabilityGraphStopped<'_>> {
+        self.explore_coverability_graph(ExplorationOrder::BreadthFirst)
+            .try_build_reachability_graph_timeout(timeout)
+    }
+
     /// Returns the complete reachability graph for this system.
     ///
     /// WARNING! For unbounded nets, this will not terminate!
+    /// Use [`build_reachability_graph_timeout`](PetriNet::build_reachability_graph_timeout)
+    /// when boundedness is not known.
     pub fn build_reachability_graph(&self) -> ReachabilityGraph<'_> {
         self.explore_reachability_graph(ExplorationOrder::BreadthFirst).build_graph()
+    }
+
+    /// Like [`build_reachability_graph`](PetriNet::build_reachability_graph),
+    /// but gives up after `timeout` has elapsed, which also ends the exploration of an unbounded net.
+    ///
+    /// # Errors
+    /// Returns the partially explored reachability explorer if the timeout elapsed first.
+    #[allow(clippy::result_large_err)]
+    pub fn build_reachability_graph_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<ReachabilityGraph<'_>, ReachabilityGraphExplorer<'_>> {
+        self.explore_reachability_graph(ExplorationOrder::BreadthFirst).build_graph_timeout(timeout)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::net::builder::NetBuilder;
+
+    /// Forty tokens circulating through a triangle of places: 861 markings and 2583 edges,
+    /// more steps than are taken between two readings of the clock.
+    fn a_few_thousand_steps() -> (PetriNet, Place) {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1, t2] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p1));
+        b.add_arc((p1, t1));
+        b.add_arc((t1, p2));
+        b.add_arc((p2, t2));
+        b.add_arc((t2, p0));
+        (PetriNet::new(b.build().unwrap(), [(p0, 40)]), p0)
+    }
+
+    #[test]
+    fn build_graph_gives_up_at_the_deadline_and_can_be_resumed() {
+        let (sys, _) = a_few_thousand_steps();
+        let expired = Some(Instant::now());
+
+        let partial = sys
+            .explore_reachability_graph(ExplorationOrder::BreadthFirst)
+            .build_graph_until(expired)
+            .expect_err("the deadline has passed");
+        assert!(!partial.is_fully_explored());
+        assert!(partial.marking_count() < 861);
+
+        // the frontier is preserved: resuming without a deadline finishes the job
+        let graph = partial.build_graph_until(None).expect("no deadline");
+        assert_eq!(graph.marking_count(), 861);
+
+        assert!(sys.build_reachability_graph_timeout(Duration::from_secs(60)).is_ok());
+        assert!(sys.build_coverability_graph_timeout(Duration::from_secs(60)).is_ok());
+        assert!(sys.try_build_reachability_graph_timeout(Duration::from_secs(60)).is_ok());
+    }
+
+    #[test]
+    fn find_cover_tells_a_missing_cover_from_running_out_of_time() {
+        let (sys, place) = a_few_thousand_steps();
+        // there are only forty tokens, so forty-one on one place is not coverable
+        let uncoverable: Marking<u32> = [(place, 41)].into_iter().collect();
+
+        let mut explorer = sys.explore_reachability_graph(ExplorationOrder::BreadthFirst);
+        assert_eq!(
+            explorer.find_cover_until(uncoverable.clone(), Some(Instant::now())),
+            Err(DeadlineExceeded)
+        );
+        // resumed without a deadline, the exhausted state space is a definite "no"
+        assert_eq!(explorer.find_cover_until(uncoverable, None), Ok(None));
     }
 }

@@ -87,6 +87,22 @@ pub trait SmtSolver: Default {
     /// Does nothing if there is no matching `push` (i.e. the solver is at the root scope).
     fn pop(&mut self);
 
+    /// Runs `work`, which creates and uses solvers of this type, and makes it give up promptly
+    /// once `deadline` has passed, even while the backend is busy outside of
+    /// [`check`](SmtSolver::check), for example while asserting a very large formula.
+    ///
+    /// Work that gives up must still end in a [`check`](SmtSolver::check) that returns
+    /// [`Satisfiability::Unknown`] (see [`set_deadline`](SmtSolver::set_deadline), which `work` has to call
+    /// as well), because terms and assertions built after the deadline are not reliable.
+    /// Backends that cannot interrupt themselves just run `work`; `None` means no limit.
+    fn with_deadline<R: Send + Sync>(
+        deadline: Option<Instant>,
+        work: impl FnOnce() -> R + Send + Sync,
+    ) -> R {
+        let _ = deadline;
+        work()
+    }
+
     /// Stop checking after `deadline`: a [`check`](SmtSolver::check) that cannot finish in time,
     /// or that starts after the deadline, returns [`Satisfiability::Unknown`]. `None` means no limit.
     fn set_deadline(&mut self, deadline: Option<Instant>);

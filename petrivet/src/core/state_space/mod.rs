@@ -208,6 +208,29 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     }
 }
 
+/// Number of calls to a [`deadline_checker`] between two reads of the clock.
+const DEADLINE_CHECK_INTERVAL: u32 = 1000;
+
+/// Returns a function that reports whether `deadline` has passed.
+///
+/// Reading the clock on every explored state would dominate the cost of exploration, so the
+/// returned function consults it only once every [`DEADLINE_CHECK_INTERVAL`] calls
+/// and answers `false` in between. Without a deadline it always answers `false`.
+pub fn deadline_checker(deadline: Option<std::time::Instant>) -> impl FnMut() -> bool {
+    let mut calls_since_last_check = 0;
+    move || {
+        let Some(deadline) = deadline else {
+            return false;
+        };
+        calls_since_last_check += 1;
+        if calls_since_last_check < DEADLINE_CHECK_INTERVAL {
+            return false;
+        }
+        calls_since_last_check = 0;
+        std::time::Instant::now() >= deadline
+    }
+}
+
 impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T>
 where
     DenseStateGraphExplorer<'a, T>: ExploreNext<T>,
@@ -247,20 +270,7 @@ where
         mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
         deadline: Option<std::time::Instant>,
     ) -> Option<&IdxMarking<T>> {
-        let mut states_explored_since_last_check = 0;
-        let mut time_is_up = || {
-            if let Some(deadline) = deadline {
-                states_explored_since_last_check += 1;
-                if states_explored_since_last_check >= 1000 {
-                    states_explored_since_last_check = 0;
-                    std::time::Instant::now() >= deadline
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        };
+        let mut time_is_up = deadline_checker(deadline);
         while let Some((_t_idx, node_idx, is_new)) = self.explore_next() {
             if is_new && predicate(self.state_space.marking_at(node_idx)) {
                 return Some(self.state_space.marking_at(node_idx));

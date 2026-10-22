@@ -2,6 +2,7 @@ use crate::core::net::TransitionIdx;
 use crate::core::system::liveness::LivenessCache;
 use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
+use crate::state_space::ExplorationOrder;
 use crate::system::PetriNet;
 use ahash::HashMap;
 use bon::bon;
@@ -327,7 +328,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         if matches!(effort, LivenessEffort::Efficient) {
             return;
         }
-        self.refine_liveness_by_all_procedures(cache);
+        self.refine_liveness_by_all_procedures(cache, deadline);
     }
 
     /// Sets transitions to L0 whose preset overlaps with the largest unmarked proper siphon.
@@ -378,21 +379,33 @@ impl<N: AsRef<Net>> PetriNet<N> {
     fn refine_liveness_by_all_procedures(
         &self,
         cache: &mut LivenessCache,
+        deadline: Option<std::time::Instant>,
     ) {
         match self.class() {
-            NetClass::FreeChoice | NetClass::AsymmetricChoice if self.commoner_hack_criterion() == Some(Ok(())) => {
+            NetClass::FreeChoice | NetClass::AsymmetricChoice if self.commoner_hack_criterion_until(deadline) == Some(Ok(())) => {
                 for t_idx in self.dense_net.transition_indices() {
                     cache.update_exact(t_idx, LivenessLevel::L4);
                 }
             },
-            _ if let Ok(rg) = self.try_build_reachability_graph() => {
-                for (transition, liveness) in rg.transition_liveness().levels {
-                    if let Some(t_idx) = self.mapping.transition_idx(transition) {
-                        cache.update_exact(t_idx, liveness);
+            _ if deadline.is_some_and(|d| std::time::Instant::now() >= d) => {},
+            _ => {
+                match self
+                    .explore_coverability_graph(ExplorationOrder::BreadthFirst)
+                    .try_build_reachability_graph_until(deadline) {
+                    Ok(rg) => {
+                        for (transition, liveness) in rg.transition_liveness().levels {
+                            if let Some(t_idx) = self.mapping.transition_idx(transition) {
+                                cache.update_exact(t_idx, liveness);
+                            }
+                        }
+                    }
+                    Err(stopped) => {
+                        for &t_idx in stopped.explorer.core.state_space.graph.edge_weights() {
+                            cache.update_lower_bound(t_idx, LivenessLevel::L1);
+                        }
                     }
                 }
-            },
-            _ => {}
+            }
         }
     }
 

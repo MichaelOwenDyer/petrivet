@@ -302,3 +302,69 @@ fn philo_methods_fall_back_to_state_space_where_no_shortcut_applies() {
     assert!(!sys.is_deadlock_free().call().unwrap());
     assert_eq!(sys.boundedness().call().unwrap(), Boundedness::Bounded(1));
 }
+// ── Deadlines ─────────────────────────────────────────────────────────────────
+
+/// A general net with no structural shortcut for deadlock-freedom: only exhausting the state
+/// space proves that it is deadlock-free.
+const DEADLOCK_FREE_ONLY_BY_EXPLORATION: &str = r#"<?xml version="1.0"?>
+<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml"><net id="n" type="http://www.pnml.org/version-2009/grammar/ptnet"><page id="pg">
+<place id="p0"><initialMarking><text>2</text></initialMarking></place>
+<place id="p1"><initialMarking><text>1</text></initialMarking></place>
+<place id="p2"><initialMarking><text>2</text></initialMarking></place>
+<transition id="t0"/><transition id="t1"/><transition id="t2"/><transition id="t3"/>
+<arc id="a0" source="p0" target="t1"/><arc id="a1" source="p0" target="t2"/><arc id="a2" source="p0" target="t3"/>
+<arc id="a3" source="p1" target="t0"/><arc id="a4" source="p1" target="t1"/><arc id="a5" source="t0" target="p1"/>
+<arc id="a6" source="t1" target="p2"/><arc id="a7" source="t2" target="p1"/><arc id="a8" source="t3" target="p1"/>
+</page></net></pnml>"#;
+
+/// An exhausted search is an answer, not a give-up.
+#[test]
+fn exhausting_the_state_space_proves_deadlock_freedom() {
+    let doc = PnmlDocument::from_xml(DEADLOCK_FREE_ONLY_BY_EXPLORATION).unwrap();
+    let (sys, _) = first_pt_net(&doc);
+
+    assert_eq!(sys.is_deadlock_free().call(), Some(true));
+}
+
+/// The Commoner/Hack encoding of a large net is big enough that Z3 spends minutes asserting it.
+/// The deadline must cut that short, and must leave the thread's solver usable afterwards.
+#[cfg(feature = "z3")]
+#[test]
+fn deadline_bounds_deadlock_freedom_of_a_large_net() {
+    let doc = load("tests/fixtures/aslink_01_a.pnml");
+    let (sys, _) = first_pt_net(&doc);
+
+    let start = std::time::Instant::now();
+    let answer = sys.is_deadlock_free().timeout(std::time::Duration::from_millis(50)).call();
+    assert!(start.elapsed() < std::time::Duration::from_secs(10), "took {:?}", start.elapsed());
+    assert_ne!(answer, Some(false), "a give-up must not be reported as a deadlock");
+
+    // an interrupt must not leave this thread's Z3 context unusable: a later query that
+    // needs the solver has to be answered, quickly and correctly
+    let mut b = petrivet::net::builder::NetBuilder::new();
+    let [p0, p1] = b.add_places();
+    let [t0, t1] = b.add_transitions();
+    b.add_arc((p0, t0));
+    b.add_arc((t0, p1));
+    b.add_arc((p1, t1));
+    b.add_arc((t1, p0));
+    let sys = PetriNet::new(b.build().unwrap(), [(p0, 1)]);
+    let start = std::time::Instant::now();
+    let reachable = sys
+        .analyze_reachability_within([(p1, 1)], std::time::Duration::from_secs(30), None)
+        .is_reachable();
+    assert!(reachable);
+    assert!(start.elapsed() < std::time::Duration::from_secs(10), "took {:?}", start.elapsed());
+}
+
+/// Liveness of a general net falls back to the state space, which must respect the deadline too.
+#[test]
+fn deadline_bounds_liveness_of_a_large_net() {
+    let doc = load("tests/fixtures/aslink_01_a.pnml");
+    let (sys, _) = first_pt_net(&doc);
+
+    let start = std::time::Instant::now();
+    let answer = sys.is_live().timeout(std::time::Duration::from_millis(50)).call();
+    assert!(start.elapsed() < std::time::Duration::from_secs(10), "took {:?}", start.elapsed());
+    assert_eq!(answer, None);
+}

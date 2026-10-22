@@ -219,13 +219,16 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 }
             },
             BoundednessQuery::Bounded => {
-                match self.try_build_reachability_graph() {
+                let explorer = self.explore_coverability_graph(ExplorationOrder::BreadthFirst);
+                match explorer.try_build_reachability_graph_until(deadline) {
                     Ok(rg) => {
                         let max = rg.state_space.markings().fold(IdxMarking::zeros(self.place_count()), IdxMarking::componentwise_max);
                         cache.update_exact(&max.into(), BoundednessAnalysisMethod::ReachabilityGraph);
                     }
-                    Err(cg) => {
-                        for marking in cg.core.state_space.markings() {
+                    Err(stopped) => {
+                        // Unbounded, or out of time: either way every explored marking is reachable
+                        // (or covered by a reachable one), so it is a valid lower bound.
+                        for marking in stopped.explorer.core.state_space.markings() {
                             cache.update_lower_bound(marking, BoundednessAnalysisMethod::CoverabilityGraph);
                         }
                     }
@@ -235,7 +238,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 let mut cg = self.explore_coverability_graph(ExplorationOrder::BreadthFirst);
                 cg.core.find(|_| false, deadline);
                 let max = cg.core.state_space.markings().fold(IdxMarking::zeros(self.place_count()), IdxMarking::componentwise_max);
-                cache.update_exact(&max, BoundednessAnalysisMethod::CoverabilityGraph);
+                if cg.is_fully_explored() {
+                    cache.update_exact(&max, BoundednessAnalysisMethod::CoverabilityGraph);
+                } else {
+                    // out of time: the maximum seen so far is only a lower bound
+                    cache.update_lower_bound(&max, BoundednessAnalysisMethod::CoverabilityGraph);
+                }
             }
         }
     }

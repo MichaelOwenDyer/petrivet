@@ -195,11 +195,50 @@ impl<'a> CoverabilityExplorer<'a> {
     /// The returned explorer has its frontier preserved, so exploration can be
     /// resumed if desired.
     #[allow(clippy::result_large_err)]
-    pub fn try_build_reachability_graph(mut self) -> Result<ReachabilityGraph<'a>, Self> {
+    pub fn try_build_reachability_graph(self) -> Result<ReachabilityGraph<'a>, Self> {
+        self.try_build_reachability_graph_until(None).map_err(|stopped| stopped.explorer)
+    }
+
+    /// Like [`try_build_reachability_graph`](Self::try_build_reachability_graph),
+    /// but gives up after `timeout` has elapsed.
+    ///
+    /// The clock is read periodically, not after every marking, so exploration may run slightly
+    /// past the deadline.
+    ///
+    /// # Errors
+    /// Returns the partially explored explorer, with the [reason](StopReason) it stopped.
+    /// Its frontier is preserved, so exploration can be resumed if desired.
+    #[allow(clippy::result_large_err)]
+    pub fn try_build_reachability_graph_timeout(
+        self,
+        timeout: std::time::Duration
+    ) -> Result<ReachabilityGraph<'a>, ReachabilityGraphStopped<'a>> {
+        let deadline = std::time::Instant::now().checked_add(timeout);
+        self.try_build_reachability_graph_until(deadline)
+    }
+
+    /// Like [`try_build_reachability_graph`](Self::try_build_reachability_graph),
+    /// but gives up once `deadline` has passed.
+    ///
+    /// The clock is read periodically, not after every marking, so exploration may run slightly
+    /// past the deadline.
+    ///
+    /// # Errors
+    /// Returns the partially explored explorer, with the [reason](StopReason) it stopped.
+    /// Its frontier is preserved, so exploration can be resumed if desired.
+    #[allow(clippy::result_large_err)]
+    pub fn try_build_reachability_graph_until(
+        mut self,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<ReachabilityGraph<'a>, ReachabilityGraphStopped<'a>> {
+        let mut time_is_up = crate::core::state_space::deadline_checker(deadline);
         while let Some((_transition_idx, node_idx, is_new)) = self.core.explore_next() {
             if is_new && self.core.state_space.marking_at(node_idx).has_omega() {
                 // short-circuit if we encounter a marking with ω
-                return Err(self);
+                return Err(ReachabilityGraphStopped { reason: StopReason::Unbounded, explorer: self });
+            }
+            if time_is_up() {
+                return Err(ReachabilityGraphStopped { reason: StopReason::DeadlineExceeded, explorer: self });
             }
         }
         ReachabilityGraph::try_from(CoverabilityGraph {
@@ -210,6 +249,25 @@ impl<'a> CoverabilityExplorer<'a> {
                 unreachable!("ω-free CG must promote successfully; ω would have been detected above")
             })
     }
+}
+
+/// Why a search for a reachability graph stopped before completing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopReason {
+    /// The system is unbounded: exploration met a marking containing ω.
+    Unbounded,
+    /// The deadline passed before exploration finished.
+    DeadlineExceeded,
+}
+
+/// A search for a reachability graph stopped early; see
+/// [`CoverabilityExplorer::try_build_reachability_graph_until`].
+#[derive(Debug)]
+pub struct ReachabilityGraphStopped<'a> {
+    /// Why the search stopped.
+    pub reason: StopReason,
+    /// The partially explored coverability graph, with its frontier preserved.
+    pub explorer: CoverabilityExplorer<'a>,
 }
 
 impl std::fmt::Debug for CoverabilityExplorer<'_> {

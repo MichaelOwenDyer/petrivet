@@ -143,6 +143,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
                     }
                     Some(deadlock_free)
                 },
+                _ if self.dense_net.is_deadlock(&self.marking) => {
+                    cache.add_deadlock(&self.marking);
+                    cache.mark_complete();
+                    Some(false)
+                },
                 _ if matches!(effort, DeadlockFreedomEffort::Efficient) => None,
                 _ if self.commoner_hack_criterion_until(deadline) == Some(Ok(())) => {
                     cache.mark_deadlock_free();
@@ -150,10 +155,20 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 },
                 _ if deadline.is_some_and(|d| std::time::Instant::now() >= d) => None,
                 _ => {
-                    self.deadlocks().with_deadline(deadline).next().map(|deadlock| {
-                        cache.add_deadlock(&self.mapping.idx_marking(deadlock));
-                        false
-                    })
+                    let mut explorer = self.explore_reachability_graph(ExplorationOrder::BreadthFirst);
+                    let net = explorer.core.state_space.net;
+                    let deadlock = explorer.core.find(|m| net.is_deadlock(m), deadline).cloned();
+                    match deadlock {
+                        Some(deadlock) => {
+                            cache.add_deadlock(&deadlock);
+                            Some(false)
+                        },
+                        None if !explorer.is_fully_explored() => None,
+                        None => {
+                            cache.mark_deadlock_free();
+                            Some(true)
+                        },
+                    }
                 }
             }
         })
