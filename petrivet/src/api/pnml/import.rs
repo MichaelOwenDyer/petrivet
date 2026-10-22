@@ -36,6 +36,10 @@
 //! but no attempt is made to interpret type-specific labels whose semantics
 //! are not yet implemented. This is intentional: silently ignoring high-level
 //! inscriptions or color declarations would produce structurally wrong nets.
+//!
+//! The same holds inside P/T nets: petrivet nets are ordinary, so an arc
+//! inscription other than 1 is rejected with
+//! [`PnmlConversionError::UnsupportedArcWeight`] instead of being read as weight 1.
 
 use super::{PageObject, PnmlDocument, net, net_type, nupn::NupnMetadata};
 use crate::net::builder::{NetBuilder, NetError};
@@ -66,6 +70,11 @@ pub enum PnmlConversionError {
     /// Multiple nodes in the document share the same `id` attribute.
     DuplicateId(String),
 
+    /// An arc's `<inscription>` gives a weight other than 1. petrivet nets are
+    /// ordinary (every arc has weight one), and reading a weighted net as an
+    /// ordinary one would silently change what the net means.
+    UnsupportedArcWeight { arc_id: String, weight: u64 },
+
     /// The topology could not form a valid net (empty or disconnected).
     InvalidTopology(NetError),
 }
@@ -86,6 +95,10 @@ impl std::fmt::Display for PnmlConversionError {
                 "reference node '{id}' could not be resolved (dangling or cyclic reference)"
             ),
             Self::DuplicateId(id) => write!(f, "duplicate PNML id '{id}'"),
+            Self::UnsupportedArcWeight { arc_id, weight } => write!(
+                f,
+                "arc '{arc_id}' has weight {weight}, but only ordinary nets (weight 1) are supported"
+            ),
             Self::InvalidTopology(build_err) => write!(f, "invalid net topology: {build_err}"),
         }
     }
@@ -239,6 +252,13 @@ fn import_pt_net(pnml_net: &net::PnmlNet) -> Result<PetriNet<Net>, PnmlConversio
         .collect();
 
     for &pnml_arc in &flat.arcs {
+        if let Some(weight) = pnml_arc.inscription.as_ref().and_then(|i| i.text)
+            && weight != 1 {
+            return Err(PnmlConversionError::UnsupportedArcWeight {
+                arc_id: pnml_arc.id.clone(),
+                weight,
+            });
+        }
         let src_id = flat.resolve(&pnml_arc.source).ok_or_else(|| {
             PnmlConversionError::UnresolvedArcEndpoint {
                 arc_id: pnml_arc.id.clone(),

@@ -368,3 +368,39 @@ fn deadline_bounds_liveness_of_a_large_net() {
     assert!(start.elapsed() < std::time::Duration::from_secs(10), "took {:?}", start.elapsed());
     assert_eq!(answer, None);
 }
+
+fn two_place_net_with_inscription(inscription: &str) -> String {
+    format!(
+        r#"<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">
+  <net id="n" type="http://www.pnml.org/version-2009/grammar/ptnet"><page id="pg">
+    <place id="p0"><initialMarking><text>2</text></initialMarking></place>
+    <place id="p1"/>
+    <transition id="t0"/>
+    <arc id="a0" source="p0" target="t0">{inscription}</arc>
+    <arc id="a1" source="t0" target="p1"/>
+  </page></net>
+</pnml>"#
+    )
+}
+
+/// petrivet nets are ordinary: a weighted arc must be an error, not silently read as weight 1.
+#[test]
+fn arcs_heavier_than_one_are_rejected() {
+    use petrivet::pnml::import::PnmlConversionError;
+
+    let weighted = two_place_net_with_inscription("<inscription><text>3</text></inscription>");
+    let doc = PnmlDocument::from_xml(&weighted).unwrap();
+    match doc.nets[0].to_pt_system() {
+        Err(PnmlConversionError::UnsupportedArcWeight { arc_id, weight }) => {
+            assert_eq!((arc_id.as_str(), weight), ("a0", 3));
+        }
+        other => panic!("expected UnsupportedArcWeight, got {:?}", other.map(|_| ())),
+    }
+    assert!(PetriNet::from_pnml(&weighted).is_err());
+
+    // an explicit weight of one, and no inscription at all, are both ordinary
+    for inscription in ["<inscription><text>1</text></inscription>", ""] {
+        let ordinary = two_place_net_with_inscription(inscription);
+        assert!(PetriNet::from_pnml(&ordinary).is_ok(), "inscription {inscription:?}");
+    }
+}
