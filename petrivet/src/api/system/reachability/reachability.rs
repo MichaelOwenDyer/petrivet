@@ -9,7 +9,6 @@ use crate::system::marking::Marking;
 use crate::system::reachability::Lemma;
 use crate::system::reachability::SpuriousSolutionEliminatedEvent;
 use std::sync::{Arc, mpsc};
-use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub enum ReachabilityResult {
@@ -98,17 +97,18 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn analyze_reachability_within(
         &self,
         target: impl Into<Marking<u32>>,
-        timeout: Duration,
+        timeout: std::time::Duration,
         observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
     ) -> ReachabilityResult {
-        self.analyze_reachability_until(target, observer, Instant::now().checked_add(timeout))
+        let deadline = std::time::Instant::now().checked_add(timeout);
+        self.analyze_reachability_until(target, observer, deadline)
     }
 
     fn analyze_reachability_until(
         &self,
         target: impl Into<Marking<u32>>,
         observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
-        deadline: Option<Instant>,
+        deadline: Option<std::time::Instant>,
     ) -> ReachabilityResult {
         let m0 = &self.marking;
         let target = &self.mapping.idx_marking(target.into());

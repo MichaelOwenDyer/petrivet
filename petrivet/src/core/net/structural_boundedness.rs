@@ -38,10 +38,7 @@
 //! ```
 
 use crate::core::net::{DenseNet, PlaceIdx};
-use good_lp::{
-    Expression, ProblemVariables, Solution, SolverModel, Variable, constraint,
-    variable,
-};
+use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel, Variable};
 
 /// Checks structural boundedness: is the net bounded for every possible
 /// initial marking?

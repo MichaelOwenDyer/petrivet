@@ -6,7 +6,6 @@ pub use reachability::*;
 
 use crate::core::mapping::DenseMapping;
 use crate::core::state_space::{DenseStateGraph, DenseStateGraphExplorer, ExploreNext, TokenOps};
-use crate::core::system::marking::IdxMarking;
 use crate::net::{Net, Place, Transition};
 use crate::system::{PetriNet, marking::Marking};
 use std::iter::Sum;
@@ -41,20 +40,7 @@ pub struct ExplorationStep<T: TokenOps> {
     pub is_new: bool,
 }
 
-impl<'a, T: TokenOps> StateGraphExplorer<'a, T> {
-    /// Create a new [`StateGraphExplorer`] for a Petri net with the provided exploration order.
-    #[must_use]
-    pub fn new<N: AsRef<Net>>(sys: &'a PetriNet<N>, order: ExplorationOrder) -> Self
-    where
-        IdxMarking<T>: From<IdxMarking<u32>>,
-    {
-        let initial_marking = IdxMarking::from(sys.idx_marking().clone());
-        Self {
-            core: DenseStateGraphExplorer::new(&sys.dense_net, initial_marking, order),
-            mapping: &sys.mapping,
-        }
-    }
-
+impl<T: TokenOps> StateGraphExplorer<'_, T> {
     /// Current exploration order.
     #[must_use]
     pub const fn exploration_order(&self) -> ExplorationOrder {
@@ -156,7 +142,7 @@ where
     pub fn find_cover(&mut self, target: Marking<T>) -> Option<Marking<T>> {
         let target_idx_marking = self.mapping.idx_marking(target);
         self.core
-            .search(|idx_marking| *idx_marking >= target_idx_marking)
+            .search(|idx_marking| *idx_marking >= target_idx_marking, None)
             .map(|idx_marking| self.mapping.marking(idx_marking.clone()))
     }
 
@@ -340,12 +326,6 @@ impl<T: TokenOps> StateGraph<'_, T> {
 }
 
 impl<N: AsRef<Net>> PetriNet<N> {
-    /// Returns a [`CoverabilityExplorer`] for this system
-    /// initialized with the given [`ExplorationOrder`].
-    pub fn explore_coverability_graph(&self, order: ExplorationOrder) -> CoverabilityExplorer<'_> {
-        CoverabilityExplorer::new(self, order)
-    }
-
     /// Returns the complete coverability graph for this system.
     ///
     /// Warning! This may be a HUGE structure!
@@ -378,12 +358,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[allow(clippy::result_large_err)]
     pub fn try_build_reachability_graph(&self) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
         self.explore_coverability_graph(ExplorationOrder::BreadthFirst).try_build_reachability_graph()
-    }
-
-    /// Returns a [`ReachabilityGraphExplorer`] for this system
-    /// initialized with the given [`ExplorationOrder`].
-    pub fn explore_reachability_graph(&self, order: ExplorationOrder) -> ReachabilityGraphExplorer<'_> {
-        ReachabilityGraphExplorer::new(self, order)
     }
 
     /// Returns the complete reachability graph for this system.

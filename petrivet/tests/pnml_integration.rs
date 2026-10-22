@@ -13,6 +13,9 @@ use petrivet::pnml::PnmlDocument;
 use petrivet::pnml::import::PetriNetKind;
 use petrivet::pnml::labels::NetLabels;
 use petrivet::system::PetriNet;
+use petrivet::system::boundedness::Boundedness;
+use petrivet::system::deadlock_freedom::DeadlockFreedomEffort;
+use petrivet::system::liveness::LivenessEffort;
 
 fn load(path: &str) -> PnmlDocument {
     let xml = std::fs::read_to_string(path)
@@ -182,7 +185,7 @@ fn pool_is_bounded() {
     let doc = load("tests/fixtures/swimming-pool.pnml");
     let (sys, _) = first_pt_net(&doc);
     assert!(
-        sys.is_bounded(),
+        sys.is_bounded().call().unwrap(),
         "swimming pool should be bounded under initial marking"
     );
 }
@@ -277,4 +280,25 @@ fn export_round_trips_fixtures() {
             }
         }
     }
+}
+
+#[test]
+fn producer_consumer_methods_are_marked_graph() {
+    let doc = load("tests/fixtures/producer_consumer.pnml");
+    let (sys, _) = first_pt_net(&doc);
+
+    assert_eq!(sys.is_deadlock_free().call().unwrap(), true);
+    assert_eq!(sys.boundedness().call().unwrap(), Boundedness::Bounded(5));
+}
+
+#[test]
+fn philo_methods_fall_back_to_state_space_where_no_shortcut_applies() {
+    let doc = load("tests/fixtures/philo.pnml");
+    let (sys, _) = first_pt_net(&doc);
+
+    // The efficient variants decline instead of exploring the state space.
+    assert!(sys.is_deadlock_free().effort(DeadlockFreedomEffort::Efficient).call().is_none());
+    assert!(sys.liveness().effort(LivenessEffort::Efficient).call().is_none());
+    assert!(!sys.is_deadlock_free().call().unwrap());
+    assert_eq!(sys.boundedness().call().unwrap(), Boundedness::Bounded(1));
 }

@@ -3,6 +3,7 @@ use crate::net::class::NetClass;
 use crate::state_space::{ExplorationOrder, ReachabilityGraphExplorer};
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
+use bon::bon;
 
 /// A **deadlock** is a [`Marking`] which enables no [`Transition`](crate::net::Transition).
 ///
@@ -14,63 +15,148 @@ use crate::system::marking::Marking;
 /// and will never get stuck in a state where no actions are possible.
 pub type Deadlock = Marking<u32>;
 
+/// The procedure that decided a deadlock-freedom question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum DeadlockFreedomMethod {
+    /// The initial marking is itself a deadlock.
+    InitialMarking,
+    /// A circuit is deadlock-free iff it carries a token.
+    Circuit,
+    /// A net with a source transition (no input places) can always fire that transition.
+    SourceTransition,
+    /// Analysis of the token flow in a state machine.
+    StateMachine,
+    /// Analysis of the unmarked circuits of a marked graph.
+    MarkedGraph,
+    /// The Commoner/Hack criterion: every proper siphon contains a marked trap.
+    CommonerHack,
+    /// The reachability graph was explored for deadlock markings.
+    ReachabilityGraph,
+}
+
 /// An incremental iterator over all reachable deadlock markings in a system.
-pub enum Deadlocks<'a> {
-    /// The system is certified deadlock-free: no reachable marking is a deadlock.
-    DeadlockFree,
+pub struct Deadlocks<'a>(DeadlocksInner<'a>);
+
+impl Deadlocks<'_> {
+    /// Sets a timeout for the deadlock search. If the timeout is reached, the iterator will stop yielding deadlocks.
+    pub fn with_timeout(self, timeout: Option<std::time::Duration>) -> Self {
+        self.with_deadline(timeout.and_then(|t| std::time::Instant::now().checked_add(t)))
+    }
+
+    pub fn with_deadline(mut self, deadline: Option<std::time::Instant>) -> Self {
+        self.0 = match self.0 {
+            DeadlocksInner::OneOrNone(deadlock) => DeadlocksInner::OneOrNone(deadlock),
+            DeadlocksInner::Explorer { explorer, .. } => DeadlocksInner::Explorer {
+                explorer,
+                deadline,
+            },
+        };
+        self
+    }
+}
+
+enum DeadlocksInner<'a> {
     /// The initial marking iff it is itself a deadlock - yielded first, exactly once.
-    InitialDeadlock(Option<Deadlock>),
+    OneOrNone(Option<Deadlock>),
     /// The system is not certified deadlock-free: explore the reachable markings for deadlocks.
-    Explorer(ReachabilityGraphExplorer<'a>),
+    Explorer {
+        explorer: ReachabilityGraphExplorer<'a>,
+        deadline: Option<std::time::Instant>,
+    },
 }
 
 impl Iterator for Deadlocks<'_> {
     type Item = Deadlock;
 
     fn next(&mut self) -> Option<Deadlock> {
-        match self {
-            Deadlocks::DeadlockFree => None,
-            Deadlocks::InitialDeadlock(deadlock) => deadlock.take(),
-            Deadlocks::Explorer(reachability_explorer) => reachability_explorer
+        match &mut self.0 {
+            DeadlocksInner::OneOrNone(deadlock) => deadlock.take(),
+            DeadlocksInner::Explorer { explorer, deadline } => explorer
                 .core
-                .find(|m| reachability_explorer.core.state_space.net.is_deadlock(m))
-                .map(|m| reachability_explorer.mapping.marking(m.clone())),
+                .find(|m| explorer.core.state_space.net.is_deadlock(m), *deadline)
+                .map(|m| explorer.mapping.marking(m.clone())),
         }
     }
 }
 
-impl<N: AsRef<Net>> PetriNet<N> {
-    /// If there is an efficient (polynomial-time) procedure for deadlock-freedom
-    /// for this Petri net, returns Some(_) with the answer.
-    /// Returns None if the answer would not be efficient to compute.
-    #[must_use]
-    pub fn is_efficiently_deadlock_free(&self) -> Option<bool> {
-        match self.class() {
-            NetClass::Circuit => Some(self.marking.sum() > 0),
-            _ if self.has_source_transition() => Some(true),
-            NetClass::StateMachine => Some(self.is_state_machine_deadlock_free()),
-            NetClass::MarkedGraph => Some(self.is_marked_graph_deadlock_free()),
-            _ => None,
-        }
-    }
+pub enum DeadlockFreedomEffort {
+    /// Use only efficient (polynomial-time) checks for deadlock-freedom.
+    Efficient,
+    /// Explore the reachability graph for deadlocks if necessary.
+    Full,
+}
 
+#[bon]
+impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns an iterator over all reachable deadlock markings in the system.
     #[must_use]
     pub fn deadlocks(&self) -> Deadlocks<'_> {
         if self.dense_net.is_deadlock(&self.marking) {
-            Deadlocks::InitialDeadlock(Some(self.mapping.marking(self.marking.clone())))
-        } else if self.is_efficiently_deadlock_free() == Some(true)
-            || self.commoner_hack_criterion().is_ok() {
-            Deadlocks::DeadlockFree
+            Deadlocks(DeadlocksInner::OneOrNone(Some(self.mapping.marking(self.marking.clone()))))
+        } else if self.commoner_hack_criterion() == Some(Ok(())) {
+            Deadlocks(DeadlocksInner::OneOrNone(None))
         } else {
-            Deadlocks::Explorer(self.explore_reachability_graph(ExplorationOrder::BreadthFirst))
+            Deadlocks(DeadlocksInner::Explorer {
+                explorer: self.explore_reachability_graph(ExplorationOrder::BreadthFirst),
+                deadline: None,
+            })
         }
     }
 
     /// Returns true if the system is deadlock-free.
     #[must_use]
-    pub fn is_deadlock_free(&self) -> bool {
-        self.deadlocks().next().is_none()
+    #[builder]
+    pub fn is_deadlock_free(
+        &self,
+        effort: Option<DeadlockFreedomEffort>,
+        timeout: Option<std::time::Duration>,
+    ) -> Option<bool> {
+        let effort = effort.unwrap_or(DeadlockFreedomEffort::Full);
+        let deadline = timeout.and_then(|t| std::time::Instant::now().checked_add(t));
+        self.with_deadlock_cache(|cache| {
+            match self.class() {
+                _ if let Some(answer) = cache.is_deadlock_free() => Some(answer),
+                NetClass::Circuit => {
+                    let deadlock_free = self.marking.sum() > 0;
+                    if !deadlock_free {
+                        cache.add_deadlock(&self.marking);
+                    }
+                    cache.mark_complete();
+                    Some(deadlock_free)
+                },
+                _ if self.has_source_transition() => {
+                    cache.mark_deadlock_free();
+                    Some(true)
+                },
+                NetClass::StateMachine => {
+                    let deadlock_free = self.is_state_machine_deadlock_free();
+                    if deadlock_free {
+                        cache.mark_deadlock_free();
+                    }
+                    Some(deadlock_free)
+                },
+                NetClass::MarkedGraph => {
+                    let deadlock_free = self.is_marked_graph_deadlock_free();
+                    if deadlock_free {
+                        cache.mark_deadlock_free();
+                    }
+                    Some(deadlock_free)
+                },
+                _ if matches!(effort, DeadlockFreedomEffort::Efficient) => None,
+                _ if self.commoner_hack_criterion_until(deadline) == Some(Ok(())) => {
+                    cache.mark_deadlock_free();
+                    Some(true)
+                },
+                _ if deadline.is_some_and(|d| std::time::Instant::now() >= d) => None,
+                _ => {
+                    self.deadlocks().with_deadline(deadline).next().map(|deadlock| {
+                        cache.add_deadlock(&self.mapping.idx_marking(deadlock));
+                        false
+                    })
+                }
+            }
+        })
     }
 }
 
@@ -92,21 +178,27 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
 #[cfg(test)]
 mod tests {
+    /// The reported method names the procedure that actually decided the question.
+    #[test]
+    fn analyze_reports_the_deciding_method() {
+        let (net, p0, _t0, _p1, _t1) = crate::system::tests::two_place_cycle();
+        assert!(net.with_initial_marking([(p0, 1)]).is_deadlock_free().call().unwrap());
+        assert!(!net.with_initial_marking([]).is_deadlock_free().call().unwrap());
+    }
+
     /// A deadlocked system is not deadlock-free, and the initial marking is yielded as a deadlock.
     #[test]
     fn initial_marking_deadlock_is_detected() {
         let (net, p0, _t0, _p1, _t1) = crate::system::tests::two_place_cycle();
         let dead = net.with_initial_marking([]);
-        assert!(!dead.is_deadlock_free(), "an m₀ deadlock must be detected");
+        assert!(!dead.is_deadlock_free().call().unwrap(), "an m₀ deadlock must be detected");
         assert!(
             dead.deadlocks().next().is_some(),
             "deadlocks() must yield the initial deadlock marking"
         );
-        // Control: the SAME cycle marked is live, hence deadlock-free; m₀ is not a
-        // deadlock and the fix does not over-report.
         let live = net.with_initial_marking([(p0, 1)]);
         assert!(
-            live.is_deadlock_free(),
+            live.is_deadlock_free().call().unwrap(),
             "a live marked cycle is deadlock-free"
         );
         assert!(
@@ -138,8 +230,7 @@ mod tests {
 
         let sys = PetriNet::new(net, [(p1, 1)]);
         assert!(sys.has_unmarked_circuit());
-        assert_eq!(sys.is_efficiently_deadlock_free(), Some(true));
-        assert!(sys.is_deadlock_free());
+        assert!(sys.is_deadlock_free().call().unwrap());
     }
 
     /// If every transition is on or downstream of an unmarked circuit, all transitions
@@ -160,7 +251,6 @@ mod tests {
         assert_eq!(net.class(), NetClass::MarkedGraph);
 
         let sys = PetriNet::new(net, [(p2, 1)]);
-        assert_eq!(sys.is_efficiently_deadlock_free(), Some(false));
-        assert!(!sys.is_deadlock_free());
+        assert!(!sys.is_deadlock_free().call().unwrap());
     }
 }

@@ -90,8 +90,10 @@ pub enum ProperSiphonWithNoMarkedTrapResult {
 pub fn find_proper_siphon_with_no_marked_trap<S: SmtSolver>(
     net: &DenseNet,
     marking: &IdxMarking<u32>,
+    deadline: Option<std::time::Instant>,
 ) -> ProperSiphonWithNoMarkedTrapResult {
     let mut solver = S::default();
+    solver.set_deadline(deadline);
 
     // let solver choose which places to include in the siphon
     let in_siphon: Vec<S::Bool> = net

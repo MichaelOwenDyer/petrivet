@@ -16,6 +16,7 @@ tap = "1.0.1"
 fixedbitset = "0.5.7"
 oxiz = { version = "0.3.4", optional = true }
 z3 = { version = "0.20.2", optional = true }
+bon = "3.10.2"
 
 [features]
 default = ["pnml", "z3"]

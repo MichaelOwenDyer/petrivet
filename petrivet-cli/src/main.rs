@@ -6,6 +6,9 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use petrivet::net::Net;
 use petrivet::system::PetriNet;
+use petrivet::system::boundedness::BoundednessEffort;
+use petrivet::system::deadlock_freedom::DeadlockFreedomEffort;
+use petrivet::system::liveness::{LivenessEffort, LivenessLevel};
 use std::fmt::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
@@ -102,9 +105,14 @@ struct Outcome {
     edges: Option<usize>,
 }
 
-impl From<Verdict> for Outcome {
-    fn from(verdict: Verdict) -> Self {
-        Outcome { verdict, states: None, edges: None }
+impl Outcome {
+    fn new(verdict: impl Into<Verdict>) -> Self {
+        Outcome { verdict: verdict.into(), states: None, edges: None }
+    }
+
+    /// A verdict from an optional `(answer, method)` pair, `unknown` when absent.
+    fn decided<T: Into<Verdict>>(answer: Option<T>) -> Self {
+        answer.map_or_else(|| Self::new(Verdict::Unknown), Self::new)
     }
 }
 
@@ -120,38 +128,48 @@ fn via_reachability_graph(
             states: Some(rg.marking_count()),
             edges: Some(rg.transition_count()),
         },
-        Err(_) => Verdict::Unknown.into(),
+        Err(_) => Outcome::new(Verdict::Unknown),
     }
 }
 
 fn analyze(sys: &PetriNet<Net>, property: Property, mode: Mode) -> Outcome {
     match (property, mode) {
-        (Property::DeadlockFreedom, Mode::Dispatch) => Verdict::from(sys.is_deadlock_free()).into(),
-        (Property::DeadlockFreedom, Mode::Poly) => Verdict::from(sys.is_efficiently_deadlock_free()).into(),
+        (Property::DeadlockFreedom, Mode::Dispatch) => {
+            Outcome::new(sys.is_deadlock_free().call())
+        }
+        (Property::DeadlockFreedom, Mode::Poly) => Outcome::decided(
+            sys.is_deadlock_free().effort(DeadlockFreedomEffort::Efficient).call(),
+        ),
         (Property::DeadlockFreedom, Mode::General) => {
             via_reachability_graph(sys, |rg| rg.is_deadlock_free().into())
         }
 
-        (Property::Bounded, Mode::Dispatch) => Verdict::from(sys.is_bounded()).into(),
-        (Property::Bounded, Mode::Poly) => Verdict::from(sys.is_efficiently_bounded()).into(),
+        (Property::Bounded, Mode::Dispatch) => {
+            Outcome::new(sys.is_bounded().call())
+        }
+        (Property::Bounded, Mode::Poly) => Outcome::decided(
+            sys.is_bounded().effort(BoundednessEffort::Efficient).call()
+        ),
         (Property::Bounded, Mode::General) => {
-            Verdict::from(sys.build_coverability_graph().is_bounded()).into()
+            Outcome::new(sys.build_coverability_graph().is_bounded())
         }
 
-        (Property::Live, Mode::Dispatch) => Verdict::from(sys.liveness().map(|l| l.is_live())).into(),
-        (Property::Live, Mode::Poly) => {
-            Verdict::from(sys.efficient_liveness().map(|l| l.is_live())).into()
-        }
+        (Property::Live, Mode::Dispatch) => Outcome::decided(
+            sys.liveness().call().map(|l| l.is_live())
+        ),
+        (Property::Live, Mode::Poly) => Outcome::decided(
+            sys.liveness().effort(LivenessEffort::Efficient).call().map(|l| l.is_live()),
+        ),
         (Property::Live, Mode::General) => {
             via_reachability_graph(sys, |rg| rg.transition_liveness().is_live().into())
         }
 
-        (Property::QuasiLive, Mode::Dispatch) => {
-            Verdict::from(sys.liveness().map(|l| l.is_quasi_live())).into()
-        }
-        (Property::QuasiLive, Mode::Poly) => {
-            Verdict::from(sys.efficient_liveness().map(|l| l.is_quasi_live())).into()
-        }
+        (Property::QuasiLive, Mode::Dispatch) => Outcome::decided(
+            sys.liveness().call().map(|l| l >= LivenessLevel::L1)
+        ),
+        (Property::QuasiLive, Mode::Poly) => Outcome::decided(
+            sys.liveness().effort(LivenessEffort::Efficient).call().map(|l| l >= LivenessLevel::L1)
+        ),
         (Property::QuasiLive, Mode::General) => {
             via_reachability_graph(sys, |rg| rg.transition_liveness().is_quasi_live().into())
         }
@@ -162,13 +180,13 @@ fn analyze(sys: &PetriNet<Net>, property: Property, mode: Mode) -> Outcome {
                 states: Some(rg.marking_count()),
                 edges: Some(rg.transition_count()),
             },
-            Err(_) => Verdict::Unbounded.into(),
+            Err(_) => Outcome::new(Verdict::Unbounded),
         },
-        (Property::StateSpace, _) => Verdict::NotSupported.into(),
+        (Property::StateSpace, _) => Outcome::new(Verdict::NotSupported),
     }
 }
 
-fn name<T: ValueEnum>(value: T) -> String {
+fn name<T: ValueEnum>(value: &T) -> String {
     value.to_possible_value().expect("no skipped variants").get_name().to_owned()
 }
 
@@ -213,8 +231,8 @@ fn run(file: &PathBuf, property: Property, mode: Mode, json: bool) -> Result<(),
              \"class\":{},\"places\":{},\"transitions\":{},\"arcs\":{},\"parse_ms\":{parse_ms:.3},\"analyze_ms\":{analyze_ms:.3}",
             json_str(env!("CARGO_PKG_VERSION")),
             json_str(&file.display().to_string()),
-            json_str(&name(property)),
-            json_str(&name(mode)),
+            json_str(&name(&property)),
+            json_str(&name(&mode)),
             json_str(outcome.verdict.as_str()),
             json_str(&class),
             sys.place_count(),
@@ -250,8 +268,8 @@ fn main() -> ExitCode {
                 println!(
                     "{{\"tool\":\"petrivet\",\"file\":{},\"property\":{},\"mode\":{},\"verdict\":\"error\",\"error\":{}}}",
                     json_str(&file.display().to_string()),
-                    json_str(&name(property)),
-                    json_str(&name(mode)),
+                    json_str(&name(&property)),
+                    json_str(&name(&mode)),
                     json_str(&message),
                 );
             } else {

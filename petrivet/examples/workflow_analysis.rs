@@ -81,17 +81,17 @@ fn main() {
 
     // 3 raw boards, 1 station slot, everything else empty
     let sys = PetriNet::new(&net, [(raw, 3), (station, 1)]);
-    let boundedness = sys.boundedness();
-    let liveness = sys.liveness().unwrap();
+    let boundedness = sys.boundedness().call().unwrap();
+    let liveness = sys.liveness().call().unwrap();
 
     println!("Bounded: {:?}", boundedness.is_bounded());
     println!(
         "Live (every transition always eventually firable): {}",
-        liveness.global_level().is_live()
+        liveness.is_live()
     );
 
-    for t in &transitions {
-        println!("Transition {:?} liveness: {}", t, liveness.level(*t));
+    for &t in &transitions {
+        println!("Transition {:?} liveness: {}", t, sys.liveness().of(t).call().unwrap());
     }
 
     println!("\n--- Reachability Analysis ---\n");

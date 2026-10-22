@@ -1,6 +1,8 @@
 use crate::core::net::PlaceIdx;
 use crate::core::net::idx_set::PlaceIdxSet;
+use crate::core::state_space::coverability::IdxOmegaMarking;
 use crate::core::system::marking::IdxMarking;
+use crate::state_space::Omega;
 use crate::system::boundedness::{Boundedness, BoundednessAnalysisMethod, K};
 
 /// Current knowledge about the boundedness of a place or Petri net.
@@ -88,22 +90,27 @@ impl Bounds {
         self.update_upper(boundedness, provenance);
         self.update_lower(boundedness, provenance);
     }
+
+    /// Sets the upper bound to be equal to the lower bound, effectively making the bounds exact.
+    pub fn make_exact(&mut self) {
+        self.upper = self.lower;
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Scope {
+pub enum BoundednessScope {
     /// The user is asking about the entire Petri net.
     PetriNet,
     /// The user is asking about a specific place in the net.
     Place(PlaceIdx),
 }
 
-impl Scope {
+impl BoundednessScope {
     /// Returns the range of place indices that this scope covers.
     pub fn places(self, place_count: usize) -> PlaceIdxSet {
         match self {
-            Scope::PetriNet => PlaceIdxSet::all_of(place_count),
-            Scope::Place(p_idx) => {
+            BoundednessScope::PetriNet => PlaceIdxSet::all_of(place_count),
+            BoundednessScope::Place(p_idx) => {
                 let mut set = PlaceIdxSet::none_of(place_count);
                 set.add(p_idx);
                 set
@@ -114,14 +121,14 @@ impl Scope {
     /// Returns the bounds of the places covered by this scope, using the provided bounds cache.
     pub fn bounds(self, bounds: &[Bounds]) -> Bounds {
         match self {
-            Scope::PetriNet => Bounds::aggregate(bounds),
-            Scope::Place(p_idx) => bounds[p_idx],
+            BoundednessScope::PetriNet => Bounds::aggregate(bounds),
+            BoundednessScope::Place(p_idx) => bounds[p_idx],
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Goal {
+pub enum BoundednessQuery {
     /// The user wants to know if the place or net is bounded, but does not care about the exact bound.
     /// If the upper bound is known to be finite, we can return a positive result.
     /// If the lower bound is known to be infinite, we can return a negative result.
@@ -133,14 +140,6 @@ pub enum Goal {
     /// The user wants to know the exact bound, if it can be computed.
     /// If the upper and lower bounds are equal, we can return the exact bound.
     Exact,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Effort {
-    /// Only use efficient (polynomial-time) procedures.
-    Efficient,
-    /// Use any available procedure.
-    Any,
 }
 
 #[derive(Debug, Clone)]
@@ -163,21 +162,49 @@ impl BoundsCache {
             should_refine_by_structural_lp: PlaceIdxSet::all_of(marking.place_count()),
         }
     }
+    
+    /// Updates the bounds of all places in the cache to match the given marking.
+    pub fn update_exact(&mut self, marking: &IdxOmegaMarking, provenance: BoundednessAnalysisMethod) {
+        for (bounds, &tokens) in self.by_place.iter_mut().zip(marking.iter()) {
+            let bound = match tokens {
+                Omega::Finite(k) => Boundedness::Bounded(k),
+                Omega::Unbounded => Boundedness::Unbounded,
+            };
+            bounds.update_exact(bound, provenance);
+        }
+    }
+
+    /// Updates the lower bounds of all places in the cache to match the given marking.
+    pub fn update_lower_bound(&mut self, marking: &IdxOmegaMarking, provenance: BoundednessAnalysisMethod) {
+        for (bounds, &tokens) in self.by_place.iter_mut().zip(marking.iter()) {
+            let bound = match tokens {
+                Omega::Finite(k) => Boundedness::Bounded(k),
+                Omega::Unbounded => Boundedness::Unbounded,
+            };
+            bounds.update_lower(bound, provenance);
+        }
+    }
+    
+    pub fn make_all_exact(&mut self) {
+        for bounds in self.by_place.iter_mut() {
+            bounds.make_exact();
+        }
+    }
 
     /// Returns true if we can answer the boundedness question for the given scope and goal
     /// with the current bounds cache.
-    pub fn is_answered(&self, scope: Scope, goal: Goal) -> bool {
-        match goal {
-            Goal::Bounded => self.read_bounded(scope).is_some(),
-            Goal::KBounded(k) => self.read_k_bounded(scope, k).is_some(),
-            Goal::Exact => self.read_exact(scope).is_some(),
+    pub fn is_answered(&self, scope: BoundednessScope, query: BoundednessQuery) -> bool {
+        match query {
+            BoundednessQuery::Bounded => self.read_bounded(scope).is_some(),
+            BoundednessQuery::KBounded(k) => self.read_k_bounded(scope, k).is_some(),
+            BoundednessQuery::Exact => self.read_exact(scope).is_some(),
         }
     }
 
     /// Returns Some(true) if the Petri net is bounded,
     /// Some(false) if it is unbounded,
     /// and None if the answer has not yet been computed.
-    pub fn read_bounded(&self, scope: Scope) -> Option<bool> {
+    pub fn read_bounded(&self, scope: BoundednessScope) -> Option<bool> {
         let bounds = scope.bounds(&self.by_place);
         if bounds.upper.is_bounded() {
             Some(true)
@@ -191,7 +218,7 @@ impl BoundsCache {
     /// Returns Some(true) if the Petri net is k-bounded for the given k,
     /// Some(false) if it is unbounded or bounded with a bound greater than k,
     /// and None if the answer has not yet been computed.
-    pub fn read_k_bounded(&self, scope: Scope, k: K) -> Option<bool> {
+    pub fn read_k_bounded(&self, scope: BoundednessScope, k: K) -> Option<bool> {
         let bounds = scope.bounds(&self.by_place);
         if bounds.upper.is_k_bounded(k) {
             Some(true)
@@ -203,7 +230,7 @@ impl BoundsCache {
     }
 
     /// Returns the exact bound for the given scope, if it can be determined.
-    pub fn read_exact(&self, scope: Scope) -> Option<Boundedness> {
+    pub fn read_exact(&self, scope: BoundednessScope) -> Option<Boundedness> {
         let b = scope.bounds(&self.by_place);
         (b.lower == b.upper).then_some(b.upper)
     }

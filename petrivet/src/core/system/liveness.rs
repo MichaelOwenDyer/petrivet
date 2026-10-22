@@ -1,9 +1,115 @@
 use crate::core::net::{DenseNet, IdxNode, TransitionIdx};
 use crate::core::system::marking::IdxMarking;
-use crate::system::liveness::LivenessLevel;
+use crate::system::liveness::{LivenessProvenance, LivenessLevel, LivenessQuery, LivenessScope};
 use fixedbitset::FixedBitSet;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::IntoNodeReferences;
+
+impl LivenessScope {
+    fn liveness(&self, by_transition: &[Liveness]) -> Liveness {
+        match self {
+            LivenessScope::Transition(t_idx) => by_transition[*t_idx],
+            LivenessScope::PetriNet => Liveness::aggregate(by_transition),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Liveness {
+    /// We are sure the true liveness level is at least this value.
+    least: LivenessLevel,
+    /// Evidence for the least bound.
+    least_provenance: LivenessProvenance,
+    /// We are sure the true liveness level is at most this value.
+    most: LivenessLevel,
+    /// Evidence for the most bound.
+    most_provenance: LivenessProvenance,
+}
+
+impl Liveness {
+    fn new() -> Liveness {
+        Liveness {
+            least: LivenessLevel::L0,
+            least_provenance: LivenessProvenance::None,
+            most: LivenessLevel::L4,
+            most_provenance: LivenessProvenance::None,
+        }
+    }
+    fn aggregate(by_transition: &[Liveness]) -> Self {
+        let least = by_transition.iter().map(|l| l.least).min().unwrap_or(LivenessLevel::L0);
+        let least_provenance = LivenessProvenance::None;
+        let most = by_transition.iter().map(|l| l.most).max().unwrap_or(LivenessLevel::L4);
+        let most_provenance = LivenessProvenance::None;
+        Self { least, least_provenance, most, most_provenance }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LivenessCache {
+    /// The liveness level of each transition, if known.
+    by_transition: Box<[Liveness]>,
+    /// Whether we should refine liveness by unmarked siphon.
+    pub(crate) should_refine_by_unmarked_siphon: bool,
+}
+
+impl LivenessCache {
+    pub fn new(transition_count: u32) -> Self {
+        let by_transition = vec![Liveness::new(); transition_count as usize].into_boxed_slice();
+        let should_refine_by_unmarked_siphon = true;
+        Self { by_transition, should_refine_by_unmarked_siphon }
+    }
+
+    /// Updates the liveness level for all transitions to the given level.
+    pub fn update_all(&mut self, level: LivenessLevel) {
+        for liveness in &mut self.by_transition[..] {
+            liveness.least = level;
+            liveness.most = level;
+        }
+    }
+
+    /// Updates the liveness level for a transition to the given level.
+    pub fn update_exact(&mut self, t_idx: TransitionIdx, level: LivenessLevel) {
+        let liveness = &mut self.by_transition[t_idx];
+        debug_assert!(liveness.least <= level, "cannot decrease the least known liveness level");
+        debug_assert!(liveness.most >= level, "cannot increase the most known liveness level");
+        liveness.least = level;
+        liveness.most = level;
+    }
+
+    /// Returns true if we can answer the liveness question for the given scope and query
+    /// with the current liveness cache.
+    pub fn is_answered(&self, scope: LivenessScope, query: LivenessQuery) -> bool {
+        match query {
+            LivenessQuery::Exact => self.read_exact(scope).is_some(),
+            LivenessQuery::AtLeast(level) => self.read_at_least(scope, level).is_some(),
+        }
+    }
+
+    /// Returns Some(liveness) if the liveness level for the given scope is known exactly,
+    /// and None if it is not yet known.
+    pub fn read_exact(&self, scope: LivenessScope) -> Option<LivenessLevel> {
+        let liveness = scope.liveness(&self.by_transition);
+        if liveness.least == liveness.most {
+            Some(liveness.least)
+        } else {
+            None
+        }
+    }
+
+    /// Returns Some(true) if the Petri net is guaranteed to be at least the given liveness level,
+    /// Some(false) if it is guaranteed to be less than the given level,
+    /// and None if the answer has not yet been computed.
+    pub fn read_at_least(&self, scope: LivenessScope, level: LivenessLevel) -> Option<bool> {
+        let liveness = scope.liveness(&self.by_transition);
+        if liveness.least >= level {
+            Some(true)
+        } else if liveness.most < level {
+            Some(false)
+        } else {
+            None
+        }
+    }
+}
 
 impl DenseNet {
     /// For a non-strongly-connected state machine, we can determine individual transaction

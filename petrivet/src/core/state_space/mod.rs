@@ -223,13 +223,14 @@ where
     pub fn search(
         &mut self,
         mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
+        deadline: Option<std::time::Instant>,
     ) -> Option<&IdxMarking<T>> {
         for &node in self.state_space.seen.values() {
             if predicate(self.state_space.marking_at(node)) {
                 return Some(self.state_space.marking_at(node));
             }
         }
-        self.find(predicate)
+        self.find(predicate, deadline)
     }
 
     /// Drive exploration until either:
@@ -244,10 +245,28 @@ where
     pub fn find(
         &mut self,
         mut predicate: impl FnMut(&IdxMarking<T>) -> bool,
+        deadline: Option<std::time::Instant>,
     ) -> Option<&IdxMarking<T>> {
+        let mut states_explored_since_last_check = 0;
+        let mut time_is_up = || {
+            if let Some(deadline) = deadline {
+                states_explored_since_last_check += 1;
+                if states_explored_since_last_check >= 1000 {
+                    states_explored_since_last_check = 0;
+                    std::time::Instant::now() >= deadline
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
         while let Some((_t_idx, node_idx, is_new)) = self.explore_next() {
             if is_new && predicate(self.state_space.marking_at(node_idx)) {
                 return Some(self.state_space.marking_at(node_idx));
+            }
+            if time_is_up() {
+                return None;
             }
         }
         None

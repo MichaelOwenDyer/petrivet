@@ -41,6 +41,7 @@ impl TrapBecomesMarkedRule {
         }
 
         // The maximal trap of the whole net contained within that subnet.
+        // FIXME: look for a trap in the subnet induced by U (•U ∪ U•) instead of the whole net
         let trap = maximal_trap_in(net, unmarked_places_in_subnet);
         if trap.is_empty() {
             return None;

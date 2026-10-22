@@ -29,7 +29,7 @@ mod tests {
         let (net, p0, _t0, _p1, _t1) = crate::system::tests::two_place_cycle();
         assert!(net.is_structurally_bounded());
         let sys = net.with_initial_marking([(p0, 1)]);
-        assert!(sys.is_bounded());
+        assert!(sys.is_bounded().call().unwrap());
     }
 
     #[test]
@@ -43,6 +43,6 @@ mod tests {
         let net = b.build().expect("valid net");
         assert!(!net.is_structurally_bounded());
         let sys = net.with_initial_marking([(p0, 1)]);
-        assert!(!sys.is_bounded());
+        assert!(!sys.is_bounded().call().unwrap());
     }
 }

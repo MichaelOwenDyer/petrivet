@@ -1,6 +1,52 @@
+use ahash::{HashSet, HashSetExt};
 use crate::core::net::DenseNet;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::system::marking::IdxMarking;
+
+#[derive(Debug, Clone)]
+pub struct DeadlockCache {
+    /// The set of observed deadlock markings.
+    deadlocks: HashSet<IdxMarking<u32>>,
+    /// Whether the system has been fully explored for deadlocks.
+    complete: bool,
+}
+
+impl DeadlockCache {
+    pub fn new() -> Self {
+        Self {
+            deadlocks: HashSet::new(),
+            complete: false,
+        }
+    }
+
+    /// Returns Some(true) if the system is deadlock-free, Some(false) if it has deadlocks,
+    /// and None if the deadlock-freedom status is unknown.
+    pub fn is_deadlock_free(&self) -> Option<bool> {
+        if !self.deadlocks.is_empty() {
+            Some(false)
+        } else if self.complete {
+            Some(true)
+        } else {
+            None
+        }
+    }
+
+    pub fn mark_complete(&mut self) {
+        self.complete = true;
+    }
+
+    pub fn mark_deadlock_free(&mut self) {
+        debug_assert!(self.deadlocks.is_empty(), "Cannot mark deadlock-free when deadlocks have been observed.");
+        self.complete = true;
+    }
+
+    pub fn add_deadlock(&mut self, deadlock: &IdxMarking<u32>) {
+        debug_assert!(!self.complete, "Cannot add deadlock when cache is marked complete.");
+        if !self.deadlocks.contains(deadlock) {
+            self.deadlocks.insert(deadlock.clone());
+        }
+    }
+}
 
 impl DenseNet {
     /// Returns true if some transition is neither on an unmarked circuit nor reachable from one.

@@ -155,9 +155,15 @@ impl DenseNet {
             && self.transition_indices().any(|t| self.preset_t[t].is_empty())
     }
 
-    /// Returns true if the net has a proper siphon unmarked in the given marking.
-    pub fn has_unmarked_proper_siphon(&self, marking: &IdxMarking<u32>) -> bool {
-        !maximal_siphon_in(self, marking.support().complement()).is_empty()
+    /// Returns the maximal proper siphon in the net which is unmarked in the given marking,
+    /// or None if no proper siphon exists.
+    pub fn maximal_unmarked_proper_siphon(&self, marking: &IdxMarking<u32>) -> Option<PlaceIdxSet> {
+        let maximal_unmarked_siphon = maximal_siphon_in(self, marking.support().complement());
+        if maximal_unmarked_siphon.is_empty() {
+            None
+        } else {
+            Some(maximal_unmarked_siphon)
+        }
     }
 
     /// Returns an iterator over all transitions which are part of an unmarked circuit in the net.

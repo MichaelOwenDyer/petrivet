@@ -7,7 +7,7 @@
 use crate::net::Place;
 use crate::state_space::{StateGraph, StateGraphExplorer};
 use crate::system::boundedness::{Boundedness, K};
-use crate::system::liveness::LivenessAnalysis;
+use crate::system::liveness::{LivenessAnalysis, LivenessProvenance};
 use ahash::HashMap;
 
 /// An incremental exploration handle which lazily enumerates every single marking
@@ -78,7 +78,7 @@ impl ReachabilityGraph<'_> {
             .transitions()
             .zip(self.state_space.liveness_levels())
             .collect();
-        LivenessAnalysis(levels)
+        LivenessAnalysis::new(levels, LivenessProvenance::ReachabilityGraph)
     }
 
     /// Returns the maximum value of each place across all markings in the coverability graph.
