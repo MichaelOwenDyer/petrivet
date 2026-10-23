@@ -254,7 +254,7 @@ where
         &mut self,
         deadline: Option<Instant>,
     ) -> Result<Option<Marking<T>>, DeadlineExceeded> {
-        let found = self.core.find(|marking| self.core.state_space.net.is_deadlock(marking), deadline)
+        let found = self.core.search(|marking| self.core.state_space.net.is_deadlock(marking), deadline)
             .map(|idx_marking| self.mapping.marking(idx_marking.clone()));
         if found.is_none() && !self.is_fully_explored() {
             return Err(DeadlineExceeded);
