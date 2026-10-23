@@ -93,6 +93,12 @@ impl<T: TokenOps> Marking<T> {
     pub fn total_tokens(&self) -> T {
         self.support.iter().map(|(_, t)| *t).sum()
     }
+
+    /// Whether this marking assigns at least as many tokens as `other` to every place.
+    #[must_use]
+    pub fn covers(&self, other: &Marking<T>) -> bool {
+        other.support.iter().all(|(place, tokens)| self.get(*place) >= *tokens)
+    }
 }
 
 impl<T> IntoIterator for Marking<T> {
@@ -100,5 +106,34 @@ impl<T> IntoIterator for Marking<T> {
     type IntoIter = std::vec::IntoIter<(Place, T)>;
     fn into_iter(self) -> Self::IntoIter {
         self.support.into_iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::net::builder::NetBuilder;
+    use crate::system::marking::Marking;
+
+    #[test]
+    fn markings_are_canonical_so_equality_ignores_zeros_and_order() {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let a: Marking<u32> = [(p2, 1), (p0, 3), (p1, 0)].into_iter().collect();
+        let same: Marking<u32> = [(p0, 3), (p2, 1)].into_iter().collect();
+        assert_eq!(a, same);
+        assert_ne!(a, [(p0, 3)].into_iter().collect());
+    }
+
+    #[test]
+    fn covers_compares_every_place_of_the_other_marking() {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let big: Marking<u32> = [(p0, 3), (p1, 1)].into_iter().collect();
+        assert!(big.covers(&[(p0, 2)].into_iter().collect()));
+        assert!(big.covers(&big));
+        assert!(big.covers(&Marking::default()));
+        assert!(!big.covers(&[(p0, 4)].into_iter().collect()));
+        // a place the marking does not mention holds no tokens
+        assert!(!big.covers(&[(p2, 1)].into_iter().collect()));
     }
 }

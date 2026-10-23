@@ -155,8 +155,60 @@ where
         std::iter::from_fn(move || self.explore_next())
     }
 
+    /// Advances exploration until a marking satisfying `predicate` is found, and returns it.
+    ///
+    /// The markings discovered so far are checked first, then exploration continues until a marking
+    /// satisfies the predicate or the state space is exhausted (`None`). The predicate is called once
+    /// for every marking, when it is discovered, and never for the same marking twice.
+    ///
+    /// **Does not terminate** if the state space is infinite and no marking satisfies the predicate.
+    /// Use [`find_until`](StateGraphExplorer::find_until) or [`find_timeout`](StateGraphExplorer::find_timeout)
+    /// to bound the time.
+    pub fn find(&mut self, predicate: impl FnMut(&Marking<T>) -> bool) -> Option<Marking<T>> {
+        self.find_until(predicate, None).unwrap_or(None)
+    }
+
+    /// Like [`find`](StateGraphExplorer::find), but gives up after `timeout` has elapsed.
+    ///
+    /// # Errors
+    /// Returns [`DeadlineExceeded`] if the timeout elapsed before a marking satisfying the predicate was found
+    /// or the state space was exhausted. Exploration keeps its progress, so it can be resumed.
+    pub fn find_timeout(
+        &mut self,
+        predicate: impl FnMut(&Marking<T>) -> bool,
+        timeout: Duration,
+    ) -> Result<Option<Marking<T>>, DeadlineExceeded> {
+        self.find_until(predicate, deadline_after(timeout))
+    }
+
+    /// Like [`find`](StateGraphExplorer::find), but gives up once `deadline` has passed.
+    ///
+    /// The clock is read periodically, not after every marking, so exploration may run slightly
+    /// past the deadline. `Ok(None)` means the whole state space was explored without finding a
+    /// marking that satisfies the predicate, which is different from running out of time.
+    ///
+    /// # Errors
+    /// Returns [`DeadlineExceeded`] if the deadline passed before a marking satisfying the predicate was found
+    /// or the state space was exhausted. Exploration keeps its progress, so it can be resumed.
+    pub fn find_until(
+        &mut self,
+        mut predicate: impl FnMut(&Marking<T>) -> bool,
+        deadline: Option<Instant>,
+    ) -> Result<Option<Marking<T>>, DeadlineExceeded> {
+        let mapping = self.mapping;
+        let found = self
+            .core
+            .search(|idx_marking| predicate(&mapping.marking(idx_marking.clone())), deadline)
+            .map(|idx_marking| mapping.marking(idx_marking.clone()));
+        // `search` also returns `None` when it runs out of time, which proves nothing
+        if found.is_none() && !self.is_fully_explored() {
+            return Err(DeadlineExceeded);
+        }
+        Ok(found)
+    }
+
     /// Advances exploration until a marking covering `target` is found,
-    /// and returns the marking and a firing sequence from the initial marking to it.
+    /// and returns the marking.
     pub fn find_cover(&mut self, target: Marking<T>) -> Option<Marking<T>> {
         let target_idx_marking = self.mapping.idx_marking(target);
         self.core
@@ -540,6 +592,54 @@ mod tests {
         assert!(sys.build_reachability_graph_timeout(Duration::from_secs(60)).is_ok());
         assert!(sys.build_coverability_graph_timeout(Duration::from_secs(60)).is_ok());
         assert!(sys.try_build_reachability_graph_timeout(Duration::from_secs(60)).is_ok());
+    }
+
+    #[test]
+    fn find_stops_at_the_first_marking_that_satisfies_the_predicate() {
+        let (sys, place) = a_few_thousand_steps();
+        let mut explorer = sys.explore_reachability_graph(ExplorationOrder::BreadthFirst);
+        // the initial marking is checked first, without exploring anything
+        let found = explorer.find(|m| m.get(place) == 40).expect("the initial marking holds forty tokens");
+        assert_eq!(found.get(place), 40);
+        assert_eq!(explorer.marking_count(), 1);
+        // a marking one step away is found long before the 861 markings are exhausted
+        let found = explorer.find(|m| m.get(place) == 39).expect("one token can leave the place");
+        assert_eq!(found.get(place), 39);
+        assert!(!explorer.is_fully_explored());
+    }
+
+    #[test]
+    fn find_calls_the_predicate_once_per_marking() {
+        let (sys, place) = a_few_thousand_steps();
+        let mut explorer = sys.explore_reachability_graph(ExplorationOrder::BreadthFirst);
+        let mut seen = std::collections::HashSet::new();
+        let mut calls = 0;
+        assert_eq!(
+            explorer.find_until(
+                |m| {
+                    calls += 1;
+                    assert!(seen.insert(m.clone()), "predicate called twice for one marking");
+                    m.get(place) == 1000
+                },
+                None
+            ),
+            Ok(None)
+        );
+        assert_eq!(calls, 861);
+        // the explorer is exhausted: asking again re-checks the discovered markings, again once each
+        assert!(explorer.find(|m| m.get(place) == 1000).is_none());
+    }
+
+    #[test]
+    fn find_until_tells_exhaustion_from_running_out_of_time() {
+        let (sys, place) = a_few_thousand_steps();
+        let never = |m: &Marking<u32>| m.get(place) > 40;
+        let mut explorer = sys.explore_reachability_graph(ExplorationOrder::BreadthFirst);
+        assert_eq!(explorer.find_until(never, Some(Instant::now())), Err(DeadlineExceeded));
+        assert!(!explorer.is_fully_explored());
+        // resumed without a deadline the exhausted state space is a definite "no"
+        assert_eq!(explorer.find_until(never, None), Ok(None));
+        assert_eq!(explorer.find_timeout(never, Duration::from_secs(60)), Ok(None));
     }
 
     #[test]

@@ -6,7 +6,9 @@ use crate::net::{Net, Transition};
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
 use crate::system::reachability::Lemma;
+use crate::system::reachability::ReachabilityEffort;
 use crate::system::reachability::SpuriousSolutionEliminatedEvent;
+use bon::bon;
 use std::sync::{Arc, mpsc};
 
 #[derive(Debug, Clone)]
@@ -39,6 +41,7 @@ impl CoverabilityResult {
     }
 }
 
+#[bon]
 impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns Some(true) if the target marking is coverable from the initial marking,
     /// Some(false) if it is not coverable, and None if the answer would not be efficient to compute.
@@ -55,15 +58,32 @@ impl<N: AsRef<Net>> PetriNet<N> {
     }
 
     /// Returns whether `target` is coverable from the initial marking.
-    pub fn is_coverable(&self, target: impl Into<Marking<u32>>) -> Option<bool> {
-        let target = target.into();
-        self.is_efficiently_coverable(&target).or_else(|| {
-            match self.analyze_coverability(target, None) {
-                CoverabilityResult::Coverable { .. } => Some(true),
-                CoverabilityResult::Uncoverable { .. } => Some(false),
-                CoverabilityResult::Inconclusive => None,
-            }
-        })
+    ///
+    /// Tries the efficient procedures first ([`is_efficiently_coverable`](Self::is_efficiently_coverable)).
+    /// If `effort` is [`Efficient`](ReachabilityEffort::Efficient) and none applies, the answer is `None`;
+    /// otherwise the question goes to [`analyze_coverability`](Self::analyze_coverability).
+    /// If `timeout` is specified, the analysis gives up after that duration and the answer is `None`.
+    /// Use [`analyze_coverability`](Self::analyze_coverability) for a witness or a refutation.
+    #[must_use]
+    #[builder]
+    pub fn is_coverable(
+        &self,
+        #[builder(into)] target: Marking<u32>,
+        effort: Option<ReachabilityEffort>,
+        timeout: Option<std::time::Duration>,
+    ) -> Option<bool> {
+        if let Some(answer) = self.is_efficiently_coverable(&target) {
+            return Some(answer);
+        }
+        if effort == Some(ReachabilityEffort::Efficient) {
+            return None;
+        }
+        let deadline = timeout.and_then(|t| std::time::Instant::now().checked_add(t));
+        match self.analyze_coverability_until(target, None, deadline) {
+            CoverabilityResult::Coverable { .. } => Some(true),
+            CoverabilityResult::Uncoverable { .. } => Some(false),
+            CoverabilityResult::Inconclusive => None,
+        }
     }
 
     /// Analyzes whether the given target marking is coverable in this Petri net.
@@ -306,5 +326,35 @@ mod tests {
             panic!("expected the target marking to be uncoverable from the initial marking, but it was coverable.");
         };
         assert_eq!(lemmas.len(), 9, "expected 9 contradictory lemmas, found {}", lemmas.len());
+    }
+
+    #[test]
+    fn coverability_builder_efficient_effort_timeout_and_default() {
+        use crate::net::class::NetClass;
+        use crate::system::reachability::ReachabilityEffort;
+        use std::time::Duration;
+
+        // a strongly connected state machine is decided by comparing token sums, even with `Efficient`
+        let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
+        let cycle = net.with_initial_marking([(p0, 1)]);
+        assert_eq!(cycle.is_coverable().target([(p1, 1)]).effort(ReachabilityEffort::Efficient).call(), Some(true));
+        assert_eq!(cycle.is_coverable().target([(p0, 2)]).effort(ReachabilityEffort::Efficient).call(), Some(false));
+
+        // a general net has no efficient procedure
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1, t2] = b.add_transitions();
+        b.add_arcs((p0, t0, p1));
+        b.add_arcs((p0, t1, p2));
+        b.add_arcs((p1, t2, p0));
+        b.add_arcs((p2, t2, p0));
+        b.add_arc((p1, t1));
+        let net = b.build().unwrap();
+        assert_eq!(net.class(), NetClass::General);
+        let sys = net.with_initial_marking([(p0, 1)]);
+        assert_eq!(sys.is_coverable().target([(p1, 1)]).effort(ReachabilityEffort::Efficient).call(), None);
+        assert_eq!(sys.is_coverable().target([(p1, 1)]).call(), Some(true));
+        assert_eq!(sys.is_coverable().target([(p1, 1)]).timeout(Duration::ZERO).call(), None);
+        assert_eq!(sys.is_coverable().target([(p1, 1)]).timeout(Duration::from_secs(60)).call(), Some(true));
     }
 }

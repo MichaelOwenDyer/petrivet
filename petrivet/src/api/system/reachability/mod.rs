@@ -12,6 +12,15 @@ mod coverability;
 pub use reachability::ReachabilityResult;
 pub use coverability::CoverabilityResult;
 
+/// Which procedures a reachability or coverability question may use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReachabilityEffort {
+    /// Only efficient (polynomial-time) procedures: the answer is `None` if none applies.
+    Efficient,
+    /// Use any available procedure, falling back to the (potentially expensive) CEGAR analysis.
+    Any,
+}
+
 /// A lemma is a "truth" about a Petri net.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]

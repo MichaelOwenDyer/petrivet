@@ -7,7 +7,9 @@ use crate::net::{Net, Transition};
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
 use crate::system::reachability::Lemma;
+use crate::system::reachability::ReachabilityEffort;
 use crate::system::reachability::SpuriousSolutionEliminatedEvent;
+use bon::bon;
 use std::sync::{Arc, mpsc};
 
 #[derive(Debug, Clone)]
@@ -38,6 +40,7 @@ impl ReachabilityResult {
     }
 }
 
+#[bon]
 impl<N: AsRef<Net>> PetriNet<N> {
     /// If there is an efficient (polynomial-time) procedure to determine
     /// whether the given target marking is reachable in this Petri net,
@@ -63,18 +66,31 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Whether `target` is reachable from the initial marking.
     ///
-    /// Delegates to [`analyze_reachability`](Self::analyze_reachability).
-    /// Returns `false` for inconclusive results.
+    /// Tries the efficient procedures first ([`is_efficiently_reachable`](Self::is_efficiently_reachable)).
+    /// If `effort` is [`Efficient`](ReachabilityEffort::Efficient) and none applies, the answer is `None`;
+    /// otherwise the question goes to [`analyze_reachability`](Self::analyze_reachability).
+    /// If `timeout` is specified, the analysis gives up after that duration and the answer is `None`.
+    /// Use [`analyze_reachability`](Self::analyze_reachability) for a witness or a refutation.
     #[must_use]
-    pub fn is_reachable(&self, target: impl Into<Marking<u32>>) -> Option<bool> {
-        let target = target.into();
-        self.is_efficiently_reachable(&target).or_else(|| {
-            match self.analyze_reachability(target, None) {
-                ReachabilityResult::Reachable { .. } => Some(true),
-                ReachabilityResult::Unreachable { .. } => Some(false),
-                ReachabilityResult::Inconclusive => None,
-            }
-        })
+    #[builder]
+    pub fn is_reachable(
+        &self,
+        #[builder(into)] target: Marking<u32>,
+        effort: Option<ReachabilityEffort>,
+        timeout: Option<std::time::Duration>,
+    ) -> Option<bool> {
+        if let Some(answer) = self.is_efficiently_reachable(&target) {
+            return Some(answer);
+        }
+        if effort == Some(ReachabilityEffort::Efficient) {
+            return None;
+        }
+        let deadline = timeout.and_then(|t| std::time::Instant::now().checked_add(t));
+        match self.analyze_reachability_until(target, None, deadline) {
+            ReachabilityResult::Reachable { .. } => Some(true),
+            ReachabilityResult::Unreachable { .. } => Some(false),
+            ReachabilityResult::Inconclusive => None,
+        }
     }
 
     /// Analyzes reachability of a target marking.
@@ -140,6 +156,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
 mod tests {
     use crate::net::builder::NetBuilder;
     use crate::net::class::NetClass;
+    use crate::system::PetriNet;
 
     /// A deadline that has already passed makes the SMT solver give up, which must surface as
     /// `Inconclusive` (not a panic), while a generous deadline still yields the definite answer.
@@ -162,10 +179,10 @@ mod tests {
     fn s_net_reachability_dispatches() {
         let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
         let sys = net.with_initial_marking([(p0, 1)]);
-        assert_eq!(sys.is_reachable([(p1, 1)]), Some(true));
-        assert_eq!(sys.is_reachable([(p0, 1)]), Some(true));
-        assert_eq!(sys.is_reachable([(p0, 2)]), Some(false));
-        assert_eq!(sys.is_reachable([]), Some(false));
+        assert_eq!(sys.is_reachable().target([(p1, 1)]).call(), Some(true));
+        assert_eq!(sys.is_reachable().target([(p0, 1)]).call(), Some(true));
+        assert_eq!(sys.is_reachable().target([(p0, 2)]).call(), Some(false));
+        assert_eq!(sys.is_reachable().target([]).call(), Some(false));
     }
 
     #[test]
@@ -181,9 +198,9 @@ mod tests {
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::MarkedGraph);
         let sys = net.with_initial_marking([(p0, 1), (p1, 1)]);
-        assert_eq!(sys.is_reachable([(p2, 1)]), Some(true));
-        assert_eq!(sys.is_reachable([(p0, 1), (p1, 1)]), Some(true));
-        assert_eq!(sys.is_reachable([(p1, 1)]), Some(false));
+        assert_eq!(sys.is_reachable().target([(p2, 1)]).call(), Some(true));
+        assert_eq!(sys.is_reachable().target([(p0, 1), (p1, 1)]).call(), Some(true));
+        assert_eq!(sys.is_reachable().target([(p1, 1)]).call(), Some(false));
     }
 
     #[test]
@@ -199,7 +216,45 @@ mod tests {
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::General);
         let sys = net.with_initial_marking([(p0, 1)]);
-        assert_eq!(sys.is_reachable([(p0, 1)]), Some(true));
-        assert_eq!(sys.is_reachable([(p1, 1)]), Some(true));
+        assert_eq!(sys.is_reachable().target([(p0, 1)]).call(), Some(true));
+        assert_eq!(sys.is_reachable().target([(p1, 1)]).call(), Some(true));
+    }
+
+    /// A net with no efficient reachability procedure: the answer needs the CEGAR analysis.
+    fn general_net() -> (PetriNet, crate::net::Place, crate::net::Place) {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1, t2] = b.add_transitions();
+        b.add_arcs((p0, t0, p1));
+        b.add_arcs((p0, t1, p2));
+        b.add_arcs((p1, t2, p0));
+        b.add_arcs((p2, t2, p0));
+        b.add_arc((p1, t1));
+        let net = b.build().unwrap();
+        assert_eq!(net.class(), NetClass::General);
+        (PetriNet::new(net, [(p0, 1)]), p0, p1)
+    }
+
+    #[test]
+    fn efficient_effort_declines_where_no_efficient_procedure_applies() {
+        use crate::system::reachability::ReachabilityEffort;
+        let (sys, _p0, p1) = general_net();
+        assert_eq!(sys.is_reachable().target([(p1, 1)]).effort(ReachabilityEffort::Efficient).call(), None);
+        assert_eq!(sys.is_reachable().target([(p1, 1)]).effort(ReachabilityEffort::Any).call(), Some(true));
+        assert_eq!(sys.is_reachable().target([(p1, 1)]).call(), Some(true));
+
+        // a strongly connected state machine is decided by comparing token sums, even with `Efficient`
+        let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
+        let cycle = net.with_initial_marking([(p0, 1)]);
+        assert_eq!(cycle.is_reachable().target([(p1, 1)]).effort(ReachabilityEffort::Efficient).call(), Some(true));
+        assert_eq!(cycle.is_reachable().target([(p0, 2)]).effort(ReachabilityEffort::Efficient).call(), Some(false));
+    }
+
+    #[test]
+    fn is_reachable_gives_up_at_the_timeout() {
+        use std::time::Duration;
+        let (sys, _p0, p1) = general_net();
+        assert_eq!(sys.is_reachable().target([(p1, 1)]).timeout(Duration::ZERO).call(), None);
+        assert_eq!(sys.is_reachable().target([(p1, 1)]).timeout(Duration::from_secs(60)).call(), Some(true));
     }
 }
