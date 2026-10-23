@@ -279,7 +279,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
                     cache.should_refine_by_subclass.remove(p_idx);
                 }
             }
-            NetClass::MarkedGraph if self.is_live().call().unwrap() => {
+            NetClass::MarkedGraph if self.is_live().call() == Some(true) => {
                 for p_idx in places {
                     let minimum_tokens = self.dense_net.minimum_tokens_in_circuit_containing(p_idx, &self.marking);
                     let bound = minimum_tokens.map_or(
@@ -356,5 +356,36 @@ mod tests {
     fn boundedness_ord() {
         assert!(Boundedness::Bounded(0) < Boundedness::Bounded(1));
         assert!(Boundedness::Bounded(K::MAX) < Boundedness::Unbounded);
+    }
+
+    /// Regression: an unbounded marked graph with an unmarked circuit made the structural
+    /// boundedness procedure unwrap an unanswered liveness query and panic.
+    /// The circuit t0, p1, t1, p0 runs forever and every pass adds a token to `p4`; the
+    /// circuit t2, p3, t3, p2 is unmarked, so the marked graph is not live.
+    #[test]
+    fn unbounded_marked_graph_that_is_not_live_is_answered() {
+        use crate::net::builder::NetBuilder;
+        use crate::net::class::NetClass;
+        use crate::system::PetriNet;
+
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2, p3, p4] = b.add_places();
+        let [t0, t1, t2, t3] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p1));
+        b.add_arc((p1, t1));
+        b.add_arc((t1, p0));
+        b.add_arc((t1, p4));
+        b.add_arc((p4, t2));
+        b.add_arc((p2, t2));
+        b.add_arc((t2, p3));
+        b.add_arc((p3, t3));
+        b.add_arc((t3, p2));
+        let sys = PetriNet::new(b.build().expect("valid net"), [(p0, 1)]);
+
+        assert_eq!(sys.class(), NetClass::MarkedGraph);
+        assert_eq!(sys.is_bounded().call(), Some(false));
+        assert_eq!(sys.is_bounded().k(1).call(), Some(false));
+        assert_eq!(sys.boundedness().call(), Some(Boundedness::Unbounded));
     }
 }

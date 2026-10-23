@@ -38,7 +38,7 @@ impl Liveness {
     fn aggregate(by_transition: &[Liveness]) -> Self {
         let least = by_transition.iter().map(|l| l.least).min().unwrap_or(LivenessLevel::L0);
         let least_provenance = LivenessProvenance::None;
-        let most = by_transition.iter().map(|l| l.most).max().unwrap_or(LivenessLevel::L4);
+        let most = by_transition.iter().map(|l| l.most).min().unwrap_or(LivenessLevel::L4);
         let most_provenance = LivenessProvenance::None;
         Self { least, least_provenance, most, most_provenance }
     }
@@ -267,5 +267,46 @@ impl DenseNet {
             dfs_finite_pathways(self, marking, t_idx, false, &mut liveness);
         }
         liveness
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cache_with(levels: &[Option<LivenessLevel>]) -> LivenessCache {
+        let mut cache = LivenessCache::new(levels.len() as u32);
+        for (t_idx, level) in levels.iter().enumerate() {
+            if let Some(level) = level {
+                cache.update_exact(t_idx, *level);
+            }
+        }
+        cache
+    }
+
+    /// The level of a net is the level of its least live transition: the lower bound is the
+    /// minimum of the transitions' lower bounds and the upper bound is the minimum of their upper bounds.
+    #[test]
+    fn net_level_is_the_minimum_over_its_transitions() {
+        use LivenessLevel::{L0, L1, L4};
+        let net = LivenessScope::PetriNet;
+
+        let all_live = cache_with(&[Some(L4), Some(L4)]);
+        assert_eq!(all_live.read_exact(net), Some(L4));
+        assert_eq!(all_live.read_at_least(net, L4), Some(true));
+
+        let one_dead = cache_with(&[Some(L4), Some(L4), Some(L0)]);
+        assert_eq!(one_dead.read_exact(net), Some(L0));
+        assert_eq!(one_dead.read_at_least(net, L4), Some(false));
+        assert_eq!(one_dead.read_at_least(net, L1), Some(false));
+
+        // a known dead transition decides the net even while another transition is still unknown ...
+        let dead_and_unknown = cache_with(&[None, Some(L0)]);
+        assert_eq!(dead_and_unknown.read_at_least(net, L1), Some(false));
+        assert_eq!(dead_and_unknown.read_at_least(net, L4), Some(false));
+        // ... whereas a live one cannot
+        let live_and_unknown = cache_with(&[None, Some(L4)]);
+        assert_eq!(live_and_unknown.read_at_least(net, L4), None);
+        assert_eq!(live_and_unknown.read_at_least(net, L1), None);
     }
 }

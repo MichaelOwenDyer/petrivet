@@ -822,4 +822,42 @@ mod tests {
         );
         assert_eq!(sys.liveness().call().unwrap(), LivenessLevel::L4);
     }
+
+    /// A state machine in which `t0` and `t1` swap one token between `p0` and `p1` forever,
+    /// while `t2` (fed by the never-marked `p2`) can never fire.
+    fn state_machine_with_one_dead_transition() -> (PetriNet, crate::net::Transition, crate::net::Transition) {
+        let mut b = NetBuilder::new();
+        let [p0, p1, p2] = b.add_places();
+        let [t0, t1, t2] = b.add_transitions();
+        b.add_arc((p0, t0));
+        b.add_arc((t0, p1));
+        b.add_arc((p1, t1));
+        b.add_arc((t1, p0));
+        b.add_arc((p2, t2));
+        b.add_arc((t2, p0));
+        let net = b.build().expect("valid net");
+        (PetriNet::new(net, [(p0, 1)]), t0, t2)
+    }
+
+    /// Regression: the net's upper liveness bound used to be the *maximum* over its transitions,
+    /// so a single dead transition next to live ones left the answer open (`None`).
+    /// A net is only as live as its least live transition.
+    #[test]
+    fn one_dead_transition_makes_the_net_neither_live_nor_quasi_live() {
+        let (sys, t_live, t_dead) = state_machine_with_one_dead_transition();
+        assert_eq!(sys.is_live().call(), Some(false));
+        assert_eq!(sys.is_live().level(LivenessLevel::L1).call(), Some(false));
+        assert_eq!(sys.liveness().call(), Some(LivenessLevel::L0));
+        // the individual transitions are still answered exactly
+        assert_eq!(sys.liveness().of(t_live).call(), Some(LivenessLevel::L4));
+        assert_eq!(sys.liveness().of(t_dead).call(), Some(LivenessLevel::L0));
+    }
+
+    /// The same answers on a fresh system, asked in the opposite order, so neither depends on what the cache saw first.
+    #[test]
+    fn dead_transition_answers_do_not_depend_on_query_order() {
+        let (sys, _, _) = state_machine_with_one_dead_transition();
+        assert_eq!(sys.is_live().level(LivenessLevel::L1).call(), Some(false));
+        assert_eq!(sys.is_live().call(), Some(false));
+    }
 }
