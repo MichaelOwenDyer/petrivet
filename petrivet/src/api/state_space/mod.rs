@@ -207,6 +207,61 @@ where
         Ok(found)
     }
 
+    /// Advances exploration until a marking equal to `target` is found, and returns it.
+    pub fn reaches_marking_timeout(
+        &mut self,
+        target: Marking<T>,
+        timeout: Duration
+    ) -> Result<bool, DeadlineExceeded> {
+        let deadline = deadline_after(timeout);
+        self.reaches_marking_until(target, deadline)
+    }
+
+    /// Advances exploration until a marking equal to `target` is found, or the deadline is reached.
+    pub fn reaches_marking_until(
+        &mut self,
+        target: Marking<T>,
+        deadline: Option<Instant>,
+    ) -> Result<bool, DeadlineExceeded> {
+        let target_idx_marking = self.mapping.idx_marking(target);
+        let found = self
+            .core
+            .search(|idx_marking| *idx_marking == target_idx_marking, deadline)
+            .is_some();
+        if !found && !self.is_fully_explored() {
+            return Err(DeadlineExceeded);
+        }
+        Ok(found)
+    }
+
+    /// Advances exploration until a deadlock marking is found, and returns it.
+    pub fn find_deadlock(&mut self) -> Option<Marking<T>> {
+        self.find_deadlock_until(None).unwrap_or(None)
+    }
+
+    /// Advances exploration until a deadlock marking is found, and returns it,
+    /// stopping early if `timeout` has elapsed.
+    pub fn find_deadlock_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Option<Marking<T>>, DeadlineExceeded> {
+        self.find_deadlock_until(deadline_after(timeout))
+    }
+
+    /// Advances exploration until a deadlock marking is found, and returns it,
+    /// stopping after `deadline` has passed.
+    pub fn find_deadlock_until(
+        &mut self,
+        deadline: Option<Instant>,
+    ) -> Result<Option<Marking<T>>, DeadlineExceeded> {
+        let found = self.core.find(|marking| self.core.state_space.net.is_deadlock(marking), deadline)
+            .map(|idx_marking| self.mapping.marking(idx_marking.clone()));
+        if found.is_none() && !self.is_fully_explored() {
+            return Err(DeadlineExceeded);
+        }
+        Ok(found)
+    }
+
     /// Advances exploration until a marking covering `target` is found,
     /// and returns the marking.
     pub fn find_cover(&mut self, target: Marking<T>) -> Option<Marking<T>> {
