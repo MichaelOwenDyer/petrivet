@@ -82,12 +82,36 @@ impl PartialOrd<IdxMarking<u32>> for IdxMarking<Omega> {
 /// Karp-Miller coverability graph exploration.
 impl ExploreNext<Omega> for DenseStateGraphExplorer<'_, Omega> {
     fn explore_next(&mut self) -> Option<(TransitionIdx, NodeIndex, bool)> {
-        /// Karp–Miller acceleration: if any ancestor of `src` (including `src`
-        /// itself) carries a marking strictly smaller than `new_marking`,
-        /// promote each strictly-greater component of `new_marking` to ω.
-        ///
-        /// TODO: Find a more efficient algorithm for this if possible
+        /// Karp–Miller acceleration: if an ancestor of `src` on the path of the exploration tree from the initial
+        /// marking (including `src` itself) carries a marking strictly smaller than `new_marking`, promote each
+        /// strictly-greater component of `new_marking` to ω.
         fn omega_accelerate(
+            explorer: &DenseStateGraphExplorer<'_, Omega>,
+            new_marking: &mut IdxOmegaMarking,
+            src: NodeIndex,
+        ) {
+            let initial = explorer.state_space.initial_idx;
+            let mut node = src;
+            loop {
+                let ancestor_marking = explorer.state_space.marking_at(node);
+                if ancestor_marking < new_marking {
+                    for (component, prev) in new_marking.iter_mut().zip(ancestor_marking.iter()) {
+                        if *component > *prev {
+                            *component = Omega::Unbounded;
+                        }
+                    }
+                }
+                if node == initial {
+                    break;
+                }
+                node = explorer.tree_parent(node);
+            }
+        }
+
+        /// The check over every graph ancestor of `src` (all nodes that can reach it). It is exact and finds the
+        /// most ω, but it costs a traversal of the whole graph per fired edge, so it is only used once the net is
+        /// known to be unbounded.
+        fn omega_accelerate_graph(
             state_space: &DenseStateGraph<'_, Omega>,
             new_marking: &mut IdxOmegaMarking,
             src: NodeIndex,
@@ -122,7 +146,12 @@ impl ExploreNext<Omega> for DenseStateGraphExplorer<'_, Omega> {
                 continue;
             }
             let mut new_marking = self.fire(src_marking_idx, t_idx);
-            omega_accelerate(&self.state_space, &mut new_marking, src_marking_idx);
+            if self.omega_seen {
+                omega_accelerate_graph(&self.state_space, &mut new_marking, src_marking_idx);
+            } else {
+                omega_accelerate(self, &mut new_marking, src_marking_idx);
+            }
+            self.omega_seen |= new_marking.has_omega();
             let (is_new, node_idx) = self.register(src_marking_idx, t_idx, new_marking);
             return Some((t_idx, node_idx, is_new));
         }

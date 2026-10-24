@@ -54,6 +54,12 @@ pub struct DenseStateGraphExplorer<'a, T: TokenOps> {
     /// always be explored from every new marking regardless of the
     /// marked places.
     source_transitions: Box<[TransitionIdx]>,
+    /// The node that first reached each node (index = node index; the initial node is its own parent): the tree of
+    /// the exploration, which Karp-Miller acceleration walks instead of all graph ancestors.
+    tree_parent: Vec<NodeIndex>,
+    /// Whether an ω has appeared (the net is unbounded): from then on acceleration also looks at graph ancestors
+    /// off the tree path, which finds further ω earlier and keeps the graph of an unbounded net small.
+    pub(crate) omega_seen: bool,
 }
 
 impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
@@ -95,6 +101,8 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
             order,
             frontier,
             source_transitions,
+            tree_parent: vec![initial_idx],
+            omega_seen: false,
         }
     }
 
@@ -122,6 +130,11 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
     }
 
     /// The number of items in the frontier.
+    /// The tree parent of `node` (the initial node is its own parent).
+    pub fn tree_parent(&self, node: NodeIndex) -> NodeIndex {
+        self.tree_parent[node.index()]
+    }
+
     pub fn frontier_count(&self) -> usize {
         self.frontier.len()
     }
@@ -177,6 +190,8 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
         // add the marking as a new node, and an edge from the source to it
         let idx = self.state_space.graph.add_node(marking.clone());
         self.state_space.graph.add_edge(from, idx, over);
+        debug_assert_eq!(idx.index(), self.tree_parent.len());
+        self.tree_parent.push(from);
 
         // seed frontier with all potentially enabled transitions from this marking
         for t_idx in Self::potentially_enabled_transitions(
