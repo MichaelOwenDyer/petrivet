@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pnml>
+  <net id="net0" type="http://www.pnml.org/version-2009/grammar/ptnet">
+    <page id="page0">
+      <place id="p0">
+        <initialMarking>
+          <text>2</text>
+        </initialMarking>
+      </place>
+      <place id="p1"/>
+      <place id="p2">
+        <initialMarking>
+          <text>1</text>
+        </initialMarking>
+      </place>
+      <place id="p3"/>
+      <place id="p4">
+        <initialMarking>
+          <text>1</text>
+        </initialMarking>
+      </place>
+      <transition id="t0"/>
+      <transition id="t1"/>
+      <transition id="t2"/>
+      <transition id="t3"/>
+      <transition id="t4"/>
+      <transition id="t5"/>
+      <transition id="t6"/>
+      <transition id="t7"/>
+      <transition id="t8"/>
+      <arc id="a0" source="p0" target="t1"/>
+      <arc id="a1" source="p0" target="t3"/>
+      <arc id="a2" source="p0" target="t5"/>
+      <arc id="a3" source="p0" target="t7"/>
+      <arc id="a4" source="p1" target="t3"/>
+      <arc id="a5" source="p1" target="t4"/>
+      <arc id="a6" source="p1" target="t5"/>
+      <arc id="a7" source="p1" target="t7"/>
+      <arc id="a8" source="p1" target="t8"/>
+      <arc id="a9" source="p2" target="t0"/>
+      <arc id="a10" source="p2" target="t1"/>
+      <arc id="a11" source="p2" target="t2"/>
+      <arc id="a12" source="p2" target="t3"/>
+      <arc id="a13" source="p2" target="t5"/>
+      <arc id="a14" source="p3" target="t0"/>
+      <arc id="a15" source="p3" target="t2"/>
+      <arc id="a16" source="p3" target="t3"/>
+      <arc id="a17" source="p3" target="t5"/>
+      <arc id="a18" source="p3" target="t6"/>
+      <arc id="a19" source="p3" target="t8"/>
+      <arc id="a20" source="p4" target="t0"/>
+      <arc id="a21" source="p4" target="t5"/>
+      <arc id="a22" source="p4" target="t6"/>
+      <arc id="a23" source="t0" target="p0"/>
+      <arc id="a24" source="t0" target="p1"/>
+      <arc id="a25" source="t0" target="p2"/>
+      <arc id="a26" source="t0" target="p4"/>
+      <arc id="a27" source="t1" target="p1"/>
+      <arc id="a28" source="t1" target="p3"/>
+      <arc id="a29" source="t1" target="p4"/>
+      <arc id="a30" source="t2" target="p3"/>
+      <arc id="a31" source="t2" target="p4"/>
+      <arc id="a32" source="t3" target="p4"/>
+      <arc id="a33" source="t4" target="p0"/>
+      <arc id="a34" source="t5" target="p2"/>
+      <arc id="a35" source="t6" target="p0"/>
+      <arc id="a36" source="t7" target="p1"/>
+      <arc id="a37" source="t7" target="p4"/>
+      <arc id="a38" source="t8" target="p2"/>
+      <arc id="a39" source="t8" target="p3"/>
+      <arc id="a40" source="t8" target="p4"/>
+    </page>
+  </net>
+</pnml>

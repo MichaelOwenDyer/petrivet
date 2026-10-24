@@ -325,7 +325,8 @@ enum BehavioralStep<'a, S: SmtSolver> {
     /// target marking is unreachable/uncoverable in the actual Petri net.
     /// Contains a domain-native representation of the UNSAT core from the solver,
     /// describing a set of structural and behavioral insights about the net which
-    /// contradict the target marking constraints.
+    /// contradict the target marking constraints. The core never contains an increment
+    /// constraint: a refutation that rests on one is reported as `Inconclusive` instead.
     Unsatisfiable(Vec<IdxLemma>),
     /// The SMT solver could not decide.
     Inconclusive,
@@ -347,7 +348,17 @@ impl<'a, S: SmtSolver> Cegar<'a, Behavioral<S>, S> {
                     .expect("Failed to extract parikh vector from model");
                 (marking, parikh_vector)
             }
-            Satisfiability::Unsat => return BehavioralStep::Unsatisfiable(self.solver.unsat_core()),
+            Satisfiability::Unsat => {
+                let core = self.solver.unsat_core();
+                // Increment constraints (Wimmel & Wolf 2011) steer the search towards a realizable Parikh vector;
+                // they are not facts about the net. They are derived from the dead end of one firing order
+                // of one candidate vector, and are only justified above the minimal solution of the system, which
+                // the SMT solver does not enforce. A refutation that rests on one proves nothing.
+                if core.iter().any(|lemma| matches!(lemma, IdxLemma::Increment { .. })) {
+                    return BehavioralStep::Inconclusive;
+                }
+                return BehavioralStep::Unsatisfiable(core);
+            }
             Satisfiability::Unknown => return BehavioralStep::Inconclusive,
         };
         if let Some(trap_refinement) =

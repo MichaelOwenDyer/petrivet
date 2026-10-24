@@ -3,14 +3,15 @@ use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::net::siphon_trap::{IdxSiphon, IdxTrap};
 use crate::core::net::{PlaceIdx, TransitionIdx};
 
-/// A single, independently-verifiable fact about the net that was used as a hypothesis in
-/// deriving unsatisfiability of a reachability or coverability problem.
+/// A constraint that was part of the SMT problem when the solver proved it unsatisfiable.
 ///
-/// Each variant states a claim precise enough that a reader who knows the problem can verify
-/// it directly from net structure, without any dependency on this library's SMT encoding or search.
-/// Where a fact isn't checkable from static structure alone (`Increment`, which depends on a 
-/// specific attempted simulation), the variant carries enough data - a replayable firing sequence
-/// - to make the check mechanical anyway.
+/// Every variant except `Increment` is a fact about the net which holds in all reachable markings,
+/// and states a claim precise enough that a reader who knows the problem can verify it directly
+/// from net structure, without any dependency on this library's SMT encoding or search.
+/// `Increment` is not such a fact: it is a search heuristic that steers the solver towards a
+/// realizable firing count vector, and it may exclude realizable solutions. It records the dead end
+/// it was derived from (a replayable firing sequence), but no proof of unreachability may rest on it.
+/// A refutation whose core contains an `Increment` is therefore never reported as such.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IdxLemma {
     /// An invariant: every reachable marking must satisfy `w·M = value`.
@@ -56,9 +57,13 @@ pub enum IdxLemma {
     /// `component_transitions` form a source strongly-connected-component of the bottleneck
     /// graph induced by a failed attempt to realize a Parikh vector, so they can only receive
     /// further tokens from transitions outside the component.
-    /// Verify: replay `firing_sequence` from `m0` to confirm it's valid and to recompute the
-    /// dead-end marking, then recompute the bottleneck graph and token estimate per the
-    /// documented algorithm (see `crate::core::cegar::refinements::explore`).
+    ///
+    /// This is a search heuristic and not a fact about the net: it asks the solver for a vector that
+    /// produces more tokens into the component than the failed one did, which is only justified
+    /// above the minimal solution of the system and for the firing order of one dead end.
+    /// It can exclude realizable solutions, so a core containing it is no proof of unreachability.
+    /// `firing_sequence` is the replayable dead end it was derived from, for diagnosis only
+    /// (see `crate::core::cegar::refinements::explore`).
     Increment {
         component_places: PlaceIdxSet,
         component_transitions: TransitionIdxSet,

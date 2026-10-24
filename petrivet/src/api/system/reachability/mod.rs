@@ -63,6 +63,10 @@ pub enum Lemma {
     },
     /// A Wimmel & Wolf (2011) increment constraint, diagnosing a dead end reached while trying
     /// to realize a candidate Parikh vector as a real firing sequence.
+    ///
+    /// Unlike the other lemmas this is a search heuristic and not a fact about the net: it can exclude
+    /// realizable solutions, so it is reported to an observer for progress, but it never appears in the
+    /// contradiction of an `Unreachable` or `Uncoverable` result.
     Increment {
         component_places: HashSet<Place>,
         component_transitions: HashSet<Transition>,
