@@ -47,7 +47,9 @@ impl DenseStateGraph<'_, u32> {
 
         let transition_count = self.net.transition_count();
         let graph = &self.graph;
-        let sccs = petgraph::algo::tarjan_scc(graph);
+        // Must be iterative: `tarjan_scc` recurses once per node on a path, so a few 100k states in a chain overflow
+        // the stack, and a stack overflow aborts the process. `kosaraju_scc` keeps its own stack on the heap.
+        let sccs = petgraph::algo::kosaraju_scc(graph);
 
         let mut node_to_scc = vec![0usize; graph.node_count()];
         for (scc_idx, scc) in sccs.iter().enumerate() {
