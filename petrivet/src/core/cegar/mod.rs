@@ -444,7 +444,7 @@ pub enum CegarResult {
 }
 
 /// The unified entry point for both Reachability and Coverability via CEGAR.
-/// Runs a three-phase CEGAR algorithm to determine if the target marking
+/// Runs a two-phase CEGAR algorithm to determine if the target marking
 /// is reachable/coverable from the initial marking, driven by the SMT solver
 /// backend `S` (see `crate::core::solver` for the available backends).
 pub fn cegar_decide<S: SmtSolver>(

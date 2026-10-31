@@ -80,8 +80,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     fn is_efficiently_reachable(&self, target: &Marking<u32>) -> Option<bool> {
         let target = self.mapping.idx_marking(target.clone());
         match self.class() {
-            NetClass::Circuit => Some(self.marking.sum() == target.sum()),
-            NetClass::StateMachine if self.is_strongly_connected() => {
+            NetClass::Circuit | NetClass::StateMachine if self.is_strongly_connected() => {
                 Some(self.marking.sum() == target.sum())
             }
             // If the maximal unmarked trap in the target is marked in m0, then the target is unreachable.

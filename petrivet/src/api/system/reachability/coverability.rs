@@ -124,8 +124,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     fn is_efficiently_coverable(&self, target: &Marking<u32>) -> Option<bool> {
         let target = self.mapping.idx_marking(target.clone());
         match self.class() {
-            NetClass::Circuit => Some(self.marking.sum() >= target.sum()),
-            NetClass::StateMachine if self.is_strongly_connected() => {
+            NetClass::Circuit | NetClass::StateMachine if self.is_strongly_connected() => {
                 Some(self.marking.sum() >= target.sum())
             }
             _ => None,
