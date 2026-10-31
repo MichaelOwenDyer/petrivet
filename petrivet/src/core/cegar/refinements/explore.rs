@@ -529,7 +529,7 @@ mod tests {
     use super::*;
     use crate::net::builder::NetBuilder;
 
-    /// A 2-cycle p <-> q, both places empty. If both t_pq and t_qp still need to fire (the
+    /// A 2-cycle p <-> q, both places empty. If both `t_pq` and `t_qp` still need to fire (the
     /// `Ti != ∅` case of Wimmel & Wolf's Part 2), the cheapest one to unblock needs exactly 1
     /// extra token (each is short by exactly 1 in its own preset place, and produces enough for
     /// the other once it fires).

@@ -130,17 +130,17 @@ pub enum PageObject {
     Place(net::Place),
     Transition(net::Transition),
     Arc(net::Arc),
-    /// A reference node that acts as an alias for a [`Place`] defined on
+    /// A reference node that acts as an alias for a [`crate::net::Place`] defined on
     /// another page. Used for cross-page connections.
     ReferencePlace(ReferencePlace),
-    /// A reference node that acts as an alias for a [`Transition`] defined
+    /// A reference node that acts as an alias for a [`crate::net::Transition`] defined
     /// on another page. Used for cross-page connections.
     ReferenceTransition(ReferenceTransition),
     /// A nested sub-page. Pages can be arbitrarily nested.
     Page(Page),
 }
 
-/// A reference to a [`Place`] defined on another page. Allows arcs to span
+/// A reference to a [`crate::net::Place`] defined on another page. Allows arcs to span
 /// across page boundaries without duplicating the actual place node.
 ///
 /// Validation constraints (from the grammar):
@@ -169,7 +169,7 @@ pub struct ReferencePlace {
     pub tool_specific: Vec<ToolSpecific>,
 }
 
-/// A reference to a [`Transition`] defined on another page.
+/// A reference to a [`crate::net::Transition`] defined on another page.
 ///
 /// Validation constraints (from the grammar):
 /// - `ref` MUST refer to the `id` of a transition or another reference transition.

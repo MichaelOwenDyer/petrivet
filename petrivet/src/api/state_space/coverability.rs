@@ -178,7 +178,7 @@ impl From<Marking<u32>> for OmegaMarking {
 
 /// An incremental exploration handle for constructing a coverability graph of a Petri net.
 ///
-/// Unlike [`ReachabilityGraphExplorer`], this is guaranteed to terminate, even for unbounded nets.
+/// Unlike [`crate::state_space::ReachabilityGraphExplorer`], this is guaranteed to terminate, even for unbounded nets.
 pub type CoverabilityGraphExplorer<'a> = StateGraphExplorer<'a, Omega>;
 
 impl<'a> CoverabilityGraphExplorer<'a> {

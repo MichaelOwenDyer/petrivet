@@ -44,7 +44,7 @@ impl Reachability {
 impl<N: AsRef<Net>> PetriNet<N> {
     /// Whether `target` is reachable from the initial marking.
     ///
-    /// Tries the efficient procedures first ([`is_efficiently_reachable`](Self::is_efficiently_reachable)).
+    /// Tries efficient procedures first.
     /// If `effort` is [`Efficient`](ReachabilityEffort::Efficient) and none applies, the answer is `None`;
     /// otherwise the question goes to [`reachability`](Self::reachability).
     /// If `timeout` is specified, the analysis gives up after that duration and the answer is `None`.
@@ -147,10 +147,7 @@ mod tests {
         use std::time::Duration;
         let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
         let sys = net.with_initial_marking([(p0, 1)]);
-        assert!(matches!(
-            sys.reachability().target([(p1, 1)]).timeout(Duration::ZERO).call(),
-            None
-        ));
+        assert!(sys.reachability().target([(p1, 1)]).timeout(Duration::ZERO).call().is_none());
         assert!(matches!(
             sys.reachability().target([(p1, 1)]).timeout(Duration::from_secs(60)).call(),
             Some(Reachability::Reachable { .. })

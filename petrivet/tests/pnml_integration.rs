@@ -287,8 +287,8 @@ fn producer_consumer_methods_are_marked_graph() {
     let doc = load("tests/fixtures/producer_consumer.pnml");
     let (sys, _) = first_pt_net(&doc);
 
-    assert_eq!(sys.is_deadlock_free().call().unwrap(), true);
-    assert_eq!(sys.boundedness().call().unwrap(), Boundedness::Bounded(5));
+    assert_eq!(sys.is_deadlock_free().call(), Some(true));
+    assert_eq!(sys.boundedness().call(), Some(Boundedness::Bounded(5)));
 }
 
 #[test]

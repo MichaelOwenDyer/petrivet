@@ -364,6 +364,7 @@ where
 /// Edges are [`Transitions`](Transition), and nodes are [`Markings`](Marking) of token type `T`.
 #[derive(Debug, Clone)]
 pub struct StateGraph<'a, T: TokenOps> {
+    /// The underlying dense state graph. Guaranteed to at least contain the initial marking.
     pub(crate) state_space: DenseStateGraph<'a, T>,
     mapping: &'a DenseMapping,
 }

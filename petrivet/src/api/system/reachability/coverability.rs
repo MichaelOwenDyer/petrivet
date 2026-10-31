@@ -46,7 +46,7 @@ impl Coverability {
 impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns whether `target` is coverable from the initial marking.
     ///
-    /// Tries the efficient procedures first ([`is_efficiently_coverable`](Self::is_efficiently_coverable)).
+    /// Tries efficient procedures first.
     /// If `effort` is [`Efficient`](ReachabilityEffort::Efficient) and none applies, the answer is `None`;
     /// otherwise the question goes to [`coverability`](Self::coverability).
     /// If `timeout` is specified, the analysis gives up after that duration and the answer is `None`.
@@ -152,10 +152,7 @@ mod tests {
         let net = b.build().unwrap();
         let sys = PetriNet::new(net, [(p0, 1), (p1, 0)]);
 
-        assert!(matches!(
-            sys.coverability().target([(p1, 1)]).timeout(Duration::ZERO).call(),
-            None
-        ));
+        assert!(sys.coverability().target([(p1, 1)]).timeout(Duration::ZERO).call().is_none());
         assert!(matches!(
             sys.coverability().target([(p1, 1)]).timeout(Duration::from_secs(60)).call(),
             Some(Coverability::Coverable { .. })
@@ -181,7 +178,7 @@ mod tests {
                 assert_eq!(marking, Marking::from([(p0, 1)]));
                 assert_eq!(firing_sequence.len(), 0);
             }
-            _ => panic!("expected InitialMarking proof"),
+            Coverability::Uncoverable { .. } => unreachable!("checked above"),
         }
     }
 

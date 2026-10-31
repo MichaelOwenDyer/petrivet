@@ -11,9 +11,10 @@ use crate::system::liveness::LivenessLevel;
 use ahash::HashMap;
 
 /// An incremental exploration handle which lazily enumerates every single marking
-/// in the state space of the [`PetriNet`].
+/// in the state space of the [`crate::system::PetriNet`].
 ///
-/// Note that an [`unbounded`]
+/// Note that an unbounded Petri net has an infinite state space,
+/// so this explorer will never terminate.
 ///
 /// Works for any net (bounded or unbounded). For unbounded nets, the frontier
 /// never empties - the caller must impose their own termination condition.
@@ -64,7 +65,7 @@ impl std::fmt::Debug for ReachabilityGraphExplorer<'_> {
 /// detection - are available here.
 ///
 /// The reachability graph is infinite for unbounded systems. For unknown systems,
-/// prefer building a [`CoverabilityGraphExplorer`] first (always terminates, decides
+/// prefer building a [`crate::state_space::CoverabilityGraphExplorer`] first (always terminates, decides
 /// coverability and boundedness), then attempt to promote to a `ReachabilityGraph`,
 /// which succeeds if and only if the net is bounded.
 pub type ReachabilityGraph<'a> = StateGraph<'a, u32>;

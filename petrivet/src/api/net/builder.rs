@@ -1055,7 +1055,7 @@ mod tests {
 
         assert_eq!(extended.place_count(), 3);
         assert_eq!(extended.transition_count(), 3);
-        assert!(extended.transition_preset(&t0).find(|&p| p == p0).is_some());
+        assert!(extended.transition_preset(&t0).any(|p| p == p0));
     }
 
     #[test]

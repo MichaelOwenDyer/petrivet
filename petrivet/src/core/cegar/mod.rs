@@ -554,6 +554,7 @@ mod tests {
     #[test]
     fn oxiz_and_z3_agree_on_coverable_target() {
         let (net, m0, target) = producer_problem();
+        #[allow(clippy::single_element_loop)]
         for (name, result) in [
             #[cfg(feature = "oxiz")]
             ("oxiz", decide::<solver::oxiz::OxiZ>(&net, &m0, &target, CegarProperty::Coverable)),
@@ -573,6 +574,7 @@ mod tests {
     #[test]
     fn oxiz_and_z3_agree_on_uncoverable_target() {
         let (net, m0, target) = once_only();
+        #[allow(clippy::single_element_loop)]
         for (name, result) in [
             #[cfg(feature = "oxiz")]
             ("oxiz", decide::<solver::oxiz::OxiZ>(&net, &m0, &target, CegarProperty::Coverable)),

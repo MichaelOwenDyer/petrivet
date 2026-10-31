@@ -11,7 +11,7 @@ pub struct PnmlNet {
     #[serde(rename = "@id")]
     pub id: String,
 
-    /// URI that identifies the Petri net type (see [`net_type`] constants).
+    /// URI that identifies the Petri net type (see `net_type` constants).
     #[serde(rename = "@type")]
     pub net_type: String,
 

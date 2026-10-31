@@ -17,7 +17,7 @@
 //! # Output shape
 //!
 //! The output is always a single P/T net on a single page (`page0`). The
-//! original page hierarchy is not preserved, see [`super::PnmlGraphics`].
+//! original page hierarchy is not preserved, see [`crate::pnml::graphics::PnmlGraphics`].
 //! Node order is deterministic.
 //!
 //! # Known limitations

@@ -28,7 +28,7 @@ pub enum NetClass {
     /// [`Petri net`](crate::system::PetriNet), both structurally and behaviorally.
     ///
     /// ### Liveness
-    /// A circuit is [`live`](crate::liveness::LivenessLevel::L4) if and only if
+    /// A circuit is [`live`](crate::system::liveness::LivenessLevel::L4) if and only if
     /// `M₀` has at least one token.
     ///
     /// ### Boundedness
@@ -161,7 +161,7 @@ pub enum NetClass {
     /// express decisions in a marked graph; marked graphs model purely
     /// deterministic concurrent systems [Murata VII]. TODO: cite
     ///
-    /// A [`Circuit`] is a special case of a T-net where every transition
+    /// A `Circuit` is a special case of a T-net where every transition
     /// also has exactly one input and one output place.
     ///
     /// This structural restriction implies several important properties:

@@ -9,7 +9,7 @@ use bon::bon;
 use std::time::Instant;
 
 /// The liveness level of a [`Transition`] describes how often it
-/// can be fired in a [`Petri net`](crate::PetriNet) `(N, M₀)`.
+/// can be fired in a [`Petri net`](PetriNet) `(N, M₀)`.
 ///
 /// Liveness level of a transition from a given initial marking `M₀`,
 /// following Murata 1989 §V-C.
@@ -60,7 +60,7 @@ pub enum LivenessLevel {
     ///
     /// A transition which is L2-live but not L3-live is called *strictly* L2-live.
     /// Such transitions can only exist in the presence of
-    /// [unboundedness](crate::boundedness::Boundedness::Unbounded).
+    /// [unboundedness](crate::system::boundedness::Boundedness::Unbounded).
     L2,
     /// A transition `t` is **L3-live** if there exists an *infinite* firing sequence
     /// from `M₀` which fires `t` infinitely many times.

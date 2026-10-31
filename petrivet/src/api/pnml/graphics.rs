@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 
 /// Graphical layout data extracted from a PNML document.
 ///
-/// This type is returned alongside [`System`] and [`NetLabels`] by the
-/// conversion functions. It is a read-only record of the layout information
+/// This type is returned alongside [`crate::system::PetriNet`] and
+/// [`crate::pnml::labels::NetLabels`] by the conversion functions.
+/// It is a read-only record of the layout information
 /// present in the source PNML file. The library has no mechanism to actually
 /// *use* graphical data for rendering; this type exists solely so that
 /// round-tripping through petrivet does not silently discard layout.
@@ -17,27 +18,23 @@ use serde::{Deserialize, Serialize};
 /// after conversion, all elements will be placed on a single default page.
 /// Preserving page membership would require additional bookkeeping that is not
 /// yet implemented.
-///
-/// Graphics are indexed by the same [`PlaceIdx`], [`TransitionIdx`], and [`Arc`]
-/// handles as the rest of the library. Arcs use a sparse [`HashMap`] because
-/// most arcs carry no graphics and the library has no dense arc index.
 #[derive(Debug, Clone, Default)]
 pub struct PnmlGraphics {
-    /// Node graphics for each place, indexed by [`PlaceIdx`].
+    /// Node graphics for each place.
     pub place_graphics: HashMap<Place, NodeGraphics>,
     /// Annotation graphics for each place's `<name>` label.
     pub place_name_graphics: HashMap<Place, AnnotationGraphics>,
     /// Annotation graphics for each place's `<initialMarking>` label.
     pub place_marking_graphics: HashMap<Place, AnnotationGraphics>,
 
-    /// Node graphics for each transition, indexed by [`TransitionIdx`].
+    /// Node graphics for each transition.
     pub transition_graphics: HashMap<Transition, NodeGraphics>,
     /// Annotation graphics for each transition's `<name>` label.
     pub transition_name_graphics: HashMap<Transition, AnnotationGraphics>,
 
-    /// Edge graphics for each arc (sparse).
+    /// Edge graphics for each arc.
     pub arc_graphics: HashMap<Arc, EdgeGraphics>,
-    /// Annotation graphics for each arc's inscription label (sparse).
+    /// Annotation graphics for each arc's inscription label.
     pub arc_inscription_graphics: HashMap<Arc, AnnotationGraphics>,
 }
 

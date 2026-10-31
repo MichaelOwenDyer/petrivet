@@ -1,6 +1,6 @@
 //! Human-readable labels and metadata for Petri net elements.
 //!
-//! [`NetLabels`] is a companion to [`Net`] and [`System`] that holds
+//! [`NetLabels`] is a companion to [`crate::net::Net`] and [`crate::system::PetriNet`] that holds
 //! human-readable names, optional identifiers, and other presentational
 //! metadata for the net's places, transitions, and arcs. It is deliberately
 //! kept separate from the structural and behavioral types so that analysis
@@ -38,7 +38,7 @@ use ahash::{HashMap, HashMapExt};
 ///
 /// Labels are purely presentational: they have no effect on structural
 /// classification, reachability analysis, or simulation. The struct is
-/// intentionally decoupled from [`Net`](Net) and
+/// intentionally decoupled from [`Net`](crate::net::Net) and
 /// [`System`](crate::system::PetriNet) - callers hold the three values
 /// independently and compose them as needed.
 ///

@@ -1,11 +1,11 @@
 //! Conversion from the PNML data model into petrivet's native types.
 //!
-//! The entry points are methods on [`super::PnmlNet`]:
+//! The entry points are methods on [`net::PnmlNet`]:
 //!
-//! - [`super::PnmlNet::to_petri_net`] — URI-dispatched conversion returning a
+//! - [`net::PnmlNet::to_petri_net`] — URI-dispatched conversion returning a
 //!   [`PetriNetKind`] enum. Use this when you do not know the net type in
 //!   advance or when you want to handle multiple net types uniformly.
-//! - [`super::PnmlNet::to_pt_system`] — convenience method that asserts the net
+//! - [`net::PnmlNet::to_pt_system`] — convenience method that asserts the net
 //!   is a P/T net and fails with [`PnmlConversionError::WrongNetType`] if not.
 //!
 //! Both methods return a triple `(System<Net>, NetLabels, PnmlGraphics)`.
@@ -50,7 +50,7 @@ use crate::system::PetriNet;
 use crate::system::marking::Marking;
 use ahash::{HashMap, HashMapExt};
 
-/// Errors that can occur when converting a [`super::PnmlNet`] PNML model into a
+/// Errors that can occur when converting a [`net::PnmlNet`] PNML model into a
 /// native petrivet [`PetriNet`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PnmlConversionError {
@@ -121,7 +121,7 @@ impl From<NetError> for PnmlConversionError {
 /// # Adding support for new net types
 ///
 /// Add a new variant here (e.g. `ColoredNet(System<ColoredNet>, NetLabels,
-/// PnmlGraphics)`) and extend the `match` in [`super::PnmlNet::to_petri_net`].
+/// PnmlGraphics)`) and extend the `match` in [`net::PnmlNet::to_petri_net`].
 #[derive(Debug)]
 pub enum PetriNetKind {
     /// A fully converted P/T net system, ready for simulation and analysis.
