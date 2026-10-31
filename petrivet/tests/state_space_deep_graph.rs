@@ -25,6 +25,6 @@ fn liveness_of_a_long_chain_state_space() {
     let sys = PetriNet::from_pnml(&pnml).unwrap();
     let graph = sys.explore_reachability_graph(ExplorationOrder::BreadthFirst).build_graph_until(None).unwrap();
     assert_eq!(graph.marking_count(), tokens + 1);
-    assert!(graph.transition_liveness().is_quasi_live());
-    assert!(!graph.transition_liveness().is_live());
+    assert!(graph.transition_liveness().iter().all(|(_, liveness)| liveness.is_l1_live()));
+    assert!(!graph.transition_liveness().iter().all(|(_, liveness)| liveness.is_l4_live()));
 }

@@ -91,7 +91,7 @@ fn main() {
     );
 
     for &t in &transitions {
-        println!("Transition {:?} liveness: {}", t, sys.liveness().of(t).call().unwrap());
+        println!("Transition {:?} liveness: {:?}", t, sys.liveness().of(t).call().unwrap());
     }
 
     println!("\n--- Reachability Analysis ---\n");
@@ -159,7 +159,7 @@ fn main() {
 
     println!(
         "\nLiveness (from RG): {}",
-        rg.transition_liveness().is_live()
+        rg.transition_liveness().iter().all(|(_, liveness)| liveness.is_live())
     );
 
     println!("\n--- Incremental Exploration ---\n");
@@ -190,6 +190,6 @@ fn main() {
 
     println!(
         "Promoted to ReachabilityGraph: live: {}",
-        rg.transition_liveness().is_live()
+        rg.transition_liveness().iter().all(|(_, liveness)| liveness.is_live())
     );
 }

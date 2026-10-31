@@ -60,20 +60,24 @@ impl LivenessCache {
     }
 
     /// Updates the liveness level for all transitions to the given level.
-    pub fn update_all(&mut self, level: LivenessLevel) {
+    pub fn update_all(&mut self, level: LivenessLevel, provenance: LivenessProvenance) {
         for liveness in &mut self.by_transition[..] {
             liveness.least = level;
+            liveness.least_provenance = provenance;
             liveness.most = level;
+            liveness.most_provenance = provenance;
         }
     }
 
     /// Updates the liveness level for a transition to the given level.
-    pub fn update_exact(&mut self, t_idx: TransitionIdx, level: LivenessLevel) {
+    pub fn update_exact(&mut self, t_idx: TransitionIdx, level: LivenessLevel, provenance: LivenessProvenance) {
         let liveness = &mut self.by_transition[t_idx];
         debug_assert!(liveness.least <= level, "cannot decrease the least known liveness level");
         debug_assert!(liveness.most >= level, "cannot increase the most known liveness level");
         liveness.least = level;
+        liveness.least_provenance = provenance;
         liveness.most = level;
+        liveness.most_provenance = provenance;
     }
 
     /// Updates the least known liveness level for a transition to the given level.
@@ -278,7 +282,7 @@ mod tests {
         let mut cache = LivenessCache::new(levels.len() as u32);
         for (t_idx, level) in levels.iter().enumerate() {
             if let Some(level) = level {
-                cache.update_exact(t_idx, *level);
+                cache.update_exact(t_idx, *level, LivenessProvenance::None);
             }
         }
         cache

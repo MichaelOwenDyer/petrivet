@@ -5,7 +5,6 @@ use crate::net::{Net, Transition};
 use crate::state_space::ExplorationOrder;
 use crate::system::PetriNet;
 use crate::timeout::Timeout;
-use ahash::HashMap;
 use bon::bon;
 use std::time::Instant;
 
@@ -32,8 +31,6 @@ pub enum LivenessLevel {
     ///
     /// L0-live transitions are always *strictly* L0-live, in the sense that
     /// no transition can simultaneously be L0-live and L1-live or higher.
-    ///
-    /// [Transition]: crate::net::Transition
     L0,
     /// A transition `t` is **L1-live** if it is *not* [`L0-live`](LivenessLevel::L0).
     ///
@@ -147,26 +144,14 @@ impl LivenessLevel {
     }
 }
 
-impl std::fmt::Display for LivenessLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::L0 => write!(f, "L0-live"),
-            Self::L1 => write!(f, "L1-live"),
-            Self::L2 => write!(f, "L2-live"),
-            Self::L3 => write!(f, "L3-live"),
-            Self::L4 => write!(f, "L4-live"),
-        }
-    }
-}
-
-/// The procedure that produced a [`LivenessAnalysis`].
+/// The procedure that determined the liveness level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum LivenessProvenance {
     /// No evidence.
     None,
-    /// A circuit is live iff it carries a token.
-    Circuit,
+    /// A transition which consumes from an unmarked proper siphon is L0-live.
+    UnmarkedSiphon,
     /// A strongly connected state machine is live iff it carries a token.
     StronglyConnectedStateMachine,
     /// Analysis of the marked strongly connected components of a state machine.
@@ -177,61 +162,6 @@ pub enum LivenessProvenance {
     CommonerHack,
     /// Liveness levels were computed from the reachability graph.
     ReachabilityGraph,
-}
-
-/// Result of liveness analysis.
-/// When proved via Commoner's theorem (free-choice nets), all transitions are L4.
-/// When proved via SCC analysis on the reachability graph, levels are
-/// individually computed.
-#[derive(Debug, Clone)]
-pub struct LivenessAnalysis {
-    levels: HashMap<Transition, LivenessLevel>,
-    method: LivenessProvenance,
-}
-
-impl LivenessAnalysis {
-    pub(crate) const fn new(levels: HashMap<Transition, LivenessLevel>, method: LivenessProvenance) -> Self {
-        Self { levels, method }
-    }
-
-    /// The procedure that produced this analysis.
-    #[must_use]
-    pub const fn method(&self) -> LivenessProvenance {
-        self.method
-    }
-
-    /// Returns the liveness level of the Petri net as a whole,
-    /// defined as the minimum liveness level among all transitions.
-    #[must_use]
-    pub fn global_level(&self) -> LivenessLevel {
-        self.levels
-            .values()
-            .min()
-            .copied()
-            .unwrap_or(LivenessLevel::L0)
-    }
-
-    /// Returns the liveness level of the provided `transition`.
-    #[must_use]
-    pub fn level(&self, transition: Transition) -> LivenessLevel {
-        self.levels
-            .get(&transition)
-            .copied()
-            .unwrap_or(LivenessLevel::L0)
-    }
-
-    /// Returns true if all transitions in the Petri net are live.
-    #[must_use]
-    pub fn is_live(&self) -> bool {
-        self.levels.values().all(LivenessLevel::is_l4_live)
-    }
-
-    /// Whether every transition appears on some edge of the reachability graph,
-    /// i.e. no transition in the Petri net is dead.
-    #[must_use]
-    pub fn is_quasi_live(&self) -> bool {
-        self.levels.values().all(LivenessLevel::is_l1_live)
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -256,11 +186,6 @@ pub enum LivenessQuery {
 
 #[bon]
 impl<N: AsRef<Net>> PetriNet<N> {
-    /// Returns true if there exists a proper siphon in the Petri net which is currently unmarked.
-    pub fn contains_unmarked_proper_siphon(&self) -> bool {
-        self.dense_net.maximal_unmarked_proper_siphon(&self.marking).is_some()
-    }
-
     #[builder]
     pub fn is_live(
         &self,
@@ -341,7 +266,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         if let Some(siphon) = self.dense_net.maximal_unmarked_proper_siphon(&self.marking) {
             let transitions = siphon.iter().flat_map(|p_idx| self.dense_net.postset_p[p_idx].iter());
             for &t_idx in transitions {
-                cache.update_exact(t_idx, LivenessLevel::L0);
+                cache.update_exact(t_idx, LivenessLevel::L0, LivenessProvenance::UnmarkedSiphon);
             }
         }
         cache.should_refine_by_unmarked_siphon = false;
@@ -353,25 +278,24 @@ impl<N: AsRef<Net>> PetriNet<N> {
         cache: &mut LivenessCache,
     ) {
         match self.class() {
-            _ if self.class().is_state_machine()
-                && self.is_strongly_connected() => {
+            NetClass::Circuit | NetClass::StateMachine if self.is_strongly_connected() => {
                 let level = if self.marking.sum() == 0 {
                     LivenessLevel::L0
                 } else {
                     LivenessLevel::L4
                 };
-                cache.update_all(level);
+                cache.update_all(level, LivenessProvenance::StronglyConnectedStateMachine);
             },
             NetClass::StateMachine => {
                 let liveness = self.dense_net.liveness_via_state_machine_marked_sccs(&self.marking);
                 for (t_idx, level) in liveness.into_iter().enumerate() {
-                    cache.update_exact(t_idx, level);
+                    cache.update_exact(t_idx, level, LivenessProvenance::StateMachine);
                 }
             },
             NetClass::MarkedGraph => {
                 let liveness = self.dense_net.liveness_via_marked_graph_unmarked_circuits(&self.marking);
                 for (t_idx, level) in liveness.into_iter().enumerate() {
-                    cache.update_exact(t_idx, level);
+                    cache.update_exact(t_idx, level, LivenessProvenance::MarkedGraph);
                 }
             },
             _ => {}
@@ -386,7 +310,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         match self.class() {
             NetClass::FreeChoice | NetClass::AsymmetricChoice if self.commoner_hack_criterion_until(deadline) == Some(Ok(())) => {
                 for t_idx in self.dense_net.transition_indices() {
-                    cache.update_exact(t_idx, LivenessLevel::L4);
+                    cache.update_exact(t_idx, LivenessLevel::L4, LivenessProvenance::CommonerHack);
                 }
             },
             _ if deadline.is_some_and(|d| Instant::now() >= d) => {},
@@ -395,9 +319,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
                     .explore_coverability_graph(ExplorationOrder::BreadthFirst)
                     .try_build_reachability_graph_until(deadline) {
                     Ok(rg) => {
-                        for (transition, liveness) in rg.transition_liveness().levels {
+                        for (transition, liveness) in rg.transition_liveness() {
                             if let Some(t_idx) = self.mapping.transition_idx(transition) {
-                                cache.update_exact(t_idx, liveness);
+                                cache.update_exact(t_idx, liveness, LivenessProvenance::ReachabilityGraph);
                             }
                         }
                     }
@@ -425,61 +349,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
         }
     }
 
-    pub fn efficient_liveness(&self) -> Option<LivenessAnalysis> {
-        let all = |level| self.transitions().map(|t| (t, level)).collect::<HashMap<_, _>>();
-        let (levels, method) = match self.class() {
-            NetClass::Circuit if self.marking.sum() == 0 => {
-                (all(LivenessLevel::L0), LivenessProvenance::Circuit)
-            },
-            NetClass::StateMachine if self.marking.sum() == 0 => {
-                (all(LivenessLevel::L0), LivenessProvenance::StateMachine)
-            },
-            NetClass::Circuit => {
-                (all(LivenessLevel::L4), LivenessProvenance::Circuit)
-            },
-            NetClass::StateMachine if self.is_strongly_connected() => {
-                (all(LivenessLevel::L4), LivenessProvenance::StronglyConnectedStateMachine)
-            }
-            NetClass::StateMachine => {
-                (self.liveness_via_state_machine_marked_sccs(), LivenessProvenance::StateMachine)
-            },
-            NetClass::MarkedGraph => {
-                (self.liveness_via_marked_graph_unmarked_circuits(), LivenessProvenance::MarkedGraph)
-            }
-            _ => return None,
-        };
-        Some(LivenessAnalysis::new(levels, method))
-    }
-}
-
-// specialized procedures for state machines and marked graphs
-impl<N: AsRef<Net>> PetriNet<N> {
-    /// For a non-strongly-connected state machine, we can determine individual transaction
-    /// liveness levels by analyzing the marked strongly connected components of the net
-    /// and which other components they can reach.
-    ///
-    /// Runs in linear time: one pass over the condensation graph in topological order finds
-    /// the components reachable from a marked one, and one pass in reverse topological order
-    /// finds, for every component, which terminal components are reachable from it.
-    fn liveness_via_state_machine_marked_sccs(&self) -> HashMap<Transition, LivenessLevel> {
-        self.transitions()
-            .zip(self.dense_net.liveness_via_state_machine_marked_sccs(&self.marking))
-            .collect()
+    /// Returns true if there exists a proper siphon in the Petri net which is currently unmarked.
+    pub fn contains_unmarked_proper_siphon(&self) -> bool {
+        self.dense_net.maximal_unmarked_proper_siphon(&self.marking).is_some()
     }
 
     /// Returns true if there exists a directed circuit in the net in which every place has zero tokens.
     pub fn has_unmarked_circuit(&self) -> bool {
         self.dense_net.transitions_on_unmarked_circuits(&self.marking).next().is_some()
-    }
-
-    /// For a marked graph, we can determine liveness levels by analyzing which transitions
-    /// are on unmarked circuits (L0), and which transitions can be reached from them via pathways
-    /// which may contain some marked places (L1) or only unmarked places (L0).
-    /// All other transitions are L4.
-    fn liveness_via_marked_graph_unmarked_circuits(&self) -> HashMap<Transition, LivenessLevel> {
-        self.transitions()
-            .zip(self.dense_net.liveness_via_marked_graph_unmarked_circuits(&self.marking))
-            .collect()
     }
 }
 

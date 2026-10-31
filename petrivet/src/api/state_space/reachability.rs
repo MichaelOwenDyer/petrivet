@@ -4,10 +4,10 @@
 //! from a given initial marking in a Petri net, and analyzing the resulting
 //! reachability graph for properties like liveness and deadlock-freedom.
 
-use crate::net::Place;
+use crate::net::{Place, Transition};
 use crate::state_space::{StateGraph, StateGraphExplorer};
 use crate::system::boundedness::{Boundedness, K};
-use crate::system::liveness::{LivenessAnalysis, LivenessProvenance};
+use crate::system::liveness::LivenessLevel;
 use ahash::HashMap;
 
 /// An incremental exploration handle which lazily enumerates every single marking
@@ -72,13 +72,12 @@ pub type ReachabilityGraph<'a> = StateGraph<'a, u32>;
 impl ReachabilityGraph<'_> {
     /// Returns all transitions in the Petri net with their associated liveness levels.
     #[must_use]
-    pub fn transition_liveness(&self) -> LivenessAnalysis {
-        let levels = self
+    pub fn transition_liveness(&self) -> HashMap<Transition, LivenessLevel> {
+        self
             .mapping
             .transitions()
             .zip(self.state_space.liveness_levels())
-            .collect();
-        LivenessAnalysis::new(levels, LivenessProvenance::ReachabilityGraph)
+            .collect()
     }
 
     /// Returns the maximum value of each place across all markings in the coverability graph.
