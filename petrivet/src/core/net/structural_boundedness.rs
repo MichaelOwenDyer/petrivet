@@ -29,11 +29,11 @@
 //! let sys = PetriNet::new(net, [(p0, 1)]);
 //!
 //! // Can we reach (0, 1)? The marking equation says: feasible
-//! let result = sys.reachability([(p1, 1)], None);
+//! let result = sys.reachability().target([(p1, 1)]).call().unwrap();
 //! assert!(result.is_reachable());
 //!
 //! // Can we reach (2, 0)? Conservation law violated, definitely not
-//! let result = sys.reachability([(p0, 2)], None);
+//! let result = sys.reachability().target([(p0, 2)]).call().unwrap();
 //! assert!(!result.is_reachable());
 //! ```
 

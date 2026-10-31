@@ -1,2 +1,0 @@
-[target.aarch64-apple-darwin]
-rustflags = ["-L", "/opt/homebrew/lib"] # Add the path to the Homebrew libraries for Apple Silicon Macs
