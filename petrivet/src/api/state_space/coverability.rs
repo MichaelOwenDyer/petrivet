@@ -178,10 +178,10 @@ impl From<Marking<u32>> for OmegaMarking {
 
 /// An incremental exploration handle for constructing a coverability graph of a Petri net.
 ///
-/// Unlike [`ReachabilityExplorer`], this is guaranteed to terminate, even for unbounded nets.
-pub type CoverabilityExplorer<'a> = StateGraphExplorer<'a, Omega>;
+/// Unlike [`ReachabilityGraphExplorer`], this is guaranteed to terminate, even for unbounded nets.
+pub type CoverabilityGraphExplorer<'a> = StateGraphExplorer<'a, Omega>;
 
-impl<'a> CoverabilityExplorer<'a> {
+impl<'a> CoverabilityGraphExplorer<'a> {
     /// Drive exploration looking for a reachability graph, bailing out as
     /// soon as ω-acceleration introduces an unbounded component.
     ///
@@ -261,18 +261,18 @@ pub enum StopReason {
 }
 
 /// A search for a reachability graph stopped early; see
-/// [`CoverabilityExplorer::try_build_reachability_graph_until`].
+/// [`CoverabilityGraphExplorer::try_build_reachability_graph_until`].
 #[derive(Debug)]
 pub struct ReachabilityGraphStopped<'a> {
     /// Why the search stopped.
     pub reason: StopReason,
     /// The partially explored coverability graph, with its frontier preserved.
-    pub explorer: CoverabilityExplorer<'a>,
+    pub explorer: CoverabilityGraphExplorer<'a>,
 }
 
-impl std::fmt::Debug for CoverabilityExplorer<'_> {
+impl std::fmt::Debug for CoverabilityGraphExplorer<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CoverabilityExplorer")
+        f.debug_struct("CoverabilityGraphExplorer")
             .field("markings", &self.marking_count())
             .field("transitions", &self.transition_count())
             .field("frontier", &self.core.frontier_count())

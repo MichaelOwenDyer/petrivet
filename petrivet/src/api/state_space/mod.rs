@@ -539,13 +539,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn build_coverability_graph_timeout(
         &self,
         timeout: Duration,
-    ) -> Result<CoverabilityGraph<'_>, CoverabilityExplorer<'_>> {
+    ) -> Result<CoverabilityGraph<'_>, CoverabilityGraphExplorer<'_>> {
         self.explore_coverability_graph(ExplorationOrder::BreadthFirst).build_graph_timeout(timeout)
     }
 
     /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
     /// returning either itself if the system is bounded or a partially-explored
-    /// [`CoverabilityExplorer`] if it is unbounded.
+    /// [`CoverabilityGraphExplorer`] if it is unbounded.
     ///
     /// Not knowing whether we will encounter unboundedness, this method first
     /// constructs a Karp-Miller coverability tree which introduces ω as soon
@@ -553,7 +553,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// check per explored marking (omega acceleration). If we finish exploring
     /// the coverability tree without ever introducing ω, we have in fact explored
     /// the full reachability graph and can return it directly. Otherwise, we return
-    /// the [`CoverabilityExplorer`] in its current state, which contains the explored
+    /// the [`CoverabilityGraphExplorer`] in its current state, which contains the explored
     /// portion of the coverability graph up to the first ω, and can be further explored.
     ///
     /// This is the right entry point when you want the speed of exploring
@@ -566,7 +566,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns `Err(partial_explorer)` as soon as any explored marking
     /// contains ω. The frontier is preserved, so callers may resume.
     #[allow(clippy::result_large_err)]
-    pub fn try_build_reachability_graph(&self) -> Result<ReachabilityGraph<'_>, CoverabilityExplorer<'_>> {
+    pub fn try_build_reachability_graph(&self) -> Result<ReachabilityGraph<'_>, CoverabilityGraphExplorer<'_>> {
         self.explore_coverability_graph(ExplorationOrder::BreadthFirst).try_build_reachability_graph()
     }
 

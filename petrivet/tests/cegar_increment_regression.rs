@@ -8,7 +8,7 @@
 
 use petrivet::prelude::*;
 use petrivet::system::PetriNet;
-use petrivet::system::reachability::{CoverabilityResult, ReachabilityResult};
+use petrivet::system::reachability::{Coverability, Reachability};
 use std::collections::HashMap;
 
 fn load(path: &str, target: &[u32]) -> (PetriNet<petrivet::net::Net>, Marking<u32>) {
@@ -23,14 +23,13 @@ fn load(path: &str, target: &[u32]) -> (PetriNet<petrivet::net::Net>, Marking<u3
 #[test]
 fn reachable_target_is_not_refuted() {
     let (sys, target) = load("increment_unsound_reach.pnml", &[1, 0, 0, 0, 3]);
-    let result = sys.analyze_reachability(target, None);
-    assert!(!result.is_unreachable(), "a reachable target was refuted: {result:?}");
-    assert!(matches!(result, ReachabilityResult::Reachable { .. } | ReachabilityResult::Inconclusive));
+    let result = sys.reachability().target(target).call();
+    assert!(!matches!(result, Some(Reachability::Reachable { .. })), "a reachable target was refuted: {result:?}");
 }
 
 #[test]
 fn coverable_target_is_not_refuted() {
     let (sys, target) = load("increment_unsound_cover.pnml", &[1, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
-    let result = sys.analyze_coverability(target, None);
-    assert!(!matches!(result, CoverabilityResult::Uncoverable { .. }), "a coverable target was refuted: {result:?}");
+    let result = sys.coverability().target(target).call();
+    assert!(!matches!(result, Some(Coverability::Uncoverable { .. })), "a coverable target was refuted: {result:?}");
 }

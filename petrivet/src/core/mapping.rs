@@ -23,8 +23,8 @@ use crate::net::{Place, Transition};
 use crate::system::marking::Marking;
 use crate::system::parikh_vector::ParikhVector;
 use crate::system::reachability::Lemma;
-use crate::system::reachability::SpuriousSolutionEliminatedEvent;
-use crate::system::reachability::{CoverabilityResult, ReachabilityResult};
+use crate::system::reachability::RefinementEvent;
+use crate::system::reachability::{Coverability, Reachability};
 use ahash::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,8 +181,8 @@ impl DenseMapping {
     }
 
     /// Translates an internal dense-indexed [`IdxCegarEvent`](IdxCegarEvent) to its public equivalent.
-    pub fn cegar_event(&self, event: IdxCegarEvent) -> SpuriousSolutionEliminatedEvent {
-        SpuriousSolutionEliminatedEvent {
+    pub fn cegar_event(&self, event: IdxCegarEvent) -> RefinementEvent {
+        RefinementEvent {
             spurious_marking: event.spurious_marking.map(|m| self.marking(m)),
             spurious_parikh_vector: event.spurious_parikh_vector.map(|pv| self.parikh_vector(pv)),
             lemma: self.lemma(event.lemma),
@@ -190,30 +190,30 @@ impl DenseMapping {
     }
 
     /// Translates an internal [`CegarResult`](CegarResult) to a public Reachability result.
-    pub fn reachability_result(&self, result: CegarResult) -> ReachabilityResult {
+    pub fn reachability_result(&self, result: CegarResult) -> Option<Reachability> {
         match result {
-            CegarResult::Satisfiable { marking: _, firing_sequence } => ReachabilityResult::Reachable {
+            CegarResult::Satisfiable { marking: _, firing_sequence } => Some(Reachability::Reachable {
                 // the target marking is already known to the caller (they provided it), so we don't need to return it here
                 firing_sequence: self.firing_sequence(firing_sequence),
-            },
-            CegarResult::Unsatisfiable { contradiction } => ReachabilityResult::Unreachable {
+            }),
+            CegarResult::Unsatisfiable { contradiction } => Some(Reachability::Unreachable {
                 contradiction: contradiction.into_iter().map(|lemma| self.lemma(lemma)).collect(),
-            },
-            CegarResult::Inconclusive => ReachabilityResult::Inconclusive,
+            }),
+            CegarResult::Inconclusive => None,
         }
     }
 
     /// Translates an internal [`CegarResult`](CegarResult) to a public Coverability result.
-    pub fn coverability_result(&self, result: CegarResult) -> CoverabilityResult {
+    pub fn coverability_result(&self, result: CegarResult) -> Option<Coverability> {
         match result {
-            CegarResult::Satisfiable { marking, firing_sequence } => CoverabilityResult::Coverable {
+            CegarResult::Satisfiable { marking, firing_sequence } => Some(Coverability::Coverable {
                 marking: self.marking(marking),
                 firing_sequence: self.firing_sequence(firing_sequence),
-            },
-            CegarResult::Unsatisfiable { contradiction } => CoverabilityResult::Uncoverable {
+            }),
+            CegarResult::Unsatisfiable { contradiction } => Some(Coverability::Uncoverable {
                 contradiction: contradiction.into_iter().map(|lemma| self.lemma(lemma)).collect(),
-            },
-            CegarResult::Inconclusive => CoverabilityResult::Inconclusive,
+            }),
+            CegarResult::Inconclusive => None,
         }
     }
 

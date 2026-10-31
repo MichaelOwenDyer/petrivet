@@ -12,10 +12,10 @@ pub struct InitiallyUnmarkedSiphonRule;
 impl InitiallyUnmarkedSiphonRule {
     pub fn check(problem: &CegarProblem) -> Option<InitiallyUnmarkedSiphonRefinement> {
         let siphon = maximal_siphon_in(problem.net, problem.m0.support().complement());
-        if !siphon.is_empty() {
-            Some(InitiallyUnmarkedSiphonRefinement { siphon })
-        } else {
+        if siphon.is_empty() {
             None
+        } else {
+            Some(InitiallyUnmarkedSiphonRefinement { siphon })
         }
     }
 }

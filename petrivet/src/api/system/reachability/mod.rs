@@ -9,8 +9,8 @@ use ahash::HashSet;
 mod reachability;
 mod coverability;
 
-pub use reachability::ReachabilityResult;
-pub use coverability::CoverabilityResult;
+pub use reachability::Reachability;
+pub use coverability::Coverability;
 
 /// Which procedures a reachability or coverability question may use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,10 +74,10 @@ pub enum Lemma {
     },
 }
 
-/// A `SpuriousSolutionEliminatedEvent` is emitted by the CEGAR analysis engine whenever a
+/// A `RefinementEvent` is emitted by the CEGAR analysis engine whenever a
 /// lemma is derived to eliminate spurious solutions from the search space.
 #[derive(Debug, Clone)]
-pub struct SpuriousSolutionEliminatedEvent {
+pub struct RefinementEvent {
     /// The marking which triggered the derivation of a lemma to eliminate spurious solutions
     /// from the search space, if any.
     pub spurious_marking: Option<Marking<u32>>,

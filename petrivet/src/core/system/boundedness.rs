@@ -19,7 +19,7 @@ pub struct Bounds {
 }
 
 impl Bounds {
-    pub fn new(initial_marking: K) -> Self {
+    pub const fn new(initial_marking: K) -> Self {
         let initial_bound = Boundedness::Bounded(initial_marking);
         Self {
             lower: initial_bound,
@@ -92,7 +92,7 @@ impl Bounds {
     }
 
     /// Sets the upper bound to be equal to the lower bound, effectively making the bounds exact.
-    pub fn make_exact(&mut self) {
+    pub const fn make_exact(&mut self) {
         self.upper = self.lower;
     }
 }
@@ -186,7 +186,7 @@ impl BoundsCache {
     }
     
     pub fn make_all_exact(&mut self) {
-        for bounds in self.by_place.iter_mut() {
+        for bounds in &mut self.by_place {
             bounds.make_exact();
         }
     }

@@ -46,7 +46,7 @@
 //! # let net = b.build().unwrap();
 //! # let mut sys = PetriNet::new(net, [(p0, 1)]);
 //! // 1. I know which transition - just try it
-//! sys.try_fire(t0).unwrap();
+//! sys.fire(t0).unwrap();
 //!
 //! // 2. I need to choose from the enabled set - zero redundant checks
 //! let choice = sys.enabled_transitions().next();
@@ -72,7 +72,7 @@ use crate::core::system::deadlock_freedom::DeadlockCache;
 use crate::core::system::liveness::LivenessCache;
 use crate::core::system::marking::IdxMarking;
 use crate::net::{Net, Place, Transition};
-use crate::state_space::{CoverabilityExplorer, ExplorationOrder, ReachabilityGraphExplorer, StateGraphExplorer};
+use crate::state_space::{CoverabilityGraphExplorer, ExplorationOrder, ReachabilityGraphExplorer, StateGraphExplorer};
 use crate::system::marking::Marking;
 use std::cell::RefCell;
 use std::fmt;
@@ -104,7 +104,7 @@ use std::ops::Deref;
 /// # b.add_arc((p1, t1)); b.add_arc((t1, p0));
 /// # let net = b.build().unwrap();
 /// # let mut pn = PetriNet::new(&net, [(p0, 1)]);
-/// pn.try_fire(t0).expect("t0 is not enabled!");
+/// pn.fire(t0).expect("t0 is not enabled!");
 /// ```
 ///
 /// If you want to fire any enabled transition without caring which one,
@@ -227,7 +227,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Returns the set of currently enabled transitions.
     ///
-    /// This is a read-only query. To fire one of these, use [`try_fire`](Self::try_fire)
+    /// This is a read-only query. To fire one of these transitions, use [`fire`](Self::fire)
     /// or [`fire_unchecked`](Self::fire_unchecked).
     pub fn enabled_transitions(&self) -> impl Iterator<Item=Transition> + '_ {
         self.dense_net
@@ -249,7 +249,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// # Errors
     /// Returns `Err(NotEnabled(t))` if it was not enabled (i.e. if any input place had zero tokens),
     /// or if the transition does not exist in the net.
-    pub fn try_fire(&mut self, t: Transition) -> Result<Transition, NotEnabled> {
+    pub fn fire(&mut self, t: Transition) -> Result<Transition, NotEnabled> {
         self.mapping
             .transition_idx(t)
             .ok_or(NotEnabled(t))
@@ -298,9 +298,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
         }
     }
 
-    /// Returns a [`CoverabilityExplorer`] for this system
+    /// Returns a [`CoverabilityGraphExplorer`] for this system
     /// initialized with the given [`ExplorationOrder`].
-    pub fn explore_coverability_graph(&self, order: ExplorationOrder) -> CoverabilityExplorer<'_> {
+    pub fn explore_coverability_graph(&self, order: ExplorationOrder) -> CoverabilityGraphExplorer<'_> {
         StateGraphExplorer {
             core: DenseStateGraphExplorer::new(&self.dense_net, self.marking.clone().into(), order),
             mapping: &self.mapping,
@@ -321,7 +321,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     pub(crate) fn with_deadlock_cache<R>(&self, f: impl FnOnce(&mut DeadlockCache) -> R) -> R {
         let mut slot = self.cache.deadlocks.borrow_mut();
-        f(slot.get_or_insert_with(|| DeadlockCache::new()))
+        f(slot.get_or_insert_with(DeadlockCache::new))
     }
 }
 
@@ -422,7 +422,7 @@ pub(crate) mod tests {
         let mut sys = net.with_initial_marking([(p0, 1)]);
         assert_eq!(sys.marking(), [(p0, 1)].into());
         assert!(sys.is_enabled(t0));
-        sys.try_fire(t0).unwrap();
+        sys.fire(t0).unwrap();
         assert_eq!(sys.marking(), [(p1, 1)].into());
     }
 
@@ -430,7 +430,7 @@ pub(crate) mod tests {
     fn try_fire_not_enabled() {
         let (net, p0, _t0, _p1, t1) = two_place_cycle();
         let mut sys = net.with_initial_marking([(p0, 1)]);
-        assert!(sys.try_fire(t1).is_err());
+        assert!(sys.fire(t1).is_err());
     }
 
     #[test]
@@ -454,7 +454,7 @@ pub(crate) mod tests {
     fn into_parts() {
         let (net, p0, t0, p1, _t1) = two_place_cycle();
         let mut sys = net.with_initial_marking([(p0, 1)]);
-        sys.try_fire(t0).unwrap();
+        sys.fire(t0).unwrap();
         let parts = sys.into_parts();
         assert_eq!(parts.1, Marking::from([(p1, 1)]));
         assert_eq!(parts.2, Marking::from([(p0, 1)]));

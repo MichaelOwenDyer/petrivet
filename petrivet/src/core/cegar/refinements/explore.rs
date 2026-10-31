@@ -498,7 +498,7 @@ impl IncrementRefinement {
                         lhs_terms.push(solver.mul([weight_term, t_term]));
 
                         let fired_count = self.firing_sequence.iter().filter(|&&fired_t| fired_t == t).count() as u32;
-                        tokens_already_produced += (net_production as u32) * fired_count;
+                        tokens_already_produced += net_production.cast_unsigned() * fired_count;
                     }
                 }
             }

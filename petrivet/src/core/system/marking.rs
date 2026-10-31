@@ -1,9 +1,9 @@
 use crate::core::net::PlaceIdx;
+use crate::core::net::idx_set::PlaceIdxSet;
 use crate::core::state_space::TokenOps;
 use std::cmp::Ordering;
 use std::ops::{Index, IndexMut};
 use std::{iter, vec};
-use crate::core::net::idx_set::PlaceIdxSet;
 
 /// A marking: one value of type `T` per place, indexed by [`PlaceIdx`].
 ///
@@ -21,7 +21,7 @@ impl<T> AsRef<[T]> for IdxMarking<T> {
 impl<T> IdxMarking<T> {
     /// Number of places in this marking.
     #[must_use]
-    pub fn place_count(&self) -> usize {
+    pub const fn place_count(&self) -> usize {
         self.0.len()
     }
 

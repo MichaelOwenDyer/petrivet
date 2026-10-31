@@ -73,7 +73,7 @@ fn main() {
     // (all philosophers pick up their left fork), but then no philosopher can eat (deadlock).
 
     for (i, &take_left_k) in take_left.iter().enumerate() {
-        sys.try_fire(take_left_k).ok();
+        sys.fire(take_left_k).ok();
         println!("Philosopher {i} takes left fork");
     }
 

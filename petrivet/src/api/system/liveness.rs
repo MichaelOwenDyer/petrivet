@@ -4,8 +4,10 @@ use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
 use crate::state_space::ExplorationOrder;
 use crate::system::PetriNet;
+use crate::timeout::Timeout;
 use ahash::HashMap;
 use bon::bon;
+use std::time::Instant;
 
 /// The liveness level of a [`Transition`] describes how often it
 /// can be fired in a [`Petri net`](crate::PetriNet) `(N, M₀)`.
@@ -188,7 +190,7 @@ pub struct LivenessAnalysis {
 }
 
 impl LivenessAnalysis {
-    pub(crate) fn new(levels: HashMap<Transition, LivenessLevel>, method: LivenessProvenance) -> Self {
+    pub(crate) const fn new(levels: HashMap<Transition, LivenessLevel>, method: LivenessProvenance) -> Self {
         Self { levels, method }
     }
 
@@ -265,7 +267,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
         transition: Option<Transition>,
         level: Option<LivenessLevel>,
         effort: Option<LivenessEffort>,
-        timeout: Option<std::time::Duration>,
+        #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
+        deadline: Option<Instant>,
     ) -> Option<bool> {
         let level = level.unwrap_or(LivenessLevel::L4);
         let query = LivenessQuery::AtLeast(level);
@@ -275,7 +278,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
             Some(_) => return None,
         };
         let effort = effort.unwrap_or(LivenessEffort::Any);
-        let deadline = timeout.and_then(|t| std::time::Instant::now().checked_add(t));
         self.with_liveness_cache(|cache| {
             self.refine_liveness(cache, query, scope, effort, deadline);
             cache.read_at_least(scope, level)
@@ -287,7 +289,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
         &self,
         of: Option<Transition>,
         effort: Option<LivenessEffort>,
-        timeout: Option<std::time::Duration>,
+        #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
+        deadline: Option<Instant>,
     ) -> Option<LivenessLevel> {
         let query = LivenessQuery::Exact;
         let scope = match of {
@@ -296,7 +299,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
             Some(_) => return None,
         };
         let effort = effort.unwrap_or(LivenessEffort::Any);
-        let deadline = timeout.and_then(|t| std::time::Instant::now().checked_add(t));
         self.with_liveness_cache(|cache| {
             self.refine_liveness(cache, query, scope, effort, deadline);
             cache.read_exact(scope)
@@ -309,12 +311,12 @@ impl<N: AsRef<Net>> PetriNet<N> {
         query: LivenessQuery,
         scope: LivenessScope,
         effort: LivenessEffort,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<Instant>,
     ) {
         if cache.is_answered(scope, query) {
             return;
         }
-        let is_deadline_expired = || deadline.is_some_and(|d| std::time::Instant::now() >= d);
+        let is_deadline_expired = || deadline.is_some_and(|d| Instant::now() >= d);
         if cache.should_refine_by_unmarked_siphon {
             self.refine_liveness_by_unmarked_siphon(cache);
             if is_deadline_expired() || cache.is_answered(scope, query) {
@@ -339,7 +341,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         if let Some(siphon) = self.dense_net.maximal_unmarked_proper_siphon(&self.marking) {
             let transitions = siphon.iter().flat_map(|p_idx| self.dense_net.postset_p[p_idx].iter());
             for &t_idx in transitions {
-                cache.update_exact(t_idx, LivenessLevel::L0)
+                cache.update_exact(t_idx, LivenessLevel::L0);
             }
         }
         cache.should_refine_by_unmarked_siphon = false;
@@ -379,7 +381,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     fn refine_liveness_by_all_procedures(
         &self,
         cache: &mut LivenessCache,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<Instant>,
     ) {
         match self.class() {
             NetClass::FreeChoice | NetClass::AsymmetricChoice if self.commoner_hack_criterion_until(deadline) == Some(Ok(())) => {
@@ -387,7 +389,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
                     cache.update_exact(t_idx, LivenessLevel::L4);
                 }
             },
-            _ if deadline.is_some_and(|d| std::time::Instant::now() >= d) => {},
+            _ if deadline.is_some_and(|d| Instant::now() >= d) => {},
             _ => {
                 match self
                     .explore_coverability_graph(ExplorationOrder::BreadthFirst)

@@ -351,7 +351,9 @@ fn deadline_bounds_deadlock_freedom_of_a_large_net() {
     let sys = PetriNet::new(b.build().unwrap(), [(p0, 1)]);
     let start = std::time::Instant::now();
     let reachable = sys
-        .analyze_reachability_within([(p1, 1)], std::time::Duration::from_secs(30), None)
+        .reachability().target([(p1, 1)]).timeout(std::time::Duration::from_secs(30))
+        .call()
+        .unwrap()
         .is_reachable();
     assert!(reachable);
     assert!(start.elapsed() < std::time::Duration::from_secs(10), "took {:?}", start.elapsed());

@@ -20,7 +20,7 @@ I hope that it can be a useful tool for researchers and engineers alike.
 
 - **Behavioral properties**: Check (k-)boundedness, deadlock-freedom, liveness, coverability, and reachability.
 
-- **Structural properties**: Check place and transition invariants, siphons and traps, the Commoner-Hack Criterion, and more.
+- **Structural properties**: Check place and transition invariants, siphons and traps, the Commoner-Hack criterion, and more.
 
 - **PNML Import / Export**: Load and save Petri net models in the [PNML format](https://en.wikipedia.org/wiki/Pnml). Disclaimer: this feature is largely AI-written and deserves some more love, but I've had other priorities so far.
 

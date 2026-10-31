@@ -1,5 +1,5 @@
 use crate::core::cegar::observe::ToCegarCallbackFn;
-use crate::core::cegar::{CegarProblem, CegarQuestion, cegar_decide};
+use crate::core::cegar::{CegarProblem, CegarProperty, cegar_decide};
 use crate::core::net::siphon_trap::maximal_trap_in;
 use crate::core::solver::DefaultSolver;
 use crate::net::class::NetClass;
@@ -8,12 +8,14 @@ use crate::system::PetriNet;
 use crate::system::marking::Marking;
 use crate::system::reachability::Lemma;
 use crate::system::reachability::ReachabilityEffort;
-use crate::system::reachability::SpuriousSolutionEliminatedEvent;
+use crate::system::reachability::RefinementEvent;
+use crate::timeout::Timeout;
 use bon::bon;
 use std::sync::{Arc, mpsc};
+use std::time::Instant;
 
-#[derive(Debug, Clone)]
-pub enum ReachabilityResult {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reachability {
     /// The target marking is reachable from M₀.
     Reachable {
         firing_sequence: Vec<Transition>,
@@ -22,11 +24,9 @@ pub enum ReachabilityResult {
     Unreachable {
         contradiction: Vec<Lemma>,
     },
-    /// The reachability of the target marking is inconclusive.
-    Inconclusive,
 }
 
-impl ReachabilityResult {
+impl Reachability {
     /// Whether the target is definitely reachable.
     #[must_use]
     pub const fn is_reachable(&self) -> bool {
@@ -42,12 +42,42 @@ impl ReachabilityResult {
 
 #[bon]
 impl<N: AsRef<Net>> PetriNet<N> {
+    /// Whether `target` is reachable from the initial marking.
+    ///
+    /// Tries the efficient procedures first ([`is_efficiently_reachable`](Self::is_efficiently_reachable)).
+    /// If `effort` is [`Efficient`](ReachabilityEffort::Efficient) and none applies, the answer is `None`;
+    /// otherwise the question goes to [`reachability`](Self::reachability).
+    /// If `timeout` is specified, the analysis gives up after that duration and the answer is `None`.
+    /// Use [`reachability`](Self::reachability) for a witness or a refutation.
+    #[must_use]
+    #[builder]
+    pub fn is_reachable(
+        &self,
+        #[builder(into)]
+        target: Marking<u32>,
+        effort: Option<ReachabilityEffort>,
+        #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
+        deadline: Option<Instant>,
+    ) -> Option<bool> {
+        if let Some(answer) = self.is_efficiently_reachable(&target) {
+            return Some(answer);
+        }
+        if effort == Some(ReachabilityEffort::Efficient) {
+            return None;
+        }
+        self.reachability()
+            .target(target)
+            .maybe_timeout(deadline)
+            .call()
+            .map(|result| result.is_reachable())
+    }
+
     /// If there is an efficient (polynomial-time) procedure to determine
     /// whether the given target marking is reachable in this Petri net,
     /// returns Some(_) with the answer.
     /// Returns None if the answer would not be efficient to compute.
     #[must_use]
-    pub fn is_efficiently_reachable(&self, target: &Marking<u32>) -> Option<bool> {
+    fn is_efficiently_reachable(&self, target: &Marking<u32>) -> Option<bool> {
         let target = self.mapping.idx_marking(target.clone());
         match self.class() {
             NetClass::Circuit => Some(self.marking.sum() == target.sum()),
@@ -64,90 +94,42 @@ impl<N: AsRef<Net>> PetriNet<N> {
         }
     }
 
-    /// Whether `target` is reachable from the initial marking.
-    ///
-    /// Tries the efficient procedures first ([`is_efficiently_reachable`](Self::is_efficiently_reachable)).
-    /// If `effort` is [`Efficient`](ReachabilityEffort::Efficient) and none applies, the answer is `None`;
-    /// otherwise the question goes to [`analyze_reachability`](Self::analyze_reachability).
-    /// If `timeout` is specified, the analysis gives up after that duration and the answer is `None`.
-    /// Use [`analyze_reachability`](Self::analyze_reachability) for a witness or a refutation.
+    /// Analyzes reachability of a target marking.
+    /// Analyzes reachability of a target marking, like [`reachability`](Self::reachability),
+    /// but additionally invokes `observer` with a [`RefinementEvent`] every time the search rules out a
+    /// spurious candidate solution along the way. Useful for progress reporting on searches that
+    /// take a while - the returned [`Reachability`] is unaffected by what the observer does.
     #[must_use]
     #[builder]
-    pub fn is_reachable(
+    pub fn reachability(
         &self,
-        #[builder(into)] target: Marking<u32>,
-        effort: Option<ReachabilityEffort>,
-        timeout: Option<std::time::Duration>,
-    ) -> Option<bool> {
-        if let Some(answer) = self.is_efficiently_reachable(&target) {
-            return Some(answer);
-        }
-        if effort == Some(ReachabilityEffort::Efficient) {
-            return None;
-        }
-        let deadline = timeout.and_then(|t| std::time::Instant::now().checked_add(t));
-        match self.analyze_reachability_until(target, None, deadline) {
-            ReachabilityResult::Reachable { .. } => Some(true),
-            ReachabilityResult::Unreachable { .. } => Some(false),
-            ReachabilityResult::Inconclusive => None,
-        }
-    }
-
-    /// Analyzes reachability of a target marking.
-    /// Analyzes reachability of a target marking, like [`analyze_reachability`](Self::analyze_reachability),
-    /// but additionally invokes `observer` with a [`SpuriousSolutionEliminatedEvent`] every time the search rules out a
-    /// spurious candidate solution along the way. Useful for progress reporting on searches that
-    /// take a while - the returned [`ReachabilityResult`] is unaffected by what the observer does.
-    #[must_use]
-    pub fn analyze_reachability(
-        &self,
-        target: impl Into<Marking<u32>>,
-        observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
-    ) -> ReachabilityResult {
-        self.analyze_reachability_until(target, observer, None)
-    }
-
-    /// Like [`analyze_reachability`](Self::analyze_reachability), but gives up after `timeout`
-    /// and returns [`ReachabilityResult::Inconclusive`] if the search has not finished by then.
-    #[must_use]
-    pub fn analyze_reachability_within(
-        &self,
-        target: impl Into<Marking<u32>>,
-        timeout: std::time::Duration,
-        observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
-    ) -> ReachabilityResult {
-        let deadline = std::time::Instant::now().checked_add(timeout);
-        self.analyze_reachability_until(target, observer, deadline)
-    }
-
-    fn analyze_reachability_until(
-        &self,
-        target: impl Into<Marking<u32>>,
-        observer: Option<mpsc::Sender<SpuriousSolutionEliminatedEvent>>,
-        deadline: Option<std::time::Instant>,
-    ) -> ReachabilityResult {
+        #[builder(into)]
+        target: Marking<u32>,
+        observer: Option<mpsc::Sender<RefinementEvent>>,
+        #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
+        deadline: Option<Instant>,
+    ) -> Option<Reachability> {
         let m0 = &self.marking;
-        let target = &self.mapping.idx_marking(target.into());
+        let target = &self.mapping.idx_marking(target);
 
         if m0 == target {
-            return ReachabilityResult::Reachable {
+            return Some(Reachability::Reachable {
                 firing_sequence: Vec::new(),
-            };
+            });
         }
 
         let problem = CegarProblem {
             net: &self.dense_net,
             m0,
             target,
-            question: CegarQuestion::Reachable,
-            deadline,
+            property: CegarProperty::Reachable,
         };
         // Wrap the provided observer in a type-erased closure
         // that maps the internal `IdxCegarEvent` to the public `CegarEvent`.
         let callback_fn = observer.map(|sender| {
             sender.to_cegar_callback_fn(Arc::clone(&self.mapping))
         });
-        let cegar_result = cegar_decide::<DefaultSolver>(problem, callback_fn);
+        let cegar_result = cegar_decide::<DefaultSolver>(problem, callback_fn, deadline);
         self.mapping.reachability_result(cegar_result)
     }
 }
@@ -162,17 +144,18 @@ mod tests {
     /// `Inconclusive` (not a panic), while a generous deadline still yields the definite answer.
     #[test]
     fn reachability_within_gives_up_at_the_deadline() {
-        use crate::system::reachability::ReachabilityResult;
+        use crate::system::reachability::Reachability;
         use std::time::Duration;
         let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
         let sys = net.with_initial_marking([(p0, 1)]);
         assert!(matches!(
-            sys.analyze_reachability_within([(p1, 1)], Duration::ZERO, None),
-            ReachabilityResult::Inconclusive
+            sys.reachability().target([(p1, 1)]).timeout(Duration::ZERO).call(),
+            None
         ));
-        assert!(sys
-            .analyze_reachability_within([(p1, 1)], Duration::from_secs(60), None)
-            .is_reachable());
+        assert!(matches!(
+            sys.reachability().target([(p1, 1)]).timeout(Duration::from_secs(60)).call(),
+            Some(Reachability::Reachable { .. })
+        ));
     }
 
     #[test]

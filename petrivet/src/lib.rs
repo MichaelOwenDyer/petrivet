@@ -24,7 +24,7 @@
 //!
 //! let net = net.build().expect("valid net");
 //! let mut sys = net.with_initial_marking([(p0, 1)]);
-//! sys.try_fire(t0).expect("should be enabled");
+//! sys.fire(t0).expect("should be enabled");
 //! println!("Marking after firing: {:?}", sys.marking());
 //!
 //! let mut cg = sys.explore_coverability_graph(ExplorationOrder::BreadthFirst);

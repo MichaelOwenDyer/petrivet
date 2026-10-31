@@ -98,7 +98,7 @@ fn main() {
     dbg!(dangerous);
 
     let pn = PetriNet::new(&net, initial_marking);
-    let coverability_analysis = pn.analyze_coverability(dangerous, None);
+    let coverability_analysis = pn.coverability().target(dangerous).call().unwrap();
 
     dbg!(&coverability_analysis);
 

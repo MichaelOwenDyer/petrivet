@@ -47,7 +47,7 @@ pub type ReachabilityGraphExplorer<'a> = StateGraphExplorer<'a, u32>;
 
 impl std::fmt::Debug for ReachabilityGraphExplorer<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReachabilityExplorer")
+        f.debug_struct("ReachabilityGraphExplorer")
             .field("markings", &self.marking_count())
             .field("transitions", &self.transition_count())
             .field("frontier", &self.core.frontier_count())
@@ -64,7 +64,7 @@ impl std::fmt::Debug for ReachabilityGraphExplorer<'_> {
 /// detection - are available here.
 ///
 /// The reachability graph is infinite for unbounded systems. For unknown systems,
-/// prefer building a [`CoverabilityExplorer`] first (always terminates, decides
+/// prefer building a [`CoverabilityGraphExplorer`] first (always terminates, decides
 /// coverability and boundedness), then attempt to promote to a `ReachabilityGraph`,
 /// which succeeds if and only if the net is bounded.
 pub type ReachabilityGraph<'a> = StateGraph<'a, u32>;

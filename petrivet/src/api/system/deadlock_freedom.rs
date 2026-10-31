@@ -3,7 +3,9 @@ use crate::net::class::NetClass;
 use crate::state_space::{ExplorationOrder, ReachabilityGraphExplorer};
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
+use crate::timeout::Timeout;
 use bon::bon;
+use std::time::Instant;
 
 /// A **deadlock** is a [`Marking`] which enables no [`Transition`](crate::net::Transition).
 ///
@@ -40,10 +42,12 @@ pub struct Deadlocks<'a>(DeadlocksInner<'a>);
 
 impl Deadlocks<'_> {
     /// Sets a timeout for the deadlock search. If the timeout is reached, the iterator will stop yielding deadlocks.
+    #[must_use]
     pub fn with_timeout(self, timeout: Option<std::time::Duration>) -> Self {
         self.with_deadline(timeout.and_then(|t| std::time::Instant::now().checked_add(t)))
     }
 
+    #[must_use]
     pub fn with_deadline(mut self, deadline: Option<std::time::Instant>) -> Self {
         self.0 = match self.0 {
             DeadlocksInner::OneOrNone(deadlock) => DeadlocksInner::OneOrNone(deadlock),
@@ -61,7 +65,7 @@ enum DeadlocksInner<'a> {
     OneOrNone(Option<Deadlock>),
     /// The system is not certified deadlock-free: explore the reachable markings for deadlocks.
     Explorer {
-        explorer: ReachabilityGraphExplorer<'a>,
+        explorer: Box<ReachabilityGraphExplorer<'a>>,
         deadline: Option<std::time::Instant>,
     },
 }
@@ -98,7 +102,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             Deadlocks(DeadlocksInner::OneOrNone(None))
         } else {
             Deadlocks(DeadlocksInner::Explorer {
-                explorer: self.explore_reachability_graph(ExplorationOrder::BreadthFirst),
+                explorer: Box::new(self.explore_reachability_graph(ExplorationOrder::BreadthFirst)),
                 deadline: None,
             })
         }
@@ -110,10 +114,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn is_deadlock_free(
         &self,
         effort: Option<DeadlockFreedomEffort>,
-        timeout: Option<std::time::Duration>,
+        #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
+        deadline: Option<Instant>,
     ) -> Option<bool> {
         let effort = effort.unwrap_or(DeadlockFreedomEffort::Full);
-        let deadline = timeout.and_then(|t| std::time::Instant::now().checked_add(t));
         self.with_deadlock_cache(|cache| {
             match self.class() {
                 _ if let Some(answer) = cache.is_deadlock_free() => Some(answer),

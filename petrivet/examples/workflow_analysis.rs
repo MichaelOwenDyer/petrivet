@@ -97,7 +97,7 @@ fn main() {
     println!("\n--- Reachability Analysis ---\n");
 
     // Can all 3 boards reach "done"?
-    let result = sys.analyze_reachability([(station, 1), (done, 3)], None);
+    let result = sys.reachability().target([(station, 1), (done, 3)]).call().unwrap();
     println!(
         "All 3 boards done? {}",
         if result.is_reachable() {
@@ -111,7 +111,7 @@ fn main() {
 
     // Can we magically get 4 boards done from 3?
     let impossible = [(station, 1), (done, 4)];
-    let result2 = sys.analyze_reachability(impossible, None);
+    let result2 = sys.reachability().target(impossible).call().unwrap();
     println!(
         "4 boards done from 3? {}",
         if result2.is_reachable() {

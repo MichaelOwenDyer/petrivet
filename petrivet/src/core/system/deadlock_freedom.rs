@@ -1,7 +1,7 @@
-use ahash::{HashSet, HashSetExt};
 use crate::core::net::DenseNet;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::system::marking::IdxMarking;
+use ahash::{HashSet, HashSetExt};
 
 #[derive(Debug, Clone)]
 pub struct DeadlockCache {
@@ -31,7 +31,7 @@ impl DeadlockCache {
         }
     }
 
-    pub fn mark_complete(&mut self) {
+    pub const fn mark_complete(&mut self) {
         self.complete = true;
     }
 

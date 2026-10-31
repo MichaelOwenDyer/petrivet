@@ -73,7 +73,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
     }
 
     /// Checks the Commoner/Hack criterion with an optional deadline.
-    pub(crate) fn commoner_hack_criterion_until(&self, deadline: Option<std::time::Instant>) -> Option<CommonerHackCriterionResult> {
+    pub fn commoner_hack_criterion_until(
+        &self,
+        deadline: Option<std::time::Instant>
+    ) -> Option<CommonerHackCriterionResult> {
         let result = find_proper_siphon_with_no_marked_trap::<DefaultSolver>(&self.dense_net, &self.marking, deadline);
         match result {
             ProperSiphonWithNoMarkedTrapResult::Found(siphon, trap) => Some(Err(Box::new((

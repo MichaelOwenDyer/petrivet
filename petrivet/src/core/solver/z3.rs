@@ -142,7 +142,7 @@ impl SmtSolver for Z3 {
                 scope.spawn(move || {
                     let remaining = deadline.saturating_duration_since(Instant::now());
                     // only a timeout interrupts: finishing drops the sender and wakes this thread
-                    if let Err(RecvTimeoutError::Timeout) = is_finished.recv_timeout(remaining) {
+                    if is_finished.recv_timeout(remaining) == Err(RecvTimeoutError::Timeout) {
                         handle.interrupt();
                     }
                 });

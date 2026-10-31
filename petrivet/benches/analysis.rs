@@ -295,7 +295,7 @@ fn bench_liveness(c: &mut Criterion) {
     group.finish();
 }
 
-/// sys.analyze_boundedness() — builds the coverability graph and derives per-place bounds.
+/// sys.boundedness() — builds the coverability graph and derives per-place bounds.
 fn bench_boundedness(c: &mut Criterion) {
     let mut group = c.benchmark_group("boundedness");
     let mut run = |fixture: &NetFixture, (size_label, size): (&str, NetSize)| {

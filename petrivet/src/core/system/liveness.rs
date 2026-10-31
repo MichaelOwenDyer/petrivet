@@ -1,6 +1,6 @@
 use crate::core::net::{DenseNet, IdxNode, TransitionIdx};
 use crate::core::system::marking::IdxMarking;
-use crate::system::liveness::{LivenessProvenance, LivenessLevel, LivenessQuery, LivenessScope};
+use crate::system::liveness::{LivenessLevel, LivenessProvenance, LivenessQuery, LivenessScope};
 use fixedbitset::FixedBitSet;
 use petgraph::graph::NodeIndex;
 use petgraph::visit::IntoNodeReferences;
@@ -27,7 +27,7 @@ pub struct Liveness {
 }
 
 impl Liveness {
-    fn new() -> Liveness {
+    const fn new() -> Liveness {
         Liveness {
             least: LivenessLevel::L0,
             least_provenance: LivenessProvenance::None,
@@ -262,7 +262,7 @@ impl DenseNet {
 
         // all transitions in an unmarked circuit are L0,
         // and all transitions downstream from them are at most L1. the rest are L4.
-        let mut liveness = vec![LivenessLevel::L4; self.transition_count() as usize];
+        let mut liveness = vec![LivenessLevel::L4; self.transition_count()];
         for t_idx in self.transitions_on_unmarked_circuits(marking) {
             dfs_finite_pathways(self, marking, t_idx, false, &mut liveness);
         }

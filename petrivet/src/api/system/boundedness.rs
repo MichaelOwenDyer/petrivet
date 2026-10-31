@@ -6,7 +6,9 @@ use crate::net::class::NetClass;
 use crate::net::{Net, Place};
 use crate::state_space::ExplorationOrder;
 use crate::system::PetriNet;
+use crate::timeout::Timeout;
 use bon::bon;
+use std::time::Instant;
 
 /// A type alias for the upper bound `k` in k-boundedness.
 pub type K = u32;
@@ -129,7 +131,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
         place: Option<Place>,
         k: Option<K>,
         effort: Option<BoundednessEffort>,
-        timeout: Option<std::time::Duration>
+        #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
+        deadline: Option<Instant>
     ) -> Option<bool> {
         let scope = match place {
             None => BoundednessScope::PetriNet,
@@ -138,7 +141,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
         };
         let goal = k.map_or(BoundednessQuery::Bounded, BoundednessQuery::KBounded);
         let effort = effort.unwrap_or(BoundednessEffort::Any);
-        let deadline = timeout.and_then(|t| std::time::Instant::now().checked_add(t));
         self.with_boundedness_cache(|cache| {
             self.refine_bounds(cache, goal, scope, effort, deadline);
             k.map_or_else(
@@ -158,7 +160,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
         &self,
         place: Option<Place>,
         effort: Option<BoundednessEffort>,
-        timeout: Option<std::time::Duration>,
+        #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
+        deadline: Option<Instant>,
     ) -> Option<Boundedness> {
         let scope = match place {
             None => BoundednessScope::PetriNet,
@@ -166,7 +169,6 @@ impl<N: AsRef<Net>> PetriNet<N> {
             Some(_) => return None,
         };
         let effort = effort.unwrap_or(BoundednessEffort::Any);
-        let deadline = timeout.and_then(|t| std::time::Instant::now().checked_add(t));
         self.with_boundedness_cache(|cache| {
             self.refine_bounds(cache, BoundednessQuery::Exact, scope, effort, deadline);
             cache.read_exact(scope)
@@ -191,7 +193,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         query: BoundednessQuery,
         scope: BoundednessScope,
         effort: BoundednessEffort,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<Instant>,
     ) {
         if cache.is_answered(scope, query) {
             return;
@@ -211,7 +213,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         match query {
             BoundednessQuery::KBounded(k) => {
                 let mut rg = self.explore_coverability_graph(ExplorationOrder::BreadthFirst);
-                rg.core.find(|m| m.iter().any(|&t| t > k), deadline);
+                rg.core.find(|m| m.iter().any(|&t| t > k), deadline); // TODO: check exact place
                 let max = rg.core.state_space.markings().fold(IdxMarking::zeros(self.place_count()), IdxMarking::componentwise_max);
                 cache.update_lower_bound(&max, BoundednessAnalysisMethod::CoverabilityGraph);
                 if rg.is_fully_explored() {

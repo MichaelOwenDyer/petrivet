@@ -20,7 +20,7 @@ use std::time::Instant;
 
 /// Whether we are checking for reachability or coverability of the target marking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CegarQuestion {
+pub enum CegarProperty {
     /// Is the target marking reachable from the initial marking?
     Reachable,
     /// Is some marking which covers the target marking reachable from the initial marking?
@@ -36,9 +36,7 @@ pub struct CegarProblem<'a> {
     /// The target marking.
     pub target: &'a IdxMarking<u32>,
     /// Whether we are checking for reachability or coverability.
-    pub question: CegarQuestion,
-    /// Give up with [`CegarResult::Inconclusive`] if the analysis is not finished by then.
-    pub deadline: Option<Instant>,
+    pub property: CegarProperty,
 }
 
 /// CEGAR ("Counterexample-Guided Abstraction Refinement"), was first described by Clarke et al. (2000).
@@ -114,9 +112,9 @@ fn encode_place_terms<S: SmtSolver>(
 
     for (place, &target_tokens) in place_terms.iter().zip(problem.target.iter()) {
         let target_term = solver.mk_int(i64::from(target_tokens));
-        let domain = match problem.question {
-            CegarQuestion::Reachable => solver.eq(place, &target_term),
-            CegarQuestion::Coverable => solver.ge(place, &target_term),
+        let domain = match problem.property {
+            CegarProperty::Reachable => solver.eq(place, &target_term),
+            CegarProperty::Coverable => solver.ge(place, &target_term),
         };
         solver.assert(&domain);
     }
@@ -130,9 +128,10 @@ impl<'a, S: SmtSolver + Default> Cegar<'a, Structural<S>, S> {
     fn new(
         problem: CegarProblem<'a>,
         callback: Option<CegarCallbackFn>,
+        deadline: Option<Instant>,
     ) -> Self {
         let mut solver = S::default();
-        solver.set_deadline(problem.deadline);
+        solver.set_deadline(deadline);
         let places = encode_place_terms(&mut solver, &problem);
         let callback = CegarObserver { callback };
 
@@ -451,8 +450,9 @@ pub enum CegarResult {
 pub fn cegar_decide<S: SmtSolver>(
     problem: CegarProblem,
     callback: Option<CegarCallbackFn>,
+    deadline: Option<Instant>,
 ) -> CegarResult {
-    let mut structural_cegar = Cegar::<Structural<S>, S>::new(problem, callback);
+    let mut structural_cegar = Cegar::<Structural<S>, S>::new(problem, callback, deadline);
     let mut behavioral_cegar = loop {
         structural_cegar = match structural_cegar.step() {
             StructuralStep::Inconclusive => {
@@ -540,16 +540,15 @@ mod tests {
         net: &DenseNet,
         m0: &IdxMarking<u32>,
         target: &IdxMarking<u32>,
-        question: CegarQuestion,
+        question: CegarProperty,
     ) -> CegarResult {
         let problem = CegarProblem {
             net,
             m0,
             target,
-            question,
-            deadline: None,
+            property: question,
         };
-        cegar_decide::<S>(problem, None)
+        cegar_decide::<S>(problem, None, None)
     }
 
     #[test]
@@ -557,9 +556,9 @@ mod tests {
         let (net, m0, target) = producer_problem();
         for (name, result) in [
             #[cfg(feature = "oxiz")]
-            ("oxiz", decide::<solver::oxiz::OxiZ>(&net, &m0, &target, CegarQuestion::Coverable)),
+            ("oxiz", decide::<solver::oxiz::OxiZ>(&net, &m0, &target, CegarProperty::Coverable)),
             #[cfg(feature = "z3")]
-            ("z3", decide::<solver::z3::Z3>(&net, &m0, &target, CegarQuestion::Coverable)),
+            ("z3", decide::<solver::z3::Z3>(&net, &m0, &target, CegarProperty::Coverable)),
         ] {
             match result {
                 CegarResult::Satisfiable { marking: _, firing_sequence } => {
@@ -576,9 +575,9 @@ mod tests {
         let (net, m0, target) = once_only();
         for (name, result) in [
             #[cfg(feature = "oxiz")]
-            ("oxiz", decide::<solver::oxiz::OxiZ>(&net, &m0, &target, CegarQuestion::Coverable)),
+            ("oxiz", decide::<solver::oxiz::OxiZ>(&net, &m0, &target, CegarProperty::Coverable)),
             #[cfg(feature = "z3")]
-            ("z3", decide::<solver::z3::Z3>(&net, &m0, &target, CegarQuestion::Coverable)),
+            ("z3", decide::<solver::z3::Z3>(&net, &m0, &target, CegarProperty::Coverable)),
         ] {
             match result {
                 CegarResult::Satisfiable { .. } => panic!("backend {name} wrongly returned SAT"),

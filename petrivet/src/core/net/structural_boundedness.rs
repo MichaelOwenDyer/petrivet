@@ -29,16 +29,16 @@
 //! let sys = PetriNet::new(net, [(p0, 1)]);
 //!
 //! // Can we reach (0, 1)? The marking equation says: feasible
-//! let result = sys.analyze_reachability([(p1, 1)], None);
+//! let result = sys.reachability([(p1, 1)], None);
 //! assert!(result.is_reachable());
 //!
 //! // Can we reach (2, 0)? Conservation law violated, definitely not
-//! let result = sys.analyze_reachability([(p0, 2)], None);
+//! let result = sys.reachability([(p0, 2)], None);
 //! assert!(!result.is_reachable());
 //! ```
 
 use crate::core::net::{DenseNet, PlaceIdx};
-use good_lp::{constraint, variable, Expression, ProblemVariables, Solution, SolverModel, Variable};
+use good_lp::{Expression, ProblemVariables, Solution, SolverModel, Variable, constraint, variable};
 
 /// Checks structural boundedness: is the net bounded for every possible
 /// initial marking?
@@ -126,7 +126,7 @@ pub fn find_place_subinvariant<F: FnMut(&PlaceIdx) -> bool>(
 
     for m in 1..=10_000 {
         if floats.iter().all(|&f| {
-            let scaled = f * (m as f64);
+            let scaled = f * f64::from(m);
             (scaled.round() - scaled).abs() < epsilon
         }) {
             best_multiplier = m;
@@ -136,7 +136,7 @@ pub fn find_place_subinvariant<F: FnMut(&PlaceIdx) -> bool>(
 
     let int_weights: Box<[u64]> = floats
         .into_iter()
-        .map(|f| (f * best_multiplier as f64).round() as u64)
+        .map(|f| (f * f64::from(best_multiplier)).round() as u64)
         .collect();
 
     // final defensive check: ensure that the integer weights satisfy the S-sub-invariant condition
