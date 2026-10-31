@@ -504,7 +504,7 @@ impl IncrementRefinement {
             }
 
             if lhs_terms.is_empty() {
-                return;
+                continue;
             }
 
             let lhs = solver.add(lhs_terms);

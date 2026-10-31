@@ -112,7 +112,7 @@ impl TransitionOrderingRefinement {
                     callback(lemma.clone());
                 }
                 solver.assert_tracked(&t_dead, lemma);
-                return;
+                continue;
             }
 
             let zero = solver.mk_int(0);
