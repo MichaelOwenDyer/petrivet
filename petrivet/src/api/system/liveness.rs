@@ -1,10 +1,10 @@
 use crate::core::net::TransitionIdx;
 use crate::core::system::liveness::LivenessCache;
+use crate::cost_control::{Effort, Timeout};
 use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
 use crate::state_space::ExplorationOrder;
 use crate::system::PetriNet;
-use crate::timeout::Timeout;
 use bon::bon;
 use std::time::Instant;
 
@@ -165,14 +165,6 @@ pub enum LivenessProvenance {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum LivenessEffort {
-    /// Use only polynomial-time procedures.
-    Efficient,
-    /// Use procedures of any complexity.
-    Any
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum LivenessScope {
     Transition(TransitionIdx),
     PetriNet,
@@ -191,7 +183,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         &self,
         transition: Option<Transition>,
         level: Option<LivenessLevel>,
-        effort: Option<LivenessEffort>,
+        effort: Option<Effort>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
         deadline: Option<Instant>,
     ) -> Option<bool> {
@@ -202,7 +194,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             Some(t) if let Some(t_idx) = self.mapping.transition_idx(t) => LivenessScope::Transition(t_idx),
             Some(_) => return None,
         };
-        let effort = effort.unwrap_or(LivenessEffort::Any);
+        let effort = effort.unwrap_or(Effort::Any);
         self.with_liveness_cache(|cache| {
             self.refine_liveness(cache, query, scope, effort, deadline);
             cache.read_at_least(scope, level)
@@ -213,7 +205,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn liveness(
         &self,
         of: Option<Transition>,
-        effort: Option<LivenessEffort>,
+        effort: Option<Effort>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
         deadline: Option<Instant>,
     ) -> Option<LivenessLevel> {
@@ -223,7 +215,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             Some(t) if let Some(t_idx) = self.mapping.transition_idx(t) => LivenessScope::Transition(t_idx),
             Some(_) => return None,
         };
-        let effort = effort.unwrap_or(LivenessEffort::Any);
+        let effort = effort.unwrap_or(Effort::Any);
         self.with_liveness_cache(|cache| {
             self.refine_liveness(cache, query, scope, effort, deadline);
             cache.read_exact(scope)
@@ -235,7 +227,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         cache: &mut LivenessCache,
         query: LivenessQuery,
         scope: LivenessScope,
-        effort: LivenessEffort,
+        effort: Effort,
         deadline: Option<Instant>,
     ) {
         if cache.is_answered(scope, query) {
@@ -252,7 +244,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         if is_deadline_expired() || cache.is_answered(scope, query) {
             return;
         }
-        if matches!(effort, LivenessEffort::Efficient) {
+        if matches!(effort, Effort::Efficient) {
             return;
         }
         self.refine_liveness_by_all_procedures(cache, deadline);

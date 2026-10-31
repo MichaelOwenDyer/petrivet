@@ -1,14 +1,13 @@
 use crate::core::cegar::observe::ToCegarCallbackFn;
 use crate::core::cegar::{CegarProblem, CegarProperty, cegar_decide};
 use crate::core::solver::DefaultSolver;
+use crate::cost_control::{Effort, Timeout};
 use crate::net::class::NetClass;
 use crate::net::{Net, Transition};
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
 use crate::system::reachability::Lemma;
-use crate::system::reachability::ReachabilityEffort;
 use crate::system::reachability::RefinementEvent;
-use crate::timeout::Timeout;
 use bon::bon;
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
@@ -47,7 +46,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns whether `target` is coverable from the initial marking.
     ///
     /// Tries efficient procedures first.
-    /// If `effort` is [`Efficient`](ReachabilityEffort::Efficient) and none applies, the answer is `None`;
+    /// If `effort` is [`Efficient`](Effort::Efficient) and none applies, the answer is `None`;
     /// otherwise the question goes to [`coverability`](Self::coverability).
     /// If `timeout` is specified, the analysis gives up after that duration and the answer is `None`.
     /// Use [`coverability`](Self::coverability) for a witness or a refutation.
@@ -57,14 +56,14 @@ impl<N: AsRef<Net>> PetriNet<N> {
         &self,
         #[builder(into)]
         target: Marking<u32>,
-        effort: Option<ReachabilityEffort>,
+        effort: Option<Effort>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
         timeout: Option<Instant>,
     ) -> Option<bool> {
         if let Some(answer) = self.is_efficiently_coverable(&target) {
             return Some(answer);
         }
-        if effort == Some(ReachabilityEffort::Efficient) {
+        if effort == Some(Effort::Efficient) {
             return None;
         }
         self.coverability()
@@ -134,6 +133,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
 #[cfg(test)]
 mod tests {
+    use crate::cost_control::Effort;
     use crate::net::builder::NetBuilder;
     use crate::system::PetriNet;
     use crate::system::marking::Marking;
@@ -319,14 +319,13 @@ mod tests {
     #[test]
     fn coverability_builder_efficient_effort_timeout_and_default() {
         use crate::net::class::NetClass;
-        use crate::system::reachability::ReachabilityEffort;
         use std::time::Duration;
 
         // a strongly connected state machine is decided by comparing token sums, even with `Efficient`
         let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
         let cycle = net.with_initial_marking([(p0, 1)]);
-        assert_eq!(cycle.is_coverable().target([(p1, 1)]).effort(ReachabilityEffort::Efficient).call(), Some(true));
-        assert_eq!(cycle.is_coverable().target([(p0, 2)]).effort(ReachabilityEffort::Efficient).call(), Some(false));
+        assert_eq!(cycle.is_coverable().target([(p1, 1)]).effort(Effort::Efficient).call(), Some(true));
+        assert_eq!(cycle.is_coverable().target([(p0, 2)]).effort(Effort::Efficient).call(), Some(false));
 
         // a general net has no efficient procedure
         let mut b = NetBuilder::new();
@@ -340,7 +339,7 @@ mod tests {
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::General);
         let sys = net.with_initial_marking([(p0, 1)]);
-        assert_eq!(sys.is_coverable().target([(p1, 1)]).effort(ReachabilityEffort::Efficient).call(), None);
+        assert_eq!(sys.is_coverable().target([(p1, 1)]).effort(Effort::Efficient).call(), None);
         assert_eq!(sys.is_coverable().target([(p1, 1)]).call(), Some(true));
         assert_eq!(sys.is_coverable().target([(p1, 1)]).timeout(Duration::ZERO).call(), None);
         assert_eq!(sys.is_coverable().target([(p1, 1)]).timeout(Duration::from_secs(60)).call(), Some(true));

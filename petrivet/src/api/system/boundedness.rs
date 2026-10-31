@@ -2,11 +2,11 @@ use crate::core::net::idx_set::PlaceIdxSet;
 use crate::core::net::structural_boundedness::find_place_subinvariant;
 use crate::core::system::boundedness::{BoundednessQuery, BoundednessScope, BoundsCache};
 use crate::core::system::marking::IdxMarking;
+use crate::cost_control::{Effort, Timeout};
 use crate::net::class::NetClass;
 use crate::net::{Net, Place};
 use crate::state_space::ExplorationOrder;
 use crate::system::PetriNet;
-use crate::timeout::Timeout;
 use bon::bon;
 use std::time::Instant;
 
@@ -107,14 +107,6 @@ impl Boundedness {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum BoundednessEffort {
-    /// Only use efficient (polynomial-time) procedures.
-    Efficient,
-    /// Use any available procedure.
-    Any,
-}
-
 #[bon]
 impl<N: AsRef<Net>> PetriNet<N> {
     /// Attempts to decide (k-)boundedness.
@@ -130,7 +122,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         &self,
         place: Option<Place>,
         k: Option<K>,
-        effort: Option<BoundednessEffort>,
+        effort: Option<Effort>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
         deadline: Option<Instant>
     ) -> Option<bool> {
@@ -140,7 +132,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             Some(_) => return None,
         };
         let goal = k.map_or(BoundednessQuery::Bounded, BoundednessQuery::KBounded);
-        let effort = effort.unwrap_or(BoundednessEffort::Any);
+        let effort = effort.unwrap_or(Effort::Any);
         self.with_boundedness_cache(|cache| {
             self.refine_bounds(cache, goal, scope, effort, deadline);
             k.map_or_else(
@@ -159,7 +151,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     pub fn boundedness(
         &self,
         place: Option<Place>,
-        effort: Option<BoundednessEffort>,
+        effort: Option<Effort>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
         deadline: Option<Instant>,
     ) -> Option<Boundedness> {
@@ -168,7 +160,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             Some(p) if let Some(p_idx) = self.mapping.place_idx(p) => BoundednessScope::Place(p_idx),
             Some(_) => return None,
         };
-        let effort = effort.unwrap_or(BoundednessEffort::Any);
+        let effort = effort.unwrap_or(Effort::Any);
         self.with_boundedness_cache(|cache| {
             self.refine_bounds(cache, BoundednessQuery::Exact, scope, effort, deadline);
             cache.read_exact(scope)
@@ -192,7 +184,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         cache: &mut BoundsCache,
         query: BoundednessQuery,
         scope: BoundednessScope,
-        effort: BoundednessEffort,
+        effort: Effort,
         deadline: Option<Instant>,
     ) {
         if cache.is_answered(scope, query) {
@@ -207,7 +199,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
         if is_deadline_expired() || cache.is_answered(scope, query) {
             return;
         }
-        if matches!(effort, BoundednessEffort::Efficient) {
+        if matches!(effort, Effort::Efficient) {
             return;
         }
         match query {

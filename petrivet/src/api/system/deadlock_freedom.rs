@@ -3,7 +3,7 @@ use crate::net::class::NetClass;
 use crate::state_space::{ExplorationOrder, ReachabilityGraphExplorer};
 use crate::system::PetriNet;
 use crate::system::marking::Marking;
-use crate::timeout::Timeout;
+use crate::cost_control::{Effort, Timeout};
 use bon::bon;
 use std::time::Instant;
 
@@ -84,13 +84,6 @@ impl Iterator for Deadlocks<'_> {
     }
 }
 
-pub enum DeadlockFreedomEffort {
-    /// Use only efficient (polynomial-time) checks for deadlock-freedom.
-    Efficient,
-    /// Explore the reachability graph for deadlocks if necessary.
-    Full,
-}
-
 #[bon]
 impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns an iterator over all reachable deadlock markings in the system.
@@ -113,11 +106,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[builder]
     pub fn is_deadlock_free(
         &self,
-        effort: Option<DeadlockFreedomEffort>,
+        effort: Option<Effort>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
         deadline: Option<Instant>,
     ) -> Option<bool> {
-        let effort = effort.unwrap_or(DeadlockFreedomEffort::Full);
+        let effort = effort.unwrap_or(Effort::Any);
         self.with_deadlock_cache(|cache| {
             match self.class() {
                 _ if let Some(answer) = cache.is_deadlock_free() => Some(answer),
@@ -152,7 +145,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
                     cache.mark_complete();
                     Some(false)
                 },
-                _ if matches!(effort, DeadlockFreedomEffort::Efficient) => None,
+                _ if matches!(effort, Effort::Efficient) => None,
                 _ if self.commoner_hack_criterion_until(deadline) == Some(Ok(())) => {
                     cache.mark_deadlock_free();
                     Some(true)

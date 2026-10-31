@@ -8,14 +8,13 @@
 
 #![cfg(feature = "pnml")]
 
+use petrivet::cost_control::Effort;
 use petrivet::net::Net;
 use petrivet::pnml::PnmlDocument;
 use petrivet::pnml::import::PetriNetKind;
 use petrivet::pnml::labels::NetLabels;
 use petrivet::system::PetriNet;
 use petrivet::system::boundedness::Boundedness;
-use petrivet::system::deadlock_freedom::DeadlockFreedomEffort;
-use petrivet::system::liveness::LivenessEffort;
 
 fn load(path: &str) -> PnmlDocument {
     let xml = std::fs::read_to_string(path)
@@ -297,8 +296,8 @@ fn philo_methods_fall_back_to_state_space_where_no_shortcut_applies() {
     let (sys, _) = first_pt_net(&doc);
 
     // The efficient variants decline instead of exploring the state space.
-    assert!(sys.is_deadlock_free().effort(DeadlockFreedomEffort::Efficient).call().is_none());
-    assert!(sys.liveness().effort(LivenessEffort::Efficient).call().is_none());
+    assert!(sys.is_deadlock_free().effort(Effort::Efficient).call().is_none());
+    assert!(sys.liveness().effort(Effort::Efficient).call().is_none());
     assert!(!sys.is_deadlock_free().call().unwrap());
     assert_eq!(sys.boundedness().call().unwrap(), Boundedness::Bounded(1));
 }
