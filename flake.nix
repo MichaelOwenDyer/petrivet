@@ -45,11 +45,13 @@
                 ${command}
                 runHook postBuild
               '';
+              doCheck = false;
               installPhase = "touch $out";
             };
         in
         {
           tests = mkCargoCheck "tests" "cargo test";
+          benches = mkCargoCheck "benches" "cargo bench --no-run";
         };
     in
     {
