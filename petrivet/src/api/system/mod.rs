@@ -176,18 +176,17 @@ impl<N: AsRef<Net>> PetriNet<N> {
         }
     }
 
-    /// Consumes the system and returns (`net`, `current_marking`, `original_marking`).
+    /// Consumes the system and returns the underlying net and the current marking.
     #[must_use]
-    pub fn into_parts(self) -> (N, Marking<u32>, Marking<u32>) {
+    pub fn into_parts(self) -> (N, Marking<u32>) {
         let PetriNet {
             net,
             marking,
-            reset_marking,
+            reset_marking: _,
             cache: _,
         } = self;
         let marking = net.as_ref().mapping.marking(marking);
-        let reset_marking = net.as_ref().mapping.marking(reset_marking);
-        (net, marking, reset_marking)
+        (net, marking)
     }
 
     /// Returns the current marking of the system.
@@ -457,6 +456,5 @@ pub(crate) mod tests {
         sys.fire(t0).unwrap();
         let parts = sys.into_parts();
         assert_eq!(parts.1, Marking::from([(p1, 1)]));
-        assert_eq!(parts.2, Marking::from([(p0, 1)]));
     }
 }
