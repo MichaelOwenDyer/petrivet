@@ -74,8 +74,7 @@ impl ReachabilityGraph<'_> {
     /// Returns all transitions in the Petri net with their associated liveness levels.
     #[must_use]
     pub fn transition_liveness(&self) -> HashMap<Transition, LivenessLevel> {
-        self
-            .mapping
+        self.mapping
             .transitions()
             .zip(self.state_space.liveness_levels())
             .collect()

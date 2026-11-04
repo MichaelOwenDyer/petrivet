@@ -22,9 +22,7 @@ pub enum Coverability {
         firing_sequence: Vec<Transition>,
     },
     /// The target marking is not coverable from M₀.
-    Uncoverable {
-        contradiction: Vec<Lemma>,
-    },
+    Uncoverable { contradiction: Vec<Lemma> },
 }
 
 impl Coverability {
@@ -54,8 +52,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[builder]
     pub fn is_coverable(
         &self,
-        #[builder(into)]
-        target: Marking<u32>,
+        #[builder(into)] target: Marking<u32>,
         effort: Option<Effort>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
         timeout: Option<Instant>,
@@ -88,8 +85,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[builder]
     pub fn coverability(
         &self,
-        #[builder(into)]
-        target: Marking<u32>,
+        #[builder(into)] target: Marking<u32>,
         observer: Option<mpsc::Sender<RefinementEvent>>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
         deadline: Option<Instant>,
@@ -110,9 +106,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
             target,
             property: CegarProperty::Coverable,
         };
-        let observer_fn = observer.map(|sender| {
-            sender.to_cegar_callback_fn(Arc::clone(&self.mapping))
-        });
+        let observer_fn =
+            observer.map(|sender| sender.to_cegar_callback_fn(Arc::clone(&self.mapping)));
         let cegar_result = cegar_decide::<DefaultSolver>(problem, observer_fn, deadline);
         self.mapping.coverability_result(cegar_result)
     }
@@ -152,9 +147,18 @@ mod tests {
         let net = b.build().unwrap();
         let sys = PetriNet::new(net, [(p0, 1), (p1, 0)]);
 
-        assert!(sys.coverability().target([(p1, 1)]).timeout(Duration::ZERO).call().is_none());
+        assert!(
+            sys.coverability()
+                .target([(p1, 1)])
+                .timeout(Duration::ZERO)
+                .call()
+                .is_none()
+        );
         assert!(matches!(
-            sys.coverability().target([(p1, 1)]).timeout(Duration::from_secs(60)).call(),
+            sys.coverability()
+                .target([(p1, 1)])
+                .timeout(Duration::from_secs(60))
+                .call(),
             Some(Coverability::Coverable { .. })
         ));
     }
@@ -206,7 +210,8 @@ mod tests {
         let sys = PetriNet::new(net, [(s1, 1), (s5, 1), (s6, 1)]);
 
         let (sender, receiver) = mpsc::channel();
-        let res = sys.coverability()
+        let res = sys
+            .coverability()
             .target([(s2, 1), (s5, 1), (s6, 1), (x, 2)])
             .observer(sender)
             .call()
@@ -255,10 +260,19 @@ mod tests {
         let dangerous = dbg!([(s4, 1), (s5, 1)]);
 
         let pn = PetriNet::new(&net, initial_marking);
-        let Coverability::Uncoverable { contradiction } = dbg!(pn.coverability().target(dangerous).call()).unwrap() else {
-            panic!("expected the target marking to be uncoverable from the initial marking, but it was coverable.");
+        let Coverability::Uncoverable { contradiction } =
+            dbg!(pn.coverability().target(dangerous).call()).unwrap()
+        else {
+            panic!(
+                "expected the target marking to be uncoverable from the initial marking, but it was coverable."
+            );
         };
-        assert_eq!(contradiction.len(), 2, "expected 2 contradictory lemmas, found {}", contradiction.len());
+        assert_eq!(
+            contradiction.len(),
+            2,
+            "expected 2 contradictory lemmas, found {}",
+            contradiction.len()
+        );
     }
 
     #[test]
@@ -280,10 +294,20 @@ mod tests {
         let pn = PetriNet::new(&net, m0);
         let coverability = dbg!(pn.coverability().target(target).call()).unwrap();
 
-        let Coverability::Uncoverable { contradiction: lemmas } = coverability else {
-            panic!("expected the target marking to be uncoverable from the initial marking, but it was coverable.");
+        let Coverability::Uncoverable {
+            contradiction: lemmas,
+        } = coverability
+        else {
+            panic!(
+                "expected the target marking to be uncoverable from the initial marking, but it was coverable."
+            );
         };
-        assert_eq!(lemmas.len(), 1, "expected 1 contradictory lemma, found {}", lemmas.len());
+        assert_eq!(
+            lemmas.len(),
+            1,
+            "expected 1 contradictory lemma, found {}",
+            lemmas.len()
+        );
     }
 
     #[test]
@@ -310,10 +334,20 @@ mod tests {
         let pn = PetriNet::new(&net, initial_marking);
         let coverability = dbg!(pn.coverability().target(target).call()).unwrap();
 
-        let Coverability::Uncoverable { contradiction: lemmas } = coverability else {
-            panic!("expected the target marking to be uncoverable from the initial marking, but it was coverable.");
+        let Coverability::Uncoverable {
+            contradiction: lemmas,
+        } = coverability
+        else {
+            panic!(
+                "expected the target marking to be uncoverable from the initial marking, but it was coverable."
+            );
         };
-        assert_eq!(lemmas.len(), 9, "expected 9 contradictory lemmas, found {}", lemmas.len());
+        assert_eq!(
+            lemmas.len(),
+            9,
+            "expected 9 contradictory lemmas, found {}",
+            lemmas.len()
+        );
     }
 
     #[test]
@@ -324,8 +358,22 @@ mod tests {
         // a strongly connected state machine is decided by comparing token sums, even with `Efficient`
         let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
         let cycle = net.with_initial_marking([(p0, 1)]);
-        assert_eq!(cycle.is_coverable().target([(p1, 1)]).effort(Effort::Efficient).call(), Some(true));
-        assert_eq!(cycle.is_coverable().target([(p0, 2)]).effort(Effort::Efficient).call(), Some(false));
+        assert_eq!(
+            cycle
+                .is_coverable()
+                .target([(p1, 1)])
+                .effort(Effort::Efficient)
+                .call(),
+            Some(true)
+        );
+        assert_eq!(
+            cycle
+                .is_coverable()
+                .target([(p0, 2)])
+                .effort(Effort::Efficient)
+                .call(),
+            Some(false)
+        );
 
         // a general net has no efficient procedure
         let mut b = NetBuilder::new();
@@ -339,9 +387,27 @@ mod tests {
         let net = b.build().unwrap();
         assert_eq!(net.class(), NetClass::General);
         let sys = net.with_initial_marking([(p0, 1)]);
-        assert_eq!(sys.is_coverable().target([(p1, 1)]).effort(Effort::Efficient).call(), None);
+        assert_eq!(
+            sys.is_coverable()
+                .target([(p1, 1)])
+                .effort(Effort::Efficient)
+                .call(),
+            None
+        );
         assert_eq!(sys.is_coverable().target([(p1, 1)]).call(), Some(true));
-        assert_eq!(sys.is_coverable().target([(p1, 1)]).timeout(Duration::ZERO).call(), None);
-        assert_eq!(sys.is_coverable().target([(p1, 1)]).timeout(Duration::from_secs(60)).call(), Some(true));
+        assert_eq!(
+            sys.is_coverable()
+                .target([(p1, 1)])
+                .timeout(Duration::ZERO)
+                .call(),
+            None
+        );
+        assert_eq!(
+            sys.is_coverable()
+                .target([(p1, 1)])
+                .timeout(Duration::from_secs(60))
+                .call(),
+            Some(true)
+        );
     }
 }

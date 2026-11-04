@@ -253,7 +253,8 @@ fn import_pt_net(pnml_net: &net::PnmlNet) -> Result<PetriNet<Net>, PnmlConversio
 
     for &pnml_arc in &flat.arcs {
         if let Some(weight) = pnml_arc.inscription.as_ref().and_then(|i| i.text)
-            && weight != 1 {
+            && weight != 1
+        {
             return Err(PnmlConversionError::UnsupportedArcWeight {
                 arc_id: pnml_arc.id.clone(),
                 weight,

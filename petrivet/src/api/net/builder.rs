@@ -193,10 +193,7 @@ impl NetBuilder {
                     (Some(postset), Some(preset)) => {
                         let added_to_post = postset.insert(t);
                         let added_to_pre = preset.insert(p);
-                        debug_assert_eq!(
-                            added_to_post, added_to_pre,
-                            "{}", DESYNC_DETECTED
-                        );
+                        debug_assert_eq!(added_to_post, added_to_pre, "{}", DESYNC_DETECTED);
                         added_to_post
                     }
                     // One or both of the nodes do not exist
@@ -212,10 +209,7 @@ impl NetBuilder {
                 };
                 let added_to_post = t_postset.insert(p);
                 let added_to_pre = p_preset.insert(t);
-                debug_assert_eq!(
-                    added_to_post, added_to_pre,
-                    "{}", DESYNC_DETECTED
-                );
+                debug_assert_eq!(added_to_post, added_to_pre, "{}", DESYNC_DETECTED);
                 added_to_post
             }
         }
@@ -281,14 +275,8 @@ impl NetBuilder {
         } else {
             return false;
         }
-        let preset = self
-            .preset_p
-            .remove(&place)
-            .expect(DESYNC_DETECTED);
-        let postset = self
-            .postset_p
-            .remove(&place)
-            .expect(DESYNC_DETECTED);
+        let preset = self.preset_p.remove(&place).expect(DESYNC_DETECTED);
+        let postset = self.postset_p.remove(&place).expect(DESYNC_DETECTED);
         for &input_transition in &preset {
             self.postset_t
                 .get_mut(&input_transition)
@@ -333,14 +321,8 @@ impl NetBuilder {
         } else {
             return false;
         }
-        let preset = self
-            .preset_t
-            .remove(&transition)
-            .expect(DESYNC_DETECTED);
-        let postset = self
-            .postset_t
-            .remove(&transition)
-            .expect(DESYNC_DETECTED);
+        let preset = self.preset_t.remove(&transition).expect(DESYNC_DETECTED);
+        let postset = self.postset_t.remove(&transition).expect(DESYNC_DETECTED);
         for &p in &preset {
             self.postset_p
                 .get_mut(&p)
@@ -388,10 +370,7 @@ impl NetBuilder {
             Arc::TransitionToPlace(t, p) => {
                 let removed = self.postset_t.get_mut(&t).is_some_and(|s| s.remove(&p));
                 if removed {
-                    self.preset_p
-                        .get_mut(&p)
-                        .expect(DESYNC_DETECTED)
-                        .remove(&t);
+                    self.preset_p.get_mut(&p).expect(DESYNC_DETECTED).remove(&t);
                 }
                 removed
             }
@@ -418,17 +397,17 @@ impl NetBuilder {
     }
 
     /// Iterates all places currently in the net.
-    pub fn places(&self) -> impl Iterator<Item=Place> + '_ {
+    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
         self.places.iter().copied()
     }
 
     /// Iterates all transitions currently in the net.
-    pub fn transitions(&self) -> impl Iterator<Item=Transition> + '_ {
+    pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
         self.transitions.iter().copied()
     }
 
     /// Iterates all arcs currently in the net.
-    pub fn arcs(&self) -> impl Iterator<Item=Arc> + '_ {
+    pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
         iter::chain(
             self.preset_t
                 .iter()
@@ -454,7 +433,7 @@ impl NetBuilder {
             &self.preset_p,
             &self.postset_p,
         )
-            .ok_or(NetError::NotConnected)
+        .ok_or(NetError::NotConnected)
     }
 
     /// Consumes the builder and returns a validated [`Net`] with dense indices and bandwidth reduction applied.
@@ -518,11 +497,8 @@ impl NetBuilder {
             });
 
         let is_strongly_connected = petgraph::algo::tarjan_scc(&graph).len() == 1;
-        let incidence_matrix = IdxIncidenceMatrix::from_preset_and_postset(
-            self.places.len(),
-            &preset_t,
-            &postset_t,
-        );
+        let incidence_matrix =
+            IdxIncidenceMatrix::from_preset_and_postset(self.places.len(), &preset_t, &postset_t);
 
         let core_net = DenseNet {
             class,
@@ -773,7 +749,7 @@ impl From<Net> for NetBuilder {
 }
 
 pub trait IntoArcs {
-    fn into_arcs(self) -> impl Iterator<Item=Arc>;
+    fn into_arcs(self) -> impl Iterator<Item = Arc>;
 }
 
 /// Heterogeneous tuples of [`Place`] and [`Transition`] in alternating order become a chain
@@ -1220,7 +1196,12 @@ mod tests {
             .dense_net
             .graph
             .edge_references()
-            .map(|e| (key(net.dense_net.graph[e.source()]), key(net.dense_net.graph[e.target()])))
+            .map(|e| {
+                (
+                    key(net.dense_net.graph[e.source()]),
+                    key(net.dense_net.graph[e.target()]),
+                )
+            })
             .collect();
         graph_arcs.sort_unstable();
 

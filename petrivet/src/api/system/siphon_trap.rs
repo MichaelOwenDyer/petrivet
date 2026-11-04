@@ -1,4 +1,7 @@
-use crate::core::net::siphon_trap::{ProperSiphonWithNoMarkedTrapResult, find_proper_siphon_with_no_marked_trap, maximal_siphon_in, maximal_trap_in};
+use crate::core::net::siphon_trap::{
+    ProperSiphonWithNoMarkedTrapResult, find_proper_siphon_with_no_marked_trap, maximal_siphon_in,
+    maximal_trap_in,
+};
 use crate::core::solver::DefaultSolver;
 use crate::net::siphon_trap::{Siphon, Trap};
 use crate::net::{Net, Place};
@@ -67,7 +70,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ///
     /// [free-choice nets]: crate::net::class::NetClass::FreeChoice
     /// [asymmetric-choice nets]: crate::net::class::NetClass::AsymmetricChoice
-    pub fn commoner_hack_criterion_within(&self, timeout: std::time::Duration) -> Option<CommonerHackCriterionResult> {
+    pub fn commoner_hack_criterion_within(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Option<CommonerHackCriterionResult> {
         let deadline = std::time::Instant::now().checked_add(timeout);
         self.commoner_hack_criterion_until(deadline)
     }
@@ -75,13 +81,17 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Checks the Commoner/Hack criterion with an optional deadline.
     pub fn commoner_hack_criterion_until(
         &self,
-        deadline: Option<std::time::Instant>
+        deadline: Option<std::time::Instant>,
     ) -> Option<CommonerHackCriterionResult> {
-        let result = find_proper_siphon_with_no_marked_trap::<DefaultSolver>(&self.dense_net, &self.marking, deadline);
+        let result = find_proper_siphon_with_no_marked_trap::<DefaultSolver>(
+            &self.dense_net,
+            &self.marking,
+            deadline,
+        );
         match result {
             ProperSiphonWithNoMarkedTrapResult::Found(siphon, trap) => Some(Err(Box::new((
                 self.mapping.place_set(&siphon),
-                self.mapping.place_set(&trap)
+                self.mapping.place_set(&trap),
             )))),
             ProperSiphonWithNoMarkedTrapResult::None => Some(Ok(())),
             ProperSiphonWithNoMarkedTrapResult::Unknown => None,

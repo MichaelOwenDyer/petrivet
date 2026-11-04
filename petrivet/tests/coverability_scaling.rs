@@ -34,17 +34,30 @@ fn ring(tokens: u32) -> PetriNet<petrivet::net::Net> {
 #[test]
 fn coverability_graph_of_a_bounded_net_is_cheap_and_equals_the_reachability_graph() {
     let sys = ring(250); // 31,626 markings
-    let reachability = sys.explore_reachability_graph(ExplorationOrder::BreadthFirst).build_graph_until(None).unwrap();
+    let reachability = sys
+        .explore_reachability_graph(ExplorationOrder::BreadthFirst)
+        .build_graph_until(None)
+        .unwrap();
     assert_eq!(reachability.marking_count(), 251 * 252 / 2);
 
     let start = Instant::now();
-    let coverability = sys.explore_coverability_graph(ExplorationOrder::BreadthFirst).build_graph_until(None).unwrap();
+    let coverability = sys
+        .explore_coverability_graph(ExplorationOrder::BreadthFirst)
+        .build_graph_until(None)
+        .unwrap();
     // generous: the version that visits all graph ancestors per edge needs a multiple of this, this one well under a second
-    assert!(start.elapsed() < Duration::from_secs(10), "took {:?}", start.elapsed());
+    assert!(
+        start.elapsed() < Duration::from_secs(10),
+        "took {:?}",
+        start.elapsed()
+    );
 
     assert!(!coverability.has_omega_marking());
     assert_eq!(coverability.marking_count(), reachability.marking_count());
-    assert_eq!(coverability.transition_count(), reachability.transition_count());
+    assert_eq!(
+        coverability.transition_count(),
+        reachability.transition_count()
+    );
 }
 
 #[test]
@@ -61,7 +74,10 @@ fn an_unbounded_net_still_gets_its_omega() {
   </page></net>
 </pnml>"#;
     let sys = PetriNet::from_pnml(pnml).unwrap();
-    let graph = sys.explore_coverability_graph(ExplorationOrder::BreadthFirst).build_graph_until(None).unwrap();
+    let graph = sys
+        .explore_coverability_graph(ExplorationOrder::BreadthFirst)
+        .build_graph_until(None)
+        .unwrap();
     assert!(graph.has_omega_marking());
     assert!(!graph.is_bounded());
 }

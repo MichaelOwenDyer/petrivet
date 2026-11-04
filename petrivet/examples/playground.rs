@@ -4,8 +4,8 @@ use petrivet::system::marking::Marking;
 
 fn main() {
     let path = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/CopsAndRobbers-PT-Heawood-Random-L014X002.pnml"
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/CopsAndRobbers-PT-Heawood-Random-L014X002.pnml"
     );
     let champagne = std::fs::read_to_string(path).unwrap();
 

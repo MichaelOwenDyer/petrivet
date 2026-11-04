@@ -149,14 +149,6 @@ macro_rules! define_idx_set {
     };
 }
 
-define_idx_set!(
-    PlaceIdxSet,
-    PlaceIdx,
-    PlaceIndices,
-);
+define_idx_set!(PlaceIdxSet, PlaceIdx, PlaceIndices,);
 
-define_idx_set!(
-    TransitionIdxSet,
-    TransitionIdx,
-    TransitionIndices,
-);
+define_idx_set!(TransitionIdxSet, TransitionIdx, TransitionIndices,);

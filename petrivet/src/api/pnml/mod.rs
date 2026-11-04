@@ -63,9 +63,9 @@
 use crate::pnml::graphics::{AnnotationGraphics, NodeGraphics};
 use serde::{Deserialize, Serialize};
 
-pub mod import;
 pub mod export;
 pub mod graphics;
+pub mod import;
 pub mod labels;
 pub mod net;
 pub mod nupn;

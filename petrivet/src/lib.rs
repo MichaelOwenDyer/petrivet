@@ -4,7 +4,7 @@
     clippy::cargo_common_metadata,
     clippy::use_self,
     clippy::iter_on_single_items,
-    clippy::similar_names,
+    clippy::similar_names
 )]
 
 //! `petrivet`: a Rust library for modeling, simulating, and analyzing Petri nets.
@@ -43,8 +43,8 @@ pub use api::*;
 
 pub mod prelude {
     pub use crate::{
-        net::{Net, Place, Transition, Arc},
         net::builder::NetBuilder,
+        net::{Arc, Net, Place, Transition},
         system::PetriNet,
         system::marking::Marking,
     };

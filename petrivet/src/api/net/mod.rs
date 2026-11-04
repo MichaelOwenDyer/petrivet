@@ -1,10 +1,10 @@
 //! The static topology of a Petri net.
 
-pub mod structural_boundedness;
-pub mod siphon_trap;
-pub mod p_invariant;
 pub mod builder;
 pub mod class;
+pub mod p_invariant;
+pub mod siphon_trap;
+pub mod structural_boundedness;
 
 use crate::core::mapping::DenseMapping;
 use crate::core::net::{DenseNet, IdxArc};
@@ -138,12 +138,12 @@ impl Net {
     }
 
     /// Iterator over all places.
-    pub fn places(&self) -> impl Iterator<Item=Place> + '_ {
+    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
         self.mapping.places()
     }
 
     /// Iterator over all transitions.
-    pub fn transitions(&self) -> impl Iterator<Item=Transition> + '_ {
+    pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
         self.mapping.transitions()
     }
 
@@ -172,7 +172,7 @@ impl Net {
     }
 
     /// Iterator over all nodes (places then transitions) as [`Node`].
-    pub fn nodes(&self) -> impl Iterator<Item=Node> + '_ {
+    pub fn nodes(&self) -> impl Iterator<Item = Node> + '_ {
         Iterator::chain(
             self.places().map(Node::Place),
             self.transitions().map(Node::Transition),
@@ -185,7 +185,7 @@ impl Net {
     /// there is an arc from the transition to the place (`t → p`).
     ///
     /// If the provided place does not exist in the net, this method returns an empty iterator.
-    pub fn place_preset(&self, place: &Place) -> impl Iterator<Item=Transition> + '_ {
+    pub fn place_preset(&self, place: &Place) -> impl Iterator<Item = Transition> + '_ {
         self.mapping.place_idx(*place).into_iter().flat_map(|idx| {
             self.dense_net.preset_p[idx]
                 .iter()
@@ -199,7 +199,7 @@ impl Net {
     /// there is an arc from the place to the transition (`p → t`).
     ///
     /// If the provided place does not exist in the net, this method returns an empty iterator.
-    pub fn place_postset(&self, place: &Place) -> impl Iterator<Item=Transition> + '_ {
+    pub fn place_postset(&self, place: &Place) -> impl Iterator<Item = Transition> + '_ {
         self.mapping.place_idx(*place).into_iter().flat_map(|idx| {
             self.dense_net.postset_p[idx]
                 .iter()
@@ -213,7 +213,7 @@ impl Net {
     /// there is an arc from the place to the transition (`p → t`).
     ///
     /// If the provided transition does not exist in the net, this method returns an empty iterator.
-    pub fn transition_preset(&self, transition: &Transition) -> impl Iterator<Item=Place> + '_ {
+    pub fn transition_preset(&self, transition: &Transition) -> impl Iterator<Item = Place> + '_ {
         self.mapping
             .transition_idx(*transition)
             .into_iter()
@@ -230,7 +230,7 @@ impl Net {
     /// there is an arc from the transition to the place (`t → p`).
     ///
     /// If the provided transition does not exist in the net, this method returns an empty iterator.
-    pub fn transition_postset(&self, transition: &Transition) -> impl Iterator<Item=Place> + '_ {
+    pub fn transition_postset(&self, transition: &Transition) -> impl Iterator<Item = Place> + '_ {
         self.mapping
             .transition_idx(*transition)
             .into_iter()
@@ -242,7 +242,7 @@ impl Net {
     }
 
     /// Iterates over all [`Arc`]s in the net in unspecified order.
-    pub fn arcs(&self) -> impl Iterator<Item=Arc> + '_ {
+    pub fn arcs(&self) -> impl Iterator<Item = Arc> + '_ {
         self.dense_net.arc_indices().map(|idx_arc| match idx_arc {
             IdxArc::PlaceToTransition(p_idx, t_idx) => {
                 let place = self.mapping.place(p_idx);
@@ -256,7 +256,7 @@ impl Net {
             }
         })
     }
-    
+
     /// Returns true if the net has a source transition, i.e. a transition with no preset places.
     #[must_use]
     pub fn has_source_transition(&self) -> bool {

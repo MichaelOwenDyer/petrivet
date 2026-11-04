@@ -91,13 +91,21 @@ fn main() {
     );
 
     for &t in &transitions {
-        println!("Transition {:?} liveness: {:?}", t, sys.liveness().of(t).call().unwrap());
+        println!(
+            "Transition {:?} liveness: {:?}",
+            t,
+            sys.liveness().of(t).call().unwrap()
+        );
     }
 
     println!("\n--- Reachability Analysis ---\n");
 
     // Can all 3 boards reach "done"?
-    let result = sys.reachability().target([(station, 1), (done, 3)]).call().unwrap();
+    let result = sys
+        .reachability()
+        .target([(station, 1), (done, 3)])
+        .call()
+        .unwrap();
     println!(
         "All 3 boards done? {}",
         if result.is_reachable() {
@@ -159,7 +167,9 @@ fn main() {
 
     println!(
         "\nLiveness (from RG): {}",
-        rg.transition_liveness().iter().all(|(_, liveness)| liveness.is_live())
+        rg.transition_liveness()
+            .iter()
+            .all(|(_, liveness)| liveness.is_live())
     );
 
     println!("\n--- Incremental Exploration ---\n");
@@ -190,6 +200,8 @@ fn main() {
 
     println!(
         "Promoted to ReachabilityGraph: live: {}",
-        rg.transition_liveness().iter().all(|(_, liveness)| liveness.is_live())
+        rg.transition_liveness()
+            .iter()
+            .all(|(_, liveness)| liveness.is_live())
     );
 }

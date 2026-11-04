@@ -124,11 +124,13 @@ impl<N: AsRef<Net>> PetriNet<N> {
         k: Option<K>,
         effort: Option<Effort>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
-        deadline: Option<Instant>
+        deadline: Option<Instant>,
     ) -> Option<bool> {
         let scope = match place {
             None => BoundednessScope::PetriNet,
-            Some(p) if let Some(p_idx) = self.mapping.place_idx(p) => BoundednessScope::Place(p_idx),
+            Some(p) if let Some(p_idx) = self.mapping.place_idx(p) => {
+                BoundednessScope::Place(p_idx)
+            }
             Some(_) => return None,
         };
         let goal = k.map_or(BoundednessQuery::Bounded, BoundednessQuery::KBounded);
@@ -137,7 +139,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
             self.refine_bounds(cache, goal, scope, effort, deadline);
             k.map_or_else(
                 || cache.read_bounded(scope),
-                |k| cache.read_k_bounded(scope, k)
+                |k| cache.read_k_bounded(scope, k),
             )
         })
     }
@@ -157,7 +159,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ) -> Option<Boundedness> {
         let scope = match place {
             None => BoundednessScope::PetriNet,
-            Some(p) if let Some(p_idx) = self.mapping.place_idx(p) => BoundednessScope::Place(p_idx),
+            Some(p) if let Some(p_idx) = self.mapping.place_idx(p) => {
+                BoundednessScope::Place(p_idx)
+            }
             Some(_) => return None,
         };
         let effort = effort.unwrap_or(Effort::Any);
@@ -206,32 +210,47 @@ impl<N: AsRef<Net>> PetriNet<N> {
             BoundednessQuery::KBounded(k) => {
                 let mut rg = self.explore_coverability_graph(ExplorationOrder::BreadthFirst);
                 rg.core.find(|m| m.iter().any(|&t| t > k), deadline); // TODO: check exact place
-                let max = rg.core.state_space.markings().fold(IdxMarking::zeros(self.place_count()), IdxMarking::componentwise_max);
+                let max = rg.core.state_space.markings().fold(
+                    IdxMarking::zeros(self.place_count()),
+                    IdxMarking::componentwise_max,
+                );
                 cache.update_lower_bound(&max, BoundednessAnalysisMethod::CoverabilityGraph);
                 if rg.is_fully_explored() {
                     cache.make_all_exact();
                 }
-            },
+            }
             BoundednessQuery::Bounded => {
                 let explorer = self.explore_coverability_graph(ExplorationOrder::BreadthFirst);
                 match explorer.try_build_reachability_graph_until(deadline) {
                     Ok(rg) => {
-                        let max = rg.state_space.markings().fold(IdxMarking::zeros(self.place_count()), IdxMarking::componentwise_max);
-                        cache.update_exact(&max.into(), BoundednessAnalysisMethod::ReachabilityGraph);
+                        let max = rg.state_space.markings().fold(
+                            IdxMarking::zeros(self.place_count()),
+                            IdxMarking::componentwise_max,
+                        );
+                        cache.update_exact(
+                            &max.into(),
+                            BoundednessAnalysisMethod::ReachabilityGraph,
+                        );
                     }
                     Err(stopped) => {
                         // Unbounded, or out of time: either way every explored marking is reachable
                         // (or covered by a reachable one), so it is a valid lower bound.
                         for marking in stopped.explorer.core.state_space.markings() {
-                            cache.update_lower_bound(marking, BoundednessAnalysisMethod::CoverabilityGraph);
+                            cache.update_lower_bound(
+                                marking,
+                                BoundednessAnalysisMethod::CoverabilityGraph,
+                            );
                         }
                     }
                 }
-            },
+            }
             BoundednessQuery::Exact => {
                 let mut cg = self.explore_coverability_graph(ExplorationOrder::BreadthFirst);
                 cg.core.find(|_| false, deadline);
-                let max = cg.core.state_space.markings().fold(IdxMarking::zeros(self.place_count()), IdxMarking::componentwise_max);
+                let max = cg.core.state_space.markings().fold(
+                    IdxMarking::zeros(self.place_count()),
+                    IdxMarking::componentwise_max,
+                );
                 if cg.is_fully_explored() {
                     cache.update_exact(&max, BoundednessAnalysisMethod::CoverabilityGraph);
                 } else {
@@ -255,7 +274,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
             NetClass::Circuit | NetClass::StateMachine if self.is_strongly_connected() => {
                 let marking_sum = Boundedness::Bounded(self.marking.sum() as K);
                 for bounds in &mut cache.by_place.iter_mut() {
-                    bounds.update_exact(marking_sum, BoundednessAnalysisMethod::StronglyConnectedStateMachine);
+                    bounds.update_exact(
+                        marking_sum,
+                        BoundednessAnalysisMethod::StronglyConnectedStateMachine,
+                    );
                 }
                 cache.should_refine_by_subclass.set_all(false);
             }
@@ -263,41 +285,41 @@ impl<N: AsRef<Net>> PetriNet<N> {
                 for p_idx in places {
                     let mut place = PlaceIdxSet::none_of(self.dense_net.place_count());
                     place.add(p_idx);
-                    let marking_sum = self.dense_net
+                    let marking_sum = self
+                        .dense_net
                         .pre_star(place)
                         .iter()
                         .map(|p_idx| self.marking[p_idx])
                         .sum::<K>();
                     let bound = Boundedness::Bounded(marking_sum);
-                    cache.by_place[p_idx].update_exact(bound, BoundednessAnalysisMethod::StateMachine);
+                    cache.by_place[p_idx]
+                        .update_exact(bound, BoundednessAnalysisMethod::StateMachine);
                     cache.should_refine_by_subclass.remove(p_idx);
                 }
             }
             NetClass::MarkedGraph if self.is_live().call() == Some(true) => {
                 for p_idx in places {
-                    let minimum_tokens = self.dense_net.minimum_tokens_in_circuit_containing(p_idx, &self.marking);
-                    let bound = minimum_tokens.map_or(
-                        Boundedness::Unbounded,
-                        |token_sum| Boundedness::Bounded(token_sum as K)
-                    );
-                    cache.by_place[p_idx].update_exact(
-                        bound,
-                        BoundednessAnalysisMethod::MarkedGraph
-                    );
+                    let minimum_tokens = self
+                        .dense_net
+                        .minimum_tokens_in_circuit_containing(p_idx, &self.marking);
+                    let bound = minimum_tokens.map_or(Boundedness::Unbounded, |token_sum| {
+                        Boundedness::Bounded(token_sum as K)
+                    });
+                    cache.by_place[p_idx]
+                        .update_exact(bound, BoundednessAnalysisMethod::MarkedGraph);
                     cache.should_refine_by_subclass.remove(p_idx);
                 }
             }
             NetClass::MarkedGraph => {
                 for p_idx in places {
-                    let minimum_tokens = self.dense_net.minimum_tokens_in_circuit_containing(p_idx, &self.marking);
-                    let bound = minimum_tokens.map_or(
-                        Boundedness::Unbounded,
-                        |token_sum| Boundedness::Bounded(token_sum as K)
-                    );
-                    cache.by_place[p_idx].update_upper(
-                        bound,
-                        BoundednessAnalysisMethod::MarkedGraph
-                    );
+                    let minimum_tokens = self
+                        .dense_net
+                        .minimum_tokens_in_circuit_containing(p_idx, &self.marking);
+                    let bound = minimum_tokens.map_or(Boundedness::Unbounded, |token_sum| {
+                        Boundedness::Bounded(token_sum as K)
+                    });
+                    cache.by_place[p_idx]
+                        .update_upper(bound, BoundednessAnalysisMethod::MarkedGraph);
                     cache.should_refine_by_subclass.remove(p_idx);
                 }
             }
@@ -314,10 +336,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
         if places.is_empty() {
             return;
         }
-        let Some(place_subinvariant) = find_place_subinvariant(
-            &self.dense_net,
-            |&p| places.contains(p)
-        ) else {
+        let Some(place_subinvariant) =
+            find_place_subinvariant(&self.dense_net, |&p| places.contains(p))
+        else {
             cache.should_refine_by_structural_lp.remove_all(&places);
             return;
         };

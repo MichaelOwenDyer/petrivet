@@ -61,15 +61,23 @@ impl<S: SmtSolver> PInvariantRule<S> {
                 let effect_le_zero = solver.le(&effect, &zero);
                 let effect_ge_zero = solver.ge(&effect, &zero);
                 let seek_invariant_when_enabled = solver.implies(&is_invariant, &effect_eq_zero);
-                let seek_subinvariant_when_enabled = solver.implies(&is_subinvariant, &effect_le_zero);
-                let seek_surinvariant_when_enabled = solver.implies(&is_surinvariant, &effect_ge_zero);
+                let seek_subinvariant_when_enabled =
+                    solver.implies(&is_subinvariant, &effect_le_zero);
+                let seek_surinvariant_when_enabled =
+                    solver.implies(&is_surinvariant, &effect_ge_zero);
                 solver.assert(&seek_invariant_when_enabled);
                 solver.assert(&seek_subinvariant_when_enabled);
                 solver.assert(&seek_surinvariant_when_enabled);
             }
         }
 
-        Self { solver, weight_terms, is_invariant, is_subinvariant, is_surinvariant }
+        Self {
+            solver,
+            weight_terms,
+            is_invariant,
+            is_subinvariant,
+            is_surinvariant,
+        }
     }
 }
 
@@ -143,12 +151,14 @@ impl<S: SmtSolver> PInvariantRule<S> {
             if self.solver.check() == Satisfiability::Sat {
                 let kind = match (
                     self.solver.eval_bool(&self.is_subinvariant),
-                    self.solver.eval_bool(&self.is_surinvariant)
+                    self.solver.eval_bool(&self.is_surinvariant),
                 ) {
                     // we expect exactly one of these to be true, but not both.
                     (Some(true), Some(false)) => PInvariantKind::Subinvariant,
                     (Some(false), Some(true)) => PInvariantKind::Surinvariant,
-                    (sub, sur) => panic!("unexpected model: subinvariant={sub:?}, surinvariant={sur:?}"),
+                    (sub, sur) => {
+                        panic!("unexpected model: subinvariant={sub:?}, surinvariant={sur:?}")
+                    }
                 };
                 return self.extract_and_cleanup(problem, kind);
             }
@@ -165,7 +175,9 @@ impl<S: SmtSolver> PInvariantRule<S> {
         problem: &CegarProblem,
         kind: PInvariantKind,
     ) -> Option<PInvariantRefinement> {
-        let weights: Vec<(PlaceIdx, u32)> = self.weight_terms.iter()
+        let weights: Vec<(PlaceIdx, u32)> = self
+            .weight_terms
+            .iter()
             .enumerate()
             .filter_map(|(p_idx, weight_term)| {
                 let w = self.solver.eval_int(weight_term).tap_none(|| {

@@ -296,7 +296,12 @@ fn philo_methods_fall_back_to_state_space_where_no_shortcut_applies() {
     let (sys, _) = first_pt_net(&doc);
 
     // The efficient variants decline instead of exploring the state space.
-    assert!(sys.is_deadlock_free().effort(Effort::Efficient).call().is_none());
+    assert!(
+        sys.is_deadlock_free()
+            .effort(Effort::Efficient)
+            .call()
+            .is_none()
+    );
     assert!(sys.liveness().effort(Effort::Efficient).call().is_none());
     assert!(!sys.is_deadlock_free().call().unwrap());
     assert_eq!(sys.boundedness().call().unwrap(), Boundedness::Bounded(1));
@@ -334,9 +339,20 @@ fn deadline_bounds_deadlock_freedom_of_a_large_net() {
     let (sys, _) = first_pt_net(&doc);
 
     let start = std::time::Instant::now();
-    let answer = sys.is_deadlock_free().timeout(std::time::Duration::from_millis(50)).call();
-    assert!(start.elapsed() < std::time::Duration::from_secs(10), "took {:?}", start.elapsed());
-    assert_ne!(answer, Some(false), "a give-up must not be reported as a deadlock");
+    let answer = sys
+        .is_deadlock_free()
+        .timeout(std::time::Duration::from_millis(50))
+        .call();
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(10),
+        "took {:?}",
+        start.elapsed()
+    );
+    assert_ne!(
+        answer,
+        Some(false),
+        "a give-up must not be reported as a deadlock"
+    );
 
     // an interrupt must not leave this thread's Z3 context unusable: a later query that
     // needs the solver has to be answered, quickly and correctly
@@ -350,12 +366,18 @@ fn deadline_bounds_deadlock_freedom_of_a_large_net() {
     let sys = PetriNet::new(b.build().unwrap(), [(p0, 1)]);
     let start = std::time::Instant::now();
     let reachable = sys
-        .reachability().target([(p1, 1)]).timeout(std::time::Duration::from_secs(30))
+        .reachability()
+        .target([(p1, 1)])
+        .timeout(std::time::Duration::from_secs(30))
         .call()
         .unwrap()
         .is_reachable();
     assert!(reachable);
-    assert!(start.elapsed() < std::time::Duration::from_secs(10), "took {:?}", start.elapsed());
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(10),
+        "took {:?}",
+        start.elapsed()
+    );
 }
 
 /// Liveness of a general net falls back to the state space, which must respect the deadline too.
@@ -365,8 +387,15 @@ fn deadline_bounds_liveness_of_a_large_net() {
     let (sys, _) = first_pt_net(&doc);
 
     let start = std::time::Instant::now();
-    let answer = sys.is_live().timeout(std::time::Duration::from_millis(50)).call();
-    assert!(start.elapsed() < std::time::Duration::from_secs(10), "took {:?}", start.elapsed());
+    let answer = sys
+        .is_live()
+        .timeout(std::time::Duration::from_millis(50))
+        .call();
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(10),
+        "took {:?}",
+        start.elapsed()
+    );
     assert_eq!(answer, None);
 }
 
@@ -402,6 +431,9 @@ fn arcs_heavier_than_one_are_rejected() {
     // an explicit weight of one, and no inscription at all, are both ordinary
     for inscription in ["<inscription><text>1</text></inscription>", ""] {
         let ordinary = two_place_net_with_inscription(inscription);
-        assert!(PetriNet::from_pnml(&ordinary).is_ok(), "inscription {inscription:?}");
+        assert!(
+            PetriNet::from_pnml(&ordinary).is_ok(),
+            "inscription {inscription:?}"
+        );
     }
 }

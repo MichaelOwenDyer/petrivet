@@ -5,8 +5,8 @@ use crate::core::solver::{Satisfiability, SmtSolver};
 use ahash::{HashMap, HashMapExt};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Instant;
-use z3::{Config, Context, SatResult};
 use z3::ast::{Bool, Int};
+use z3::{Config, Context, SatResult};
 
 /// An incremental SMT solver backed by the `z3` SMT solver via its Rust bindings.
 pub struct Z3 {
@@ -164,7 +164,9 @@ impl SmtSolver for Z3 {
                 return Satisfiability::Unknown;
             }
             // Z3 treats a timeout of 0 as "no timeout", so round up to at least one millisecond.
-            let millis = u32::try_from(remaining.as_millis()).unwrap_or(u32::MAX).max(1);
+            let millis = u32::try_from(remaining.as_millis())
+                .unwrap_or(u32::MAX)
+                .max(1);
             let mut params = z3::Params::new();
             params.set_u32("timeout", millis);
             self.solver.set_params(&params);
@@ -177,13 +179,19 @@ impl SmtSolver for Z3 {
     }
 
     fn eval_int(&self, term: &Self::Int) -> Option<u32> {
-        let model = self.solver.get_model().expect("check() must have returned SAT before calling eval_int");
+        let model = self
+            .solver
+            .get_model()
+            .expect("check() must have returned SAT before calling eval_int");
         let value = model.eval(term, true)?;
         u32::try_from(value.as_u64()?).ok()
     }
 
     fn eval_bool(&self, term: &Self::Bool) -> Option<bool> {
-        let model = self.solver.get_model().expect("check() must have returned SAT before calling eval_bool");
+        let model = self
+            .solver
+            .get_model()
+            .expect("check() must have returned SAT before calling eval_bool");
         model.eval(term, true)?.as_bool()
     }
 

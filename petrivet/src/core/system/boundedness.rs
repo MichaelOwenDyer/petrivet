@@ -59,10 +59,13 @@ impl Bounds {
     pub fn update_upper(
         &mut self,
         boundedness: Boundedness,
-        provenance: BoundednessAnalysisMethod
+        provenance: BoundednessAnalysisMethod,
     ) {
         if boundedness < self.upper {
-            debug_assert!(boundedness >= self.lower, "Upper bound cannot be less than lower bound");
+            debug_assert!(
+                boundedness >= self.lower,
+                "Upper bound cannot be less than lower bound"
+            );
             self.upper = boundedness;
             self.upper_provenance = provenance;
         }
@@ -72,10 +75,13 @@ impl Bounds {
     pub fn update_lower(
         &mut self,
         boundedness: Boundedness,
-        provenance: BoundednessAnalysisMethod
+        provenance: BoundednessAnalysisMethod,
     ) {
         if boundedness > self.lower {
-            debug_assert!(boundedness <= self.upper, "Lower bound cannot exceed upper bound");
+            debug_assert!(
+                boundedness <= self.upper,
+                "Lower bound cannot exceed upper bound"
+            );
             self.lower = boundedness;
             self.lower_provenance = provenance;
         }
@@ -85,7 +91,7 @@ impl Bounds {
     pub fn update_exact(
         &mut self,
         boundedness: Boundedness,
-        provenance: BoundednessAnalysisMethod
+        provenance: BoundednessAnalysisMethod,
     ) {
         self.update_upper(boundedness, provenance);
         self.update_lower(boundedness, provenance);
@@ -155,16 +161,23 @@ pub struct BoundsCache {
 
 impl BoundsCache {
     pub fn new(marking: &IdxMarking<u32>) -> Self {
-        let by_place = marking.iter().map(|&tokens| Bounds::new(tokens as K)).collect();
+        let by_place = marking
+            .iter()
+            .map(|&tokens| Bounds::new(tokens as K))
+            .collect();
         Self {
             by_place,
             should_refine_by_subclass: PlaceIdxSet::all_of(marking.place_count()),
             should_refine_by_structural_lp: PlaceIdxSet::all_of(marking.place_count()),
         }
     }
-    
+
     /// Updates the bounds of all places in the cache to match the given marking.
-    pub fn update_exact(&mut self, marking: &IdxOmegaMarking, provenance: BoundednessAnalysisMethod) {
+    pub fn update_exact(
+        &mut self,
+        marking: &IdxOmegaMarking,
+        provenance: BoundednessAnalysisMethod,
+    ) {
         for (bounds, &tokens) in self.by_place.iter_mut().zip(marking.iter()) {
             let bound = match tokens {
                 Omega::Finite(k) => Boundedness::Bounded(k),
@@ -175,7 +188,11 @@ impl BoundsCache {
     }
 
     /// Updates the lower bounds of all places in the cache to match the given marking.
-    pub fn update_lower_bound(&mut self, marking: &IdxOmegaMarking, provenance: BoundednessAnalysisMethod) {
+    pub fn update_lower_bound(
+        &mut self,
+        marking: &IdxOmegaMarking,
+        provenance: BoundednessAnalysisMethod,
+    ) {
         for (bounds, &tokens) in self.by_place.iter_mut().zip(marking.iter()) {
             let bound = match tokens {
                 Omega::Finite(k) => Boundedness::Bounded(k),
@@ -184,7 +201,7 @@ impl BoundsCache {
             bounds.update_lower(bound, provenance);
         }
     }
-    
+
     pub fn make_all_exact(&mut self) {
         for bounds in &mut self.by_place {
             bounds.make_exact();

@@ -36,11 +36,24 @@ impl Liveness {
         }
     }
     fn aggregate(by_transition: &[Liveness]) -> Self {
-        let least = by_transition.iter().map(|l| l.least).min().unwrap_or(LivenessLevel::L0);
+        let least = by_transition
+            .iter()
+            .map(|l| l.least)
+            .min()
+            .unwrap_or(LivenessLevel::L0);
         let least_provenance = LivenessProvenance::None;
-        let most = by_transition.iter().map(|l| l.most).min().unwrap_or(LivenessLevel::L4);
+        let most = by_transition
+            .iter()
+            .map(|l| l.most)
+            .min()
+            .unwrap_or(LivenessLevel::L4);
         let most_provenance = LivenessProvenance::None;
-        Self { least, least_provenance, most, most_provenance }
+        Self {
+            least,
+            least_provenance,
+            most,
+            most_provenance,
+        }
     }
 }
 
@@ -56,7 +69,10 @@ impl LivenessCache {
     pub fn new(transition_count: u32) -> Self {
         let by_transition = vec![Liveness::new(); transition_count as usize].into_boxed_slice();
         let should_refine_by_unmarked_siphon = true;
-        Self { by_transition, should_refine_by_unmarked_siphon }
+        Self {
+            by_transition,
+            should_refine_by_unmarked_siphon,
+        }
     }
 
     /// Updates the liveness level for all transitions to the given level.
@@ -70,10 +86,21 @@ impl LivenessCache {
     }
 
     /// Updates the liveness level for a transition to the given level.
-    pub fn update_exact(&mut self, t_idx: TransitionIdx, level: LivenessLevel, provenance: LivenessProvenance) {
+    pub fn update_exact(
+        &mut self,
+        t_idx: TransitionIdx,
+        level: LivenessLevel,
+        provenance: LivenessProvenance,
+    ) {
         let liveness = &mut self.by_transition[t_idx];
-        debug_assert!(liveness.least <= level, "cannot decrease the least known liveness level");
-        debug_assert!(liveness.most >= level, "cannot increase the most known liveness level");
+        debug_assert!(
+            liveness.least <= level,
+            "cannot decrease the least known liveness level"
+        );
+        debug_assert!(
+            liveness.most >= level,
+            "cannot increase the most known liveness level"
+        );
         liveness.least = level;
         liveness.least_provenance = provenance;
         liveness.most = level;
@@ -83,7 +110,10 @@ impl LivenessCache {
     /// Updates the least known liveness level for a transition to the given level.
     pub fn update_lower_bound(&mut self, t_idx: TransitionIdx, level: LivenessLevel) {
         let liveness = &mut self.by_transition[t_idx];
-        debug_assert!(liveness.least <= level, "cannot decrease the least known liveness level");
+        debug_assert!(
+            liveness.least <= level,
+            "cannot decrease the least known liveness level"
+        );
         liveness.least = level;
     }
 
@@ -162,7 +192,10 @@ impl DenseNet {
         let is_marked = {
             let mut is_marked = FixedBitSet::with_capacity(condensation_graph.node_count());
             for (scc, nodes) in condensation_graph.node_references() {
-                if nodes.iter().any(|node| matches!(node, &IdxNode::Place(p_idx) if marking[p_idx] > 0)) {
+                if nodes
+                    .iter()
+                    .any(|node| matches!(node, &IdxNode::Place(p_idx) if marking[p_idx] > 0))
+                {
                     is_marked.insert(scc.index());
                 }
             }
@@ -182,11 +215,14 @@ impl DenseNet {
 
         // the terminal SCCs reachable from each SCC. reverse topological order guarantees
         // that all successors are final when we visit an SCC.
-        let mut reachable_sinks: Vec<Option<ReachableSinks>> = vec![None; condensation_graph.node_count()];
+        let mut reachable_sinks: Vec<Option<ReachableSinks>> =
+            vec![None; condensation_graph.node_count()];
         for &scc in topological_order.iter().rev() {
             reachable_sinks[scc.index()] = condensation_graph
                 .neighbors(scc)
-                .map(|neighbor| reachable_sinks[neighbor.index()].expect("successors are visited first"))
+                .map(|neighbor| {
+                    reachable_sinks[neighbor.index()].expect("successors are visited first")
+                })
                 .reduce(ReachableSinks::join)
                 // no successors: this is a terminal SCC
                 .or(Some(ReachableSinks::One(scc)));
@@ -198,7 +234,8 @@ impl DenseNet {
             let mut guaranteed_sinks = FixedBitSet::with_capacity(condensation_graph.node_count());
             for scc in condensation_graph.node_indices() {
                 if is_marked[scc.index()]
-                    && let Some(ReachableSinks::One(sink)) = reachable_sinks[scc.index()] {
+                    && let Some(ReachableSinks::One(sink)) = reachable_sinks[scc.index()]
+                {
                     guaranteed_sinks.insert(sink.index());
                 }
             }

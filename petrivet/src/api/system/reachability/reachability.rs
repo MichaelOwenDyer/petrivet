@@ -16,13 +16,9 @@ use std::time::Instant;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reachability {
     /// The target marking is reachable from M₀.
-    Reachable {
-        firing_sequence: Vec<Transition>,
-    },
+    Reachable { firing_sequence: Vec<Transition> },
     /// The target marking is definitely not reachable from M₀.
-    Unreachable {
-        contradiction: Vec<Lemma>,
-    },
+    Unreachable { contradiction: Vec<Lemma> },
 }
 
 impl Reachability {
@@ -52,8 +48,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[builder]
     pub fn is_reachable(
         &self,
-        #[builder(into)]
-        target: Marking<u32>,
+        #[builder(into)] target: Marking<u32>,
         effort: Option<Effort>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
         deadline: Option<Instant>,
@@ -85,7 +80,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
             // If the maximal unmarked trap in the target is marked in m0, then the target is unreachable.
             _ if maximal_trap_in(&self.dense_net, target.support().complement())
                 .into_iter()
-                .any(|p_idx| self.marking[p_idx] > 0) => Some(false),
+                .any(|p_idx| self.marking[p_idx] > 0) =>
+            {
+                Some(false)
+            }
             // NetClass::MarkedGraph if self.is_live() => Some(self.marking() ~ target) // todo: ~ relation
             // NetClass::FreeChoice if self.is_live() && self.is_bounded() => None, // todo: requires ILP + trap check
             _ => None,
@@ -101,8 +99,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     #[builder]
     pub fn reachability(
         &self,
-        #[builder(into)]
-        target: Marking<u32>,
+        #[builder(into)] target: Marking<u32>,
         observer: Option<mpsc::Sender<RefinementEvent>>,
         #[builder(name = timeout, with = |timeout: impl Timeout| timeout.into_instant())]
         deadline: Option<Instant>,
@@ -124,9 +121,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
         };
         // Wrap the provided observer in a type-erased closure
         // that maps the internal `IdxCegarEvent` to the public `CegarEvent`.
-        let callback_fn = observer.map(|sender| {
-            sender.to_cegar_callback_fn(Arc::clone(&self.mapping))
-        });
+        let callback_fn =
+            observer.map(|sender| sender.to_cegar_callback_fn(Arc::clone(&self.mapping)));
         let cegar_result = cegar_decide::<DefaultSolver>(problem, callback_fn, deadline);
         self.mapping.reachability_result(cegar_result)
     }
@@ -147,9 +143,18 @@ mod tests {
         use std::time::Duration;
         let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
         let sys = net.with_initial_marking([(p0, 1)]);
-        assert!(sys.reachability().target([(p1, 1)]).timeout(Duration::ZERO).call().is_none());
+        assert!(
+            sys.reachability()
+                .target([(p1, 1)])
+                .timeout(Duration::ZERO)
+                .call()
+                .is_none()
+        );
         assert!(matches!(
-            sys.reachability().target([(p1, 1)]).timeout(Duration::from_secs(60)).call(),
+            sys.reachability()
+                .target([(p1, 1)])
+                .timeout(Duration::from_secs(60))
+                .call(),
             Some(Reachability::Reachable { .. })
         ));
     }
@@ -178,7 +183,10 @@ mod tests {
         assert_eq!(net.class(), NetClass::MarkedGraph);
         let sys = net.with_initial_marking([(p0, 1), (p1, 1)]);
         assert_eq!(sys.is_reachable().target([(p2, 1)]).call(), Some(true));
-        assert_eq!(sys.is_reachable().target([(p0, 1), (p1, 1)]).call(), Some(true));
+        assert_eq!(
+            sys.is_reachable().target([(p0, 1), (p1, 1)]).call(),
+            Some(true)
+        );
         assert_eq!(sys.is_reachable().target([(p1, 1)]).call(), Some(false));
     }
 
@@ -217,22 +225,60 @@ mod tests {
     #[test]
     fn efficient_effort_declines_where_no_efficient_procedure_applies() {
         let (sys, _p0, p1) = general_net();
-        assert_eq!(sys.is_reachable().target([(p1, 1)]).effort(Effort::Efficient).call(), None);
-        assert_eq!(sys.is_reachable().target([(p1, 1)]).effort(Effort::Any).call(), Some(true));
+        assert_eq!(
+            sys.is_reachable()
+                .target([(p1, 1)])
+                .effort(Effort::Efficient)
+                .call(),
+            None
+        );
+        assert_eq!(
+            sys.is_reachable()
+                .target([(p1, 1)])
+                .effort(Effort::Any)
+                .call(),
+            Some(true)
+        );
         assert_eq!(sys.is_reachable().target([(p1, 1)]).call(), Some(true));
 
         // a strongly connected state machine is decided by comparing token sums, even with `Efficient`
         let (net, p0, _t0, p1, _t1) = crate::system::tests::two_place_cycle();
         let cycle = net.with_initial_marking([(p0, 1)]);
-        assert_eq!(cycle.is_reachable().target([(p1, 1)]).effort(Effort::Efficient).call(), Some(true));
-        assert_eq!(cycle.is_reachable().target([(p0, 2)]).effort(Effort::Efficient).call(), Some(false));
+        assert_eq!(
+            cycle
+                .is_reachable()
+                .target([(p1, 1)])
+                .effort(Effort::Efficient)
+                .call(),
+            Some(true)
+        );
+        assert_eq!(
+            cycle
+                .is_reachable()
+                .target([(p0, 2)])
+                .effort(Effort::Efficient)
+                .call(),
+            Some(false)
+        );
     }
 
     #[test]
     fn is_reachable_gives_up_at_the_timeout() {
         use std::time::Duration;
         let (sys, _p0, p1) = general_net();
-        assert_eq!(sys.is_reachable().target([(p1, 1)]).timeout(Duration::ZERO).call(), None);
-        assert_eq!(sys.is_reachable().target([(p1, 1)]).timeout(Duration::from_secs(60)).call(), Some(true));
+        assert_eq!(
+            sys.is_reachable()
+                .target([(p1, 1)])
+                .timeout(Duration::ZERO)
+                .call(),
+            None
+        );
+        assert_eq!(
+            sys.is_reachable()
+                .target([(p1, 1)])
+                .timeout(Duration::from_secs(60))
+                .call(),
+            Some(true)
+        );
     }
 }

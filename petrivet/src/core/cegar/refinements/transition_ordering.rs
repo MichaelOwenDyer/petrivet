@@ -31,10 +31,7 @@ impl TransitionOrderingRule {
     /// Reports back all `place -> transition` edges that are part of a nontrivial strongly
     /// connected component of this graph, which are the only ones that can lead to unrealizable
     /// "ouroboros" cycles.
-    pub fn check(
-        net: &DenseNet,
-        m0: &IdxMarking<u32>,
-    ) -> Option<TransitionOrderingRefinement> {
+    pub fn check(net: &DenseNet, m0: &IdxMarking<u32>) -> Option<TransitionOrderingRefinement> {
         let graph = &net.graph;
         let subgraph = EdgeFiltered::from_fn(graph, |edge| {
             match (net.graph[edge.source()], net.graph[edge.target()]) {
@@ -60,11 +57,14 @@ impl TransitionOrderingRule {
             // The transition -> place edges exist purely to let the SCC computation find the cycle back.
             if scc_id[&src] == scc_id[&dst]
                 && let IdxNode::Place(p_idx) = graph[src]
-                && let IdxNode::Transition(t_idx) = graph[dst] {
+                && let IdxNode::Transition(t_idx) = graph[dst]
+            {
                 cyclic_dependencies.push(InitiallyDisabledTransition { t_idx, p_idx });
             }
         }
-        (!cyclic_dependencies.is_empty()).then_some(TransitionOrderingRefinement { cyclic_dependencies })
+        (!cyclic_dependencies.is_empty()).then_some(TransitionOrderingRefinement {
+            cyclic_dependencies,
+        })
     }
 }
 
@@ -100,14 +100,20 @@ impl TransitionOrderingRefinement {
             let feeders: Vec<TransitionIdx> = problem.net.preset_p[p_idx]
                 .iter()
                 .copied()
-                .filter(|&feeder| feeder != t_idx && problem.net.incidence_matrix.get_effect(feeder, p_idx) > 0)
+                .filter(|&feeder| {
+                    feeder != t_idx && problem.net.incidence_matrix.get_effect(feeder, p_idx) > 0
+                })
                 .collect();
 
             if feeders.is_empty() {
                 // No transition can ever add more tokens to `p`, so `t` can never fire at all.
                 let zero = solver.mk_int(0);
                 let t_dead = solver.eq(&transition_terms[t_idx], &zero);
-                let lemma = IdxLemma::TransitionOrdering { t_idx, p_idx, feeders };
+                let lemma = IdxLemma::TransitionOrdering {
+                    t_idx,
+                    p_idx,
+                    feeders,
+                };
                 if let Some(callback) = callback {
                     callback(lemma.clone());
                 }
@@ -135,7 +141,11 @@ impl TransitionOrderingRefinement {
                 solver.or(&feeder_conditions)
             };
             let implication = solver.implies(&t_fires, &some_feeder_fires_first);
-            let lemma = IdxLemma::TransitionOrdering { t_idx, p_idx, feeders };
+            let lemma = IdxLemma::TransitionOrdering {
+                t_idx,
+                p_idx,
+                feeders,
+            };
             if let Some(callback) = callback {
                 callback(lemma.clone());
             }
@@ -162,20 +172,36 @@ mod tests {
         let net = b.build().unwrap();
         let m0 = net.mapping.idx_marking(Marking::from([(s3, 1)]));
 
-        let refinement = TransitionOrderingRule::check(
-            &net.dense_net,
-            &m0,
-        ).expect("cycle should be detected");
+        let refinement =
+            TransitionOrderingRule::check(&net.dense_net, &m0).expect("cycle should be detected");
 
-        assert_eq!(refinement.cyclic_dependencies.len(), 2, "exactly two dependencies should be reported");
-        assert!(refinement.cyclic_dependencies.contains(&InitiallyDisabledTransition {
-            t_idx: net.mapping.transition_idx(t1).expect("transition in built net"),
-            p_idx: net.mapping.place_idx(s2).expect("place in built net")
-        }));
-        assert!(refinement.cyclic_dependencies.contains(&InitiallyDisabledTransition {
-            t_idx: net.mapping.transition_idx(t2).expect("transition in built net"),
-            p_idx: net.mapping.place_idx(s1).expect("place in built net")
-        }));
+        assert_eq!(
+            refinement.cyclic_dependencies.len(),
+            2,
+            "exactly two dependencies should be reported"
+        );
+        assert!(
+            refinement
+                .cyclic_dependencies
+                .contains(&InitiallyDisabledTransition {
+                    t_idx: net
+                        .mapping
+                        .transition_idx(t1)
+                        .expect("transition in built net"),
+                    p_idx: net.mapping.place_idx(s2).expect("place in built net")
+                })
+        );
+        assert!(
+            refinement
+                .cyclic_dependencies
+                .contains(&InitiallyDisabledTransition {
+                    t_idx: net
+                        .mapping
+                        .transition_idx(t2)
+                        .expect("transition in built net"),
+                    p_idx: net.mapping.place_idx(s1).expect("place in built net")
+                })
+        );
     }
 
     /// If the "escape route" place starts sufficiently marked for *everyone* that needs it, no
@@ -189,7 +215,11 @@ mod tests {
         b.add_arcs((p, t, q));
         let net = b.build().unwrap();
         let m0 = Marking::from([(p, 1)]); // p already sufficiently marked for t
-        let refinement = TransitionOrderingRule::check(&net.dense_net, &net.mapping.idx_marking(m0));
-        assert!(refinement.is_none(), "no place is insufficiently marked, so nothing qualifies");
+        let refinement =
+            TransitionOrderingRule::check(&net.dense_net, &net.mapping.idx_marking(m0));
+        assert!(
+            refinement.is_none(),
+            "no place is insufficiently marked, so nothing qualifies"
+        );
     }
 }

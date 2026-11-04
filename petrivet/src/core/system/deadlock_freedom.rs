@@ -36,12 +36,18 @@ impl DeadlockCache {
     }
 
     pub fn mark_deadlock_free(&mut self) {
-        debug_assert!(self.deadlocks.is_empty(), "Cannot mark deadlock-free when deadlocks have been observed.");
+        debug_assert!(
+            self.deadlocks.is_empty(),
+            "Cannot mark deadlock-free when deadlocks have been observed."
+        );
         self.complete = true;
     }
 
     pub fn add_deadlock(&mut self, deadlock: &IdxMarking<u32>) {
-        debug_assert!(!self.complete, "Cannot add deadlock when cache is marked complete.");
+        debug_assert!(
+            !self.complete,
+            "Cannot add deadlock when cache is marked complete."
+        );
         if !self.deadlocks.contains(deadlock) {
             self.deadlocks.insert(deadlock.clone());
         }
@@ -61,7 +67,9 @@ impl DenseNet {
         marking: &IdxMarking<u32>,
     ) -> bool {
         let mut live_transitions = TransitionIdxSet::all_of(self.transition_count());
-        let mut stack = self.transitions_on_unmarked_circuits(marking).collect::<Vec<_>>();
+        let mut stack = self
+            .transitions_on_unmarked_circuits(marking)
+            .collect::<Vec<_>>();
         while let Some(t_idx) = stack.pop() {
             if live_transitions.contains(t_idx) {
                 live_transitions.remove(t_idx);

@@ -27,7 +27,9 @@
 
 use super::graphics::{AnnotationGraphics, NodeGraphics};
 use super::nupn::NupnMetadata;
-use super::{Name, NaturalNumberLabel, Page, PageObject, PnmlDocument, ToolSpecific, net, net_type};
+use super::{
+    Name, NaturalNumberLabel, Page, PageObject, PnmlDocument, ToolSpecific, net, net_type,
+};
 use crate::net::{Arc, Net, Place, Transition};
 use crate::pnml::labels::NetLabels;
 use crate::system::PetriNet;

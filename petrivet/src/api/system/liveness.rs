@@ -191,7 +191,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
         let query = LivenessQuery::AtLeast(level);
         let scope = match transition {
             None => LivenessScope::PetriNet,
-            Some(t) if let Some(t_idx) = self.mapping.transition_idx(t) => LivenessScope::Transition(t_idx),
+            Some(t) if let Some(t_idx) = self.mapping.transition_idx(t) => {
+                LivenessScope::Transition(t_idx)
+            }
             Some(_) => return None,
         };
         let effort = effort.unwrap_or(Effort::Any);
@@ -212,7 +214,9 @@ impl<N: AsRef<Net>> PetriNet<N> {
         let query = LivenessQuery::Exact;
         let scope = match of {
             None => LivenessScope::PetriNet,
-            Some(t) if let Some(t_idx) = self.mapping.transition_idx(t) => LivenessScope::Transition(t_idx),
+            Some(t) if let Some(t_idx) = self.mapping.transition_idx(t) => {
+                LivenessScope::Transition(t_idx)
+            }
             Some(_) => return None,
         };
         let effort = effort.unwrap_or(Effort::Any);
@@ -251,12 +255,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
     }
 
     /// Sets transitions to L0 whose preset overlaps with the largest unmarked proper siphon.
-    fn refine_liveness_by_unmarked_siphon(
-        &self,
-        cache: &mut LivenessCache,
-    ) {
+    fn refine_liveness_by_unmarked_siphon(&self, cache: &mut LivenessCache) {
         if let Some(siphon) = self.dense_net.maximal_unmarked_proper_siphon(&self.marking) {
-            let transitions = siphon.iter().flat_map(|p_idx| self.dense_net.postset_p[p_idx].iter());
+            let transitions = siphon
+                .iter()
+                .flat_map(|p_idx| self.dense_net.postset_p[p_idx].iter());
             for &t_idx in transitions {
                 cache.update_exact(t_idx, LivenessLevel::L0, LivenessProvenance::UnmarkedSiphon);
             }
@@ -265,10 +268,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     }
 
     /// Refines liveness by subclass where there is an efficient procedure.
-    fn refine_liveness_by_efficient_subclass(
-        &self,
-        cache: &mut LivenessCache,
-    ) {
+    fn refine_liveness_by_efficient_subclass(&self, cache: &mut LivenessCache) {
         match self.class() {
             NetClass::Circuit | NetClass::StateMachine if self.is_strongly_connected() => {
                 let level = if self.marking.sum() == 0 {
@@ -277,19 +277,23 @@ impl<N: AsRef<Net>> PetriNet<N> {
                     LivenessLevel::L4
                 };
                 cache.update_all(level, LivenessProvenance::StronglyConnectedStateMachine);
-            },
+            }
             NetClass::StateMachine => {
-                let liveness = self.dense_net.liveness_via_state_machine_marked_sccs(&self.marking);
+                let liveness = self
+                    .dense_net
+                    .liveness_via_state_machine_marked_sccs(&self.marking);
                 for (t_idx, level) in liveness.into_iter().enumerate() {
                     cache.update_exact(t_idx, level, LivenessProvenance::StateMachine);
                 }
-            },
+            }
             NetClass::MarkedGraph => {
-                let liveness = self.dense_net.liveness_via_marked_graph_unmarked_circuits(&self.marking);
+                let liveness = self
+                    .dense_net
+                    .liveness_via_marked_graph_unmarked_circuits(&self.marking);
                 for (t_idx, level) in liveness.into_iter().enumerate() {
                     cache.update_exact(t_idx, level, LivenessProvenance::MarkedGraph);
                 }
-            },
+            }
             _ => {}
         }
     }
@@ -300,20 +304,27 @@ impl<N: AsRef<Net>> PetriNet<N> {
         deadline: Option<Instant>,
     ) {
         match self.class() {
-            NetClass::FreeChoice | NetClass::AsymmetricChoice if self.commoner_hack_criterion_until(deadline) == Some(Ok(())) => {
+            NetClass::FreeChoice | NetClass::AsymmetricChoice
+                if self.commoner_hack_criterion_until(deadline) == Some(Ok(())) =>
+            {
                 for t_idx in self.dense_net.transition_indices() {
                     cache.update_exact(t_idx, LivenessLevel::L4, LivenessProvenance::CommonerHack);
                 }
-            },
-            _ if deadline.is_some_and(|d| Instant::now() >= d) => {},
+            }
+            _ if deadline.is_some_and(|d| Instant::now() >= d) => {}
             _ => {
                 match self
                     .explore_coverability_graph(ExplorationOrder::BreadthFirst)
-                    .try_build_reachability_graph_until(deadline) {
+                    .try_build_reachability_graph_until(deadline)
+                {
                     Ok(rg) => {
                         for (transition, liveness) in rg.transition_liveness() {
                             if let Some(t_idx) = self.mapping.transition_idx(transition) {
-                                cache.update_exact(t_idx, liveness, LivenessProvenance::ReachabilityGraph);
+                                cache.update_exact(
+                                    t_idx,
+                                    liveness,
+                                    LivenessProvenance::ReachabilityGraph,
+                                );
                             }
                         }
                     }
@@ -343,12 +354,17 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Returns true if there exists a proper siphon in the Petri net which is currently unmarked.
     pub fn contains_unmarked_proper_siphon(&self) -> bool {
-        self.dense_net.maximal_unmarked_proper_siphon(&self.marking).is_some()
+        self.dense_net
+            .maximal_unmarked_proper_siphon(&self.marking)
+            .is_some()
     }
 
     /// Returns true if there exists a directed circuit in the net in which every place has zero tokens.
     pub fn has_unmarked_circuit(&self) -> bool {
-        self.dense_net.transitions_on_unmarked_circuits(&self.marking).next().is_some()
+        self.dense_net
+            .transitions_on_unmarked_circuits(&self.marking)
+            .next()
+            .is_some()
     }
 }
 
@@ -535,7 +551,8 @@ mod tests {
     /// guaranteed to arrive in any of them → everything on a cycle is L3, nothing is L4.
     #[test]
     fn s_net_two_reachable_sinks_l3() {
-        let (net, [a0, ..], [ta0, ta1, to_b, to_c], [tb0, tb1, tc0, tc1]) = cycle_with_two_sink_cycles();
+        let (net, [a0, ..], [ta0, ta1, to_b, to_c], [tb0, tb1, tc0, tc1]) =
+            cycle_with_two_sink_cycles();
         assert_eq!(net.class(), NetClass::StateMachine);
         let sys = PetriNet::new(net, [(a0, 1)]);
 
@@ -551,7 +568,8 @@ mod tests {
     /// to make it L4, even if another marked source reaches several sinks.
     #[test]
     fn s_net_second_marked_source_upgrades_sink() {
-        let (net, [a0, b0, _], [ta0, ta1, to_b, to_c], [tb0, tb1, tc0, tc1]) = cycle_with_two_sink_cycles();
+        let (net, [a0, b0, _], [ta0, ta1, to_b, to_c], [tb0, tb1, tc0, tc1]) =
+            cycle_with_two_sink_cycles();
         let sys = PetriNet::new(net, [(a0, 1), (b0, 1)]);
 
         // the token that starts inside the sink cycle `b` can never leave it
@@ -696,7 +714,8 @@ mod tests {
 
     /// A state machine in which `t0` and `t1` swap one token between `p0` and `p1` forever,
     /// while `t2` (fed by the never-marked `p2`) can never fire.
-    fn state_machine_with_one_dead_transition() -> (PetriNet, crate::net::Transition, crate::net::Transition) {
+    fn state_machine_with_one_dead_transition()
+    -> (PetriNet, crate::net::Transition, crate::net::Transition) {
         let mut b = NetBuilder::new();
         let [p0, p1, p2] = b.add_places();
         let [t0, t1, t2] = b.add_transitions();

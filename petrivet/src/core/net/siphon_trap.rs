@@ -18,10 +18,7 @@ pub type IdxTrap = PlaceIdxSet;
 /// iteratively remove any place p where some transition t ∈ •p has no
 /// input place in the current set. Runs in O(|S|² · |T|²).
 #[must_use]
-pub fn maximal_siphon_in(
-    net: &DenseNet,
-    mut siphon: PlaceIdxSet,
-) -> IdxSiphon {
+pub fn maximal_siphon_in(net: &DenseNet, mut siphon: PlaceIdxSet) -> IdxSiphon {
     let mut worklist: Vec<PlaceIdx> = siphon.iter().collect();
     while let Some(p_idx) = worklist.pop() {
         // Check if some t ∈ •p has no input place in the siphon. If so, p cannot be in the siphon.
@@ -50,10 +47,7 @@ pub fn maximal_siphon_in(
 /// Uses the dual of the shrinking algorithm: iteratively remove any place p
 /// where some transition t ∈ p• has no output place in the current set.
 #[must_use]
-pub fn maximal_trap_in(
-    net: &DenseNet,
-    mut trap: PlaceIdxSet,
-) -> IdxTrap {
+pub fn maximal_trap_in(net: &DenseNet, mut trap: PlaceIdxSet) -> IdxTrap {
     let mut worklist: Vec<PlaceIdx> = trap.iter().collect();
     while let Some(p_idx) = worklist.pop() {
         // Check if some t ∈ p• has no output place in the trap. If so, p cannot be in the trap.
@@ -94,7 +88,9 @@ pub fn find_proper_siphon_with_no_marked_trap<S: SmtSolver>(
 ) -> ProperSiphonWithNoMarkedTrapResult {
     // the formula has a term for every arc in every one of |P| rounds, so for a large net
     // building and asserting it is slow enough to need bounding by more than the final `check`
-    S::with_deadline(deadline, || find_proper_siphon_with_no_marked_trap_unbounded::<S>(net, marking, deadline))
+    S::with_deadline(deadline, || {
+        find_proper_siphon_with_no_marked_trap_unbounded::<S>(net, marking, deadline)
+    })
 }
 
 fn find_proper_siphon_with_no_marked_trap_unbounded<S: SmtSolver>(
@@ -118,18 +114,14 @@ fn find_proper_siphon_with_no_marked_trap_unbounded<S: SmtSolver>(
     // if a transition produces to a place in the siphon, then it
     // must also consume from the siphon (i.e., the siphon property •D ⊆ D•).
     for t_idx in net.transition_indices() {
-        let produces_to_siphon = solver.or(
-            &net.postset_t[t_idx]
-                .iter()
-                .map(|&p_idx| in_siphon[p_idx].clone())
-                .collect::<Vec<_>>()
-        );
-        let consumes_from_siphon = solver.or(
-            &net.preset_t[t_idx]
-                .iter()
-                .map(|&p_idx| in_siphon[p_idx].clone())
-                .collect::<Vec<_>>()
-        );
+        let produces_to_siphon = solver.or(&net.postset_t[t_idx]
+            .iter()
+            .map(|&p_idx| in_siphon[p_idx].clone())
+            .collect::<Vec<_>>());
+        let consumes_from_siphon = solver.or(&net.preset_t[t_idx]
+            .iter()
+            .map(|&p_idx| in_siphon[p_idx].clone())
+            .collect::<Vec<_>>());
         let siphon_property = solver.implies(&produces_to_siphon, &consumes_from_siphon);
         solver.assert(&siphon_property);
     }
@@ -144,22 +136,22 @@ fn find_proper_siphon_with_no_marked_trap_unbounded<S: SmtSolver>(
         if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
             return ProperSiphonWithNoMarkedTrapResult::Unknown;
         }
-        in_trap = net.postset_p
+        in_trap = net
+            .postset_p
             .iter()
             .zip(in_trap.iter())
             .map(|(consuming_transitions, currently_in_trap)| {
                 let consuming_transitions_also_produce_to_trap = consuming_transitions
                     .iter()
-                    .map(|&t_idx| solver.or(
-                        &net.postset_t[t_idx]
+                    .map(|&t_idx| {
+                        solver.or(&net.postset_t[t_idx]
                             .iter()
                             .map(|&p_idx| in_trap[p_idx].clone())
-                            .collect::<Vec<_>>()
-                    ))
+                            .collect::<Vec<_>>())
+                    })
                     .collect::<Vec<_>>();
-                let trap_condition_continues_to_hold = solver.and(
-                    &consuming_transitions_also_produce_to_trap
-                );
+                let trap_condition_continues_to_hold =
+                    solver.and(&consuming_transitions_also_produce_to_trap);
                 solver.and(&[currently_in_trap.clone(), trap_condition_continues_to_hold])
             })
             .collect::<Vec<_>>();

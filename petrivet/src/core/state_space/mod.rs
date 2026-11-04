@@ -82,9 +82,9 @@ impl<'a, T: TokenOps> DenseStateGraphExplorer<'a, T> {
             &net.postset_p,
             &source_transitions,
         )
-            .into_iter()
-            .map(|t_idx| (initial_idx, t_idx))
-            .collect();
+        .into_iter()
+        .map(|t_idx| (initial_idx, t_idx))
+        .collect();
 
         let mut seen = HashMap::new();
         seen.insert(initial_marking, initial_idx);
@@ -324,7 +324,7 @@ impl<T: TokenOps> DenseStateGraph<'_, T> {
     }
 
     /// Returns an iterator over all markings in the graph.
-    pub fn markings(&self) -> impl Iterator<Item=&IdxMarking<T>> + '_ {
+    pub fn markings(&self) -> impl Iterator<Item = &IdxMarking<T>> + '_ {
         self.graph.node_weights()
     }
 
@@ -344,7 +344,7 @@ impl<T: TokenOps> DenseStateGraph<'_, T> {
     }
 
     /// Returns an iterator over markings which enable no transitions (deadlocks).
-    pub fn deadlocks(&self) -> impl Iterator<Item=&IdxMarking<T>> {
+    pub fn deadlocks(&self) -> impl Iterator<Item = &IdxMarking<T>> {
         self.graph
             .node_indices()
             .filter(|&idx| {

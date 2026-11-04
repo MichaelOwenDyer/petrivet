@@ -116,7 +116,8 @@ impl SmtSolver for OxiZ {
     fn assert_tracked(&mut self, constraint: &Self::Bool, lemma: IdxLemma) {
         let name = format!("t{}", self.next_tracking_id);
         self.next_tracking_id += 1;
-        self.solver.assert_named(*constraint, &name, &mut self.terms);
+        self.solver
+            .assert_named(*constraint, &name, &mut self.terms);
         self.tracked.insert(name, lemma);
     }
 
@@ -151,9 +152,7 @@ impl SmtSolver for OxiZ {
         let value = model.get(*term)?;
         match &self.terms.get(value)?.kind {
             oxiz::core::TermKind::IntConst(n) => u32::try_from(n).ok(),
-            oxiz::core::TermKind::RealConst(r) if *r.denom() == 1 => {
-                u32::try_from(*r.numer()).ok()
-            }
+            oxiz::core::TermKind::RealConst(r) if *r.denom() == 1 => u32::try_from(*r.numer()).ok(),
             _ => None,
         }
     }

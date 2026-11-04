@@ -566,8 +566,8 @@ fn is_s_net<S: std::hash::BuildHasher>(
 ) -> bool {
     transition_presets.values().all(|preset| preset.len() == 1)
         && transition_postsets
-        .values()
-        .all(|postset| postset.len() == 1)
+            .values()
+            .all(|postset| postset.len() == 1)
 }
 
 /// T-net: |•p| = 1 and |p•| = 1 for every place p.

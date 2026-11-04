@@ -19,11 +19,13 @@ impl MarkingEquationRefinement {
         problem: &CegarProblem,
         place_terms: &[S::Int],
         transition_terms: &[S::Int],
-        callback: Option<&dyn Fn(IdxLemma)>
+        callback: Option<&dyn Fn(IdxLemma)>,
     ) {
         for p_idx in problem.net.place_indices() {
             let initial_marking = problem.m0[p_idx];
-            let net_effects: Vec<(TransitionIdx, i16)> = problem.net.transition_indices()
+            let net_effects: Vec<(TransitionIdx, i16)> = problem
+                .net
+                .transition_indices()
                 .filter_map(|t_idx| {
                     let effect = problem.net.incidence_matrix.get_effect(t_idx, p_idx);
                     (effect != 0).then_some((t_idx, effect))
@@ -53,7 +55,7 @@ impl MarkingEquationRefinement {
             let lemma = IdxLemma::MarkingEquation {
                 place: p_idx,
                 initial_marking: problem.m0[p_idx],
-                net_effects
+                net_effects,
             };
             if let Some(callback) = callback {
                 callback(lemma.clone());

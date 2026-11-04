@@ -53,7 +53,7 @@ impl<T, const N: usize> From<[T; N]> for IdxParikhVector<T> {
 }
 
 impl<T> FromIterator<T> for IdxParikhVector<T> {
-    fn from_iter<I: IntoIterator<Item=T>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self(iter.into_iter().collect())
     }
 }

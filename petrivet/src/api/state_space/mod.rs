@@ -103,7 +103,7 @@ impl<T: TokenOps> StateGraphExplorer<'_, T> {
     }
 
     /// All markings discovered so far which enable no transitions.
-    pub fn deadlocks(&self) -> impl Iterator<Item=Marking<T>> {
+    pub fn deadlocks(&self) -> impl Iterator<Item = Marking<T>> {
         self.core
             .state_space
             .deadlocks()
@@ -151,7 +151,7 @@ where
     /// Returns an iterator that drives exploration step by step.
     ///
     /// See [`explore_next`](StateGraphExplorer::explore_next).
-    pub fn explore_iter(&mut self) -> impl Iterator<Item=ExplorationStep<T>> + '_ {
+    pub fn explore_iter(&mut self) -> impl Iterator<Item = ExplorationStep<T>> + '_ {
         std::iter::from_fn(move || self.explore_next())
     }
 
@@ -198,7 +198,10 @@ where
         let mapping = self.mapping;
         let found = self
             .core
-            .search(|idx_marking| predicate(&mapping.marking(idx_marking.clone())), deadline)
+            .search(
+                |idx_marking| predicate(&mapping.marking(idx_marking.clone())),
+                deadline,
+            )
             .map(|idx_marking| mapping.marking(idx_marking.clone()));
         // `search` also returns `None` when it runs out of time, which proves nothing
         if found.is_none() && !self.is_fully_explored() {
@@ -211,7 +214,7 @@ where
     pub fn reaches_marking_timeout(
         &mut self,
         target: Marking<T>,
-        timeout: Duration
+        timeout: Duration,
     ) -> Result<bool, DeadlineExceeded> {
         let deadline = deadline_after(timeout);
         self.reaches_marking_until(target, deadline)
@@ -254,7 +257,12 @@ where
         &mut self,
         deadline: Option<Instant>,
     ) -> Result<Option<Marking<T>>, DeadlineExceeded> {
-        let found = self.core.search(|marking| self.core.state_space.net.is_deadlock(marking), deadline)
+        let found = self
+            .core
+            .search(
+                |marking| self.core.state_space.net.is_deadlock(marking),
+                deadline,
+            )
             .map(|idx_marking| self.mapping.marking(idx_marking.clone()));
         if found.is_none() && !self.is_fully_explored() {
             return Err(DeadlineExceeded);
@@ -345,7 +353,10 @@ where
     /// Returns the partially explored explorer if the deadline passed first.
     /// Its frontier is preserved, so exploration can be resumed if desired.
     #[allow(clippy::result_large_err)]
-    pub fn build_graph_until(mut self, deadline: Option<Instant>) -> Result<StateGraph<'a, T>, Self> {
+    pub fn build_graph_until(
+        mut self,
+        deadline: Option<Instant>,
+    ) -> Result<StateGraph<'a, T>, Self> {
         let mut time_is_up = crate::core::state_space::deadline_checker(deadline);
         while self.core.explore_next().is_some() {
             if time_is_up() && !self.is_fully_explored() {
@@ -383,7 +394,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     }
 
     /// Iterator over all distinct markings in the graph.
-    pub fn markings(&self) -> impl Iterator<Item=Marking<T>> {
+    pub fn markings(&self) -> impl Iterator<Item = Marking<T>> {
         self.state_space
             .markings()
             .cloned()
@@ -437,7 +448,7 @@ impl<T: TokenOps> StateGraph<'_, T> {
     }
 
     /// All discovered markings that have no enabled transitions.
-    pub fn deadlocks(&self) -> impl Iterator<Item=Marking<T>> {
+    pub fn deadlocks(&self) -> impl Iterator<Item = Marking<T>> {
         self.state_space
             .deadlocks()
             .cloned()
@@ -528,7 +539,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ///
     /// Warning! This may be a HUGE structure!
     pub fn build_coverability_graph(&self) -> CoverabilityGraph<'_> {
-        self.explore_coverability_graph(ExplorationOrder::BreadthFirst).build_graph()
+        self.explore_coverability_graph(ExplorationOrder::BreadthFirst)
+            .build_graph()
     }
 
     /// Like [`build_coverability_graph`](PetriNet::build_coverability_graph),
@@ -541,7 +553,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
         &self,
         timeout: Duration,
     ) -> Result<CoverabilityGraph<'_>, CoverabilityGraphExplorer<'_>> {
-        self.explore_coverability_graph(ExplorationOrder::BreadthFirst).build_graph_timeout(timeout)
+        self.explore_coverability_graph(ExplorationOrder::BreadthFirst)
+            .build_graph_timeout(timeout)
     }
 
     /// Attempt to construct a [`ReachabilityGraph`] of this [`PetriNet`],
@@ -567,8 +580,11 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Returns `Err(partial_explorer)` as soon as any explored marking
     /// contains ω. The frontier is preserved, so callers may resume.
     #[allow(clippy::result_large_err)]
-    pub fn try_build_reachability_graph(&self) -> Result<ReachabilityGraph<'_>, CoverabilityGraphExplorer<'_>> {
-        self.explore_coverability_graph(ExplorationOrder::BreadthFirst).try_build_reachability_graph()
+    pub fn try_build_reachability_graph(
+        &self,
+    ) -> Result<ReachabilityGraph<'_>, CoverabilityGraphExplorer<'_>> {
+        self.explore_coverability_graph(ExplorationOrder::BreadthFirst)
+            .try_build_reachability_graph()
     }
 
     /// Like [`try_build_reachability_graph`](PetriNet::try_build_reachability_graph),
@@ -592,7 +608,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
     /// Use [`build_reachability_graph_timeout`](PetriNet::build_reachability_graph_timeout)
     /// when boundedness is not known.
     pub fn build_reachability_graph(&self) -> ReachabilityGraph<'_> {
-        self.explore_reachability_graph(ExplorationOrder::BreadthFirst).build_graph()
+        self.explore_reachability_graph(ExplorationOrder::BreadthFirst)
+            .build_graph()
     }
 
     /// Like [`build_reachability_graph`](PetriNet::build_reachability_graph),
@@ -605,7 +622,8 @@ impl<N: AsRef<Net>> PetriNet<N> {
         &self,
         timeout: Duration,
     ) -> Result<ReachabilityGraph<'_>, ReachabilityGraphExplorer<'_>> {
-        self.explore_reachability_graph(ExplorationOrder::BreadthFirst).build_graph_timeout(timeout)
+        self.explore_reachability_graph(ExplorationOrder::BreadthFirst)
+            .build_graph_timeout(timeout)
     }
 }
 
@@ -645,9 +663,18 @@ mod tests {
         let graph = partial.build_graph_until(None).expect("no deadline");
         assert_eq!(graph.marking_count(), 861);
 
-        assert!(sys.build_reachability_graph_timeout(Duration::from_secs(60)).is_ok());
-        assert!(sys.build_coverability_graph_timeout(Duration::from_secs(60)).is_ok());
-        assert!(sys.try_build_reachability_graph_timeout(Duration::from_secs(60)).is_ok());
+        assert!(
+            sys.build_reachability_graph_timeout(Duration::from_secs(60))
+                .is_ok()
+        );
+        assert!(
+            sys.build_coverability_graph_timeout(Duration::from_secs(60))
+                .is_ok()
+        );
+        assert!(
+            sys.try_build_reachability_graph_timeout(Duration::from_secs(60))
+                .is_ok()
+        );
     }
 
     #[test]
@@ -655,11 +682,15 @@ mod tests {
         let (sys, place) = a_few_thousand_steps();
         let mut explorer = sys.explore_reachability_graph(ExplorationOrder::BreadthFirst);
         // the initial marking is checked first, without exploring anything
-        let found = explorer.find(|m| m.get(place) == 40).expect("the initial marking holds forty tokens");
+        let found = explorer
+            .find(|m| m.get(place) == 40)
+            .expect("the initial marking holds forty tokens");
         assert_eq!(found.get(place), 40);
         assert_eq!(explorer.marking_count(), 1);
         // a marking one step away is found long before the 861 markings are exhausted
-        let found = explorer.find(|m| m.get(place) == 39).expect("one token can leave the place");
+        let found = explorer
+            .find(|m| m.get(place) == 39)
+            .expect("one token can leave the place");
         assert_eq!(found.get(place), 39);
         assert!(!explorer.is_fully_explored());
     }
@@ -674,7 +705,10 @@ mod tests {
             explorer.find_until(
                 |m| {
                     calls += 1;
-                    assert!(seen.insert(m.clone()), "predicate called twice for one marking");
+                    assert!(
+                        seen.insert(m.clone()),
+                        "predicate called twice for one marking"
+                    );
                     m.get(place) == 1000
                 },
                 None
@@ -691,11 +725,17 @@ mod tests {
         let (sys, place) = a_few_thousand_steps();
         let never = |m: &Marking<u32>| m.get(place) > 40;
         let mut explorer = sys.explore_reachability_graph(ExplorationOrder::BreadthFirst);
-        assert_eq!(explorer.find_until(never, Some(Instant::now())), Err(DeadlineExceeded));
+        assert_eq!(
+            explorer.find_until(never, Some(Instant::now())),
+            Err(DeadlineExceeded)
+        );
         assert!(!explorer.is_fully_explored());
         // resumed without a deadline the exhausted state space is a definite "no"
         assert_eq!(explorer.find_until(never, None), Ok(None));
-        assert_eq!(explorer.find_timeout(never, Duration::from_secs(60)), Ok(None));
+        assert_eq!(
+            explorer.find_timeout(never, Duration::from_secs(60)),
+            Ok(None)
+        );
     }
 
     #[test]

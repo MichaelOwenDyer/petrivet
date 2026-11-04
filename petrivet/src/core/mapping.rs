@@ -12,7 +12,7 @@
 
 use crate::core::cegar::CegarResult;
 use crate::core::cegar::lemma::IdxLemma;
-use crate::core::cegar::observe::IdxCegarEvent as IdxCegarEvent;
+use crate::core::cegar::observe::IdxCegarEvent;
 use crate::core::net::idx_set::{PlaceIdxSet, TransitionIdxSet};
 use crate::core::net::{PlaceIdx, TransitionIdx};
 use crate::core::state_space::TokenOps;
@@ -77,7 +77,7 @@ impl DenseMapping {
     /// Returns an iterator over all [`Places`](Place) in the net in their dense index order.
     ///
     /// This is useful for zipping places together with internal dense place data.
-    pub fn places(&self) -> impl Iterator<Item=Place> + '_ {
+    pub fn places(&self) -> impl Iterator<Item = Place> + '_ {
         self.ordered_places.iter().copied()
     }
 
@@ -103,7 +103,7 @@ impl DenseMapping {
     /// Returns an iterator over all [`Transitions`](Transition) in the net in their dense index order.
     ///
     /// This is useful for zipping transitions together with internal dense transition data.
-    pub fn transitions(&self) -> impl Iterator<Item=Transition> + '_ {
+    pub fn transitions(&self) -> impl Iterator<Item = Transition> + '_ {
         self.ordered_transitions.iter().copied()
     }
 
@@ -162,12 +162,18 @@ impl DenseMapping {
 
     /// Convert a set of internal indices to a `HashSet<Transition>`.
     pub fn transition_set(&self, transition_indices: &TransitionIdxSet) -> HashSet<Transition> {
-        transition_indices.iter().map(|t_idx| self.transition(t_idx)).collect()
+        transition_indices
+            .iter()
+            .map(|t_idx| self.transition(t_idx))
+            .collect()
     }
 
     /// Convert a sequence of internal transition indices to a `Vec<Transition>`.
     pub fn firing_sequence(&self, transitions: Vec<TransitionIdx>) -> Vec<Transition> {
-        transitions.into_iter().map(|t_idx| self.transition(t_idx)).collect()
+        transitions
+            .into_iter()
+            .map(|t_idx| self.transition(t_idx))
+            .collect()
     }
 
     /// Convert an internal Parikh vector to a public one.
@@ -184,7 +190,9 @@ impl DenseMapping {
     pub fn cegar_event(&self, event: IdxCegarEvent) -> RefinementEvent {
         RefinementEvent {
             spurious_marking: event.spurious_marking.map(|m| self.marking(m)),
-            spurious_parikh_vector: event.spurious_parikh_vector.map(|pv| self.parikh_vector(pv)),
+            spurious_parikh_vector: event
+                .spurious_parikh_vector
+                .map(|pv| self.parikh_vector(pv)),
             lemma: self.lemma(event.lemma),
         }
     }
@@ -192,12 +200,18 @@ impl DenseMapping {
     /// Translates an internal [`CegarResult`](CegarResult) to a public Reachability result.
     pub fn reachability_result(&self, result: CegarResult) -> Option<Reachability> {
         match result {
-            CegarResult::Satisfiable { marking: _, firing_sequence } => Some(Reachability::Reachable {
+            CegarResult::Satisfiable {
+                marking: _,
+                firing_sequence,
+            } => Some(Reachability::Reachable {
                 // the target marking is already known to the caller (they provided it), so we don't need to return it here
                 firing_sequence: self.firing_sequence(firing_sequence),
             }),
             CegarResult::Unsatisfiable { contradiction } => Some(Reachability::Unreachable {
-                contradiction: contradiction.into_iter().map(|lemma| self.lemma(lemma)).collect(),
+                contradiction: contradiction
+                    .into_iter()
+                    .map(|lemma| self.lemma(lemma))
+                    .collect(),
             }),
             CegarResult::Inconclusive => None,
         }
@@ -206,12 +220,18 @@ impl DenseMapping {
     /// Translates an internal [`CegarResult`](CegarResult) to a public Coverability result.
     pub fn coverability_result(&self, result: CegarResult) -> Option<Coverability> {
         match result {
-            CegarResult::Satisfiable { marking, firing_sequence } => Some(Coverability::Coverable {
+            CegarResult::Satisfiable {
+                marking,
+                firing_sequence,
+            } => Some(Coverability::Coverable {
                 marking: self.marking(marking),
                 firing_sequence: self.firing_sequence(firing_sequence),
             }),
             CegarResult::Unsatisfiable { contradiction } => Some(Coverability::Uncoverable {
-                contradiction: contradiction.into_iter().map(|lemma| self.lemma(lemma)).collect(),
+                contradiction: contradiction
+                    .into_iter()
+                    .map(|lemma| self.lemma(lemma))
+                    .collect(),
             }),
             CegarResult::Inconclusive => None,
         }
@@ -221,24 +241,29 @@ impl DenseMapping {
     pub fn lemma(&self, lemma: IdxLemma) -> Lemma {
         match lemma {
             IdxLemma::PInvariant(p_inv) => Lemma::PInvariant(PInvariant {
-                weights: p_inv.weights.into_iter()
+                weights: p_inv
+                    .weights
+                    .into_iter()
                     .map(|(p_idx, w)| (self.place(p_idx), w))
                     .collect(),
                 value: p_inv.value,
                 kind: p_inv.kind,
             }),
-            IdxLemma::InitiallyMarkedTrap(trap) => Lemma::InitiallyMarkedTrap(
-                self.place_set(&trap)
-            ),
-            IdxLemma::InitiallyUnmarkedSiphon(siphon) => Lemma::InitiallyUnmarkedSiphon(
-                self.place_set(&siphon)
-            ),
+            IdxLemma::InitiallyMarkedTrap(trap) => {
+                Lemma::InitiallyMarkedTrap(self.place_set(&trap))
+            }
+            IdxLemma::InitiallyUnmarkedSiphon(siphon) => {
+                Lemma::InitiallyUnmarkedSiphon(self.place_set(&siphon))
+            }
             IdxLemma::MarkingEquation {
-                place, initial_marking, net_effects,
+                place,
+                initial_marking,
+                net_effects,
             } => Lemma::MarkingEquation {
                 place: self.place(place),
                 initial_marking,
-                net_effects: net_effects.into_iter()
+                net_effects: net_effects
+                    .into_iter()
                     .map(|(t_idx, effect)| (self.transition(t_idx), effect))
                     .collect(),
             },
@@ -246,10 +271,17 @@ impl DenseMapping {
                 feeder: self.transition(feeder),
                 trap: self.place_set(&trap),
             },
-            IdxLemma::TransitionOrdering { t_idx, p_idx, feeders } => Lemma::TransitionOrdering {
+            IdxLemma::TransitionOrdering {
+                t_idx,
+                p_idx,
+                feeders,
+            } => Lemma::TransitionOrdering {
                 transition: self.transition(t_idx),
                 place: self.place(p_idx),
-                feeders: feeders.into_iter().map(|t_idx| self.transition(t_idx)).collect(),
+                feeders: feeders
+                    .into_iter()
+                    .map(|t_idx| self.transition(t_idx))
+                    .collect(),
             },
             IdxLemma::Increment {
                 component_places,

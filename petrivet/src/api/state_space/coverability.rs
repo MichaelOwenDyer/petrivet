@@ -137,7 +137,7 @@ impl PartialOrd<Omega> for u32 {
 }
 
 impl Sum for Omega {
-    fn sum<I: Iterator<Item=Self>>(iter: I) -> Self {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.fold(Omega::Finite(0), |acc, o| match (acc, o) {
             (Omega::Unbounded, _) | (_, Omega::Unbounded) => Omega::Unbounded,
             (Omega::Finite(a), Omega::Finite(b)) => Omega::Finite(a + b),
@@ -196,7 +196,8 @@ impl<'a> CoverabilityGraphExplorer<'a> {
     /// resumed if desired.
     #[allow(clippy::result_large_err)]
     pub fn try_build_reachability_graph(self) -> Result<ReachabilityGraph<'a>, Self> {
-        self.try_build_reachability_graph_until(None).map_err(|stopped| stopped.explorer)
+        self.try_build_reachability_graph_until(None)
+            .map_err(|stopped| stopped.explorer)
     }
 
     /// Like [`try_build_reachability_graph`](Self::try_build_reachability_graph),
@@ -211,7 +212,7 @@ impl<'a> CoverabilityGraphExplorer<'a> {
     #[allow(clippy::result_large_err)]
     pub fn try_build_reachability_graph_timeout(
         self,
-        timeout: std::time::Duration
+        timeout: std::time::Duration,
     ) -> Result<ReachabilityGraph<'a>, ReachabilityGraphStopped<'a>> {
         let deadline = std::time::Instant::now().checked_add(timeout);
         self.try_build_reachability_graph_until(deadline)
@@ -235,19 +236,25 @@ impl<'a> CoverabilityGraphExplorer<'a> {
         while let Some((_transition_idx, node_idx, is_new)) = self.core.explore_next() {
             if is_new && self.core.state_space.marking_at(node_idx).has_omega() {
                 // short-circuit if we encounter a marking with ω
-                return Err(ReachabilityGraphStopped { reason: StopReason::Unbounded, explorer: self });
+                return Err(ReachabilityGraphStopped {
+                    reason: StopReason::Unbounded,
+                    explorer: self,
+                });
             }
             if time_is_up() {
-                return Err(ReachabilityGraphStopped { reason: StopReason::DeadlineExceeded, explorer: self });
+                return Err(ReachabilityGraphStopped {
+                    reason: StopReason::DeadlineExceeded,
+                    explorer: self,
+                });
             }
         }
         ReachabilityGraph::try_from(CoverabilityGraph {
             state_space: self.core.state_space,
             mapping: self.mapping,
         })
-            .map_err(|_| {
-                unreachable!("ω-free CG must promote successfully; ω would have been detected above")
-            })
+        .map_err(|_| {
+            unreachable!("ω-free CG must promote successfully; ω would have been detected above")
+        })
     }
 }
 

@@ -48,13 +48,13 @@ pub struct Marking<T> {
 }
 
 impl<T> Marking<T> {
-    pub fn support(&self) -> impl Iterator<Item=Place> + '_ {
+    pub fn support(&self) -> impl Iterator<Item = Place> + '_ {
         self.support.iter().map(|(place, _)| *place)
     }
 }
 
 impl<T: TokenOps> FromIterator<(Place, T)> for Marking<T> {
-    fn from_iter<I: IntoIterator<Item=(Place, T)>>(iter: I) -> Self {
+    fn from_iter<I: IntoIterator<Item = (Place, T)>>(iter: I) -> Self {
         let mut vec: Vec<(Place, T)> = iter.into_iter().filter(|(_, t)| *t != T::ZERO).collect();
         vec.sort_unstable_by_key(|elem| elem.0.0);
         vec.dedup_by_key(|elem| elem.0.0);
@@ -97,7 +97,10 @@ impl<T: TokenOps> Marking<T> {
     /// Whether this marking assigns at least as many tokens as `other` to every place.
     #[must_use]
     pub fn covers(&self, other: &Marking<T>) -> bool {
-        other.support.iter().all(|(place, tokens)| self.get(*place) >= *tokens)
+        other
+            .support
+            .iter()
+            .all(|(place, tokens)| self.get(*place) >= *tokens)
     }
 }
 

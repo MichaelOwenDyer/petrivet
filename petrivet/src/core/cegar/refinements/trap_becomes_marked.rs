@@ -33,7 +33,10 @@ impl TrapBecomesMarkedRule {
         // The unmarked places in the subnet induced by U (•U ∪ U•)
         let mut unmarked_places_in_subnet = PlaceIdxSet::none_of(net.place_count());
         for t_idx in &support {
-            for &p_idx in net.preset_t[t_idx].iter().chain(net.postset_t[t_idx].iter()) {
+            for &p_idx in net.preset_t[t_idx]
+                .iter()
+                .chain(net.postset_t[t_idx].iter())
+            {
                 if candidate_marking[p_idx] == 0 {
                     unmarked_places_in_subnet.add(p_idx);
                 }
@@ -59,10 +62,7 @@ impl TrapBecomesMarkedRule {
         // If any of the traps' feeders is in the support of the candidate Parikh vector,
         // then the candidate marking is spurious: firing the Parikh vector would necessarily
         // put a token into the trap, marking it forever.
-        (!feeders.is_disjoint(&support)).then_some(TrapBecomesMarkedRefinement {
-            trap,
-            feeders,
-        })
+        (!feeders.is_disjoint(&support)).then_some(TrapBecomesMarkedRefinement { trap, feeders })
     }
 }
 
@@ -90,7 +90,10 @@ impl TrapBecomesMarkedRefinement {
         for t_idx in self.feeders.iter() {
             let fires = solver.gt(&transition_terms[t_idx], &zero);
             let implication = solver.implies(&fires, &trap_marked);
-            let lemma = IdxLemma::TrapBecomesMarked { feeder: t_idx, trap: self.trap.clone() };
+            let lemma = IdxLemma::TrapBecomesMarked {
+                feeder: t_idx,
+                trap: self.trap.clone(),
+            };
             if let Some(callback) = callback {
                 callback(lemma.clone());
             }

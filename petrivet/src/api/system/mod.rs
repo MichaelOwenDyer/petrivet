@@ -59,12 +59,12 @@
 //! ```
 
 pub mod boundedness;
-pub mod siphon_trap;
 pub mod deadlock_freedom;
 pub mod liveness;
-pub mod reachability;
 pub mod marking;
 pub mod parikh_vector;
+pub mod reachability;
+pub mod siphon_trap;
 
 use crate::core::state_space::DenseStateGraphExplorer;
 use crate::core::system::boundedness::BoundsCache;
@@ -72,7 +72,9 @@ use crate::core::system::deadlock_freedom::DeadlockCache;
 use crate::core::system::liveness::LivenessCache;
 use crate::core::system::marking::IdxMarking;
 use crate::net::{Net, Place, Transition};
-use crate::state_space::{CoverabilityGraphExplorer, ExplorationOrder, ReachabilityGraphExplorer, StateGraphExplorer};
+use crate::state_space::{
+    CoverabilityGraphExplorer, ExplorationOrder, ReachabilityGraphExplorer, StateGraphExplorer,
+};
 use crate::system::marking::Marking;
 use std::cell::RefCell;
 use std::fmt;
@@ -228,7 +230,7 @@ impl<N: AsRef<Net>> PetriNet<N> {
     ///
     /// This is a read-only query. To fire one of these transitions, use [`fire`](Self::fire)
     /// or [`fire_unchecked`](Self::fire_unchecked).
-    pub fn enabled_transitions(&self) -> impl Iterator<Item=Transition> + '_ {
+    pub fn enabled_transitions(&self) -> impl Iterator<Item = Transition> + '_ {
         self.dense_net
             .transition_indices()
             .filter(|&t_idx| self.dense_net.is_enabled_in(t_idx, &self.marking))
@@ -290,7 +292,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Returns a [`ReachabilityGraphExplorer`] for this system
     /// initialized with the given [`ExplorationOrder`].
-    pub fn explore_reachability_graph(&self, order: ExplorationOrder) -> ReachabilityGraphExplorer<'_> {
+    pub fn explore_reachability_graph(
+        &self,
+        order: ExplorationOrder,
+    ) -> ReachabilityGraphExplorer<'_> {
         StateGraphExplorer {
             core: DenseStateGraphExplorer::new(&self.dense_net, self.marking.clone(), order),
             mapping: &self.mapping,
@@ -299,7 +304,10 @@ impl<N: AsRef<Net>> PetriNet<N> {
 
     /// Returns a [`CoverabilityGraphExplorer`] for this system
     /// initialized with the given [`ExplorationOrder`].
-    pub fn explore_coverability_graph(&self, order: ExplorationOrder) -> CoverabilityGraphExplorer<'_> {
+    pub fn explore_coverability_graph(
+        &self,
+        order: ExplorationOrder,
+    ) -> CoverabilityGraphExplorer<'_> {
         StateGraphExplorer {
             core: DenseStateGraphExplorer::new(&self.dense_net, self.marking.clone().into(), order),
             mapping: &self.mapping,

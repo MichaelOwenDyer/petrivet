@@ -5,12 +5,12 @@ use crate::prelude::Marking;
 use crate::system::parikh_vector::ParikhVector;
 use ahash::HashSet;
 
+mod coverability;
 #[expect(clippy::module_inception)]
 mod reachability;
-mod coverability;
 
-pub use reachability::Reachability;
 pub use coverability::Coverability;
+pub use reachability::Reachability;
 
 /// A lemma is a "truth" about a Petri net.
 #[derive(Debug, Clone, PartialEq, Eq)]

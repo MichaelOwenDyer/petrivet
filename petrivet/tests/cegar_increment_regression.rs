@@ -12,11 +12,22 @@ use petrivet::system::reachability::{Coverability, Reachability};
 use std::collections::HashMap;
 
 fn load(path: &str, target: &[u32]) -> (PetriNet<petrivet::net::Net>, Marking<u32>) {
-    let text = std::fs::read_to_string(format!("{}/tests/fixtures/cegar/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    let text = std::fs::read_to_string(format!(
+        "{}/tests/fixtures/cegar/{path}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
     let sys = PetriNet::from_pnml(&text).unwrap();
     let labels = sys.labels.as_deref().unwrap();
-    let by_id: HashMap<String, _> = sys.places().map(|p| (labels.place_id(p).unwrap().to_string(), p)).collect();
-    let target = target.iter().enumerate().map(|(i, n)| (by_id[&format!("p{i}")], *n)).collect();
+    let by_id: HashMap<String, _> = sys
+        .places()
+        .map(|p| (labels.place_id(p).unwrap().to_string(), p))
+        .collect();
+    let target = target
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (by_id[&format!("p{i}")], *n))
+        .collect();
     (sys, target)
 }
 
@@ -24,12 +35,21 @@ fn load(path: &str, target: &[u32]) -> (PetriNet<petrivet::net::Net>, Marking<u3
 fn reachable_target_is_not_refuted() {
     let (sys, target) = load("increment_unsound_reach.pnml", &[1, 0, 0, 0, 3]);
     let result = sys.reachability().target(target).call();
-    assert!(!matches!(result, Some(Reachability::Reachable { .. })), "a reachable target was refuted: {result:?}");
+    assert!(
+        !matches!(result, Some(Reachability::Reachable { .. })),
+        "a reachable target was refuted: {result:?}"
+    );
 }
 
 #[test]
 fn coverable_target_is_not_refuted() {
-    let (sys, target) = load("increment_unsound_cover.pnml", &[1, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    let (sys, target) = load(
+        "increment_unsound_cover.pnml",
+        &[1, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+    );
     let result = sys.coverability().target(target).call();
-    assert!(!matches!(result, Some(Coverability::Uncoverable { .. })), "a coverable target was refuted: {result:?}");
+    assert!(
+        !matches!(result, Some(Coverability::Uncoverable { .. })),
+        "a coverable target was refuted: {result:?}"
+    );
 }

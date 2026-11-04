@@ -10,8 +10,8 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::{EdgeRef, NodeFiltered};
 
 pub mod idx_set;
-pub mod siphon_trap;
 pub mod incidence;
+pub mod siphon_trap;
 pub mod structural_boundedness;
 
 /// A place in a built [`DenseNet`], identified by a dense index in `0 .. place_count`.
@@ -95,17 +95,17 @@ impl DenseNet {
     }
 
     /// Iterator over all internal places.
-    pub fn place_indices(&self) -> impl Iterator<Item=PlaceIdx> + '_ {
+    pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
         0..self.place_count() as PlaceIdx
     }
 
     /// Iterator over all internal transitions.
-    pub fn transition_indices(&self) -> impl Iterator<Item=TransitionIdx> + '_ {
+    pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
         0..self.transition_count() as TransitionIdx
     }
 
     /// Iterator over all arcs in the net, represented as pairs of internal indices.
-    pub fn arc_indices(&self) -> impl Iterator<Item=IdxArc> + '_ {
+    pub fn arc_indices(&self) -> impl Iterator<Item = IdxArc> + '_ {
         self.place_indices()
             .zip(self.preset_p.iter().zip(self.postset_p.iter()))
             .flat_map(|(p_idx, (preset, postset))| {
@@ -152,7 +152,9 @@ impl DenseNet {
     #[must_use]
     pub fn has_source_transition(&self) -> bool {
         !self.class.is_state_machine()
-            && self.transition_indices().any(|t| self.preset_t[t].is_empty())
+            && self
+                .transition_indices()
+                .any(|t| self.preset_t[t].is_empty())
     }
 
     /// Returns the maximal proper siphon in the net which is unmarked in the given marking,
@@ -170,13 +172,11 @@ impl DenseNet {
     /// This is relevant for marked graphs.
     pub fn transitions_on_unmarked_circuits(
         &self,
-        marking: &IdxMarking<u32>
-    ) -> impl Iterator<Item=TransitionIdx> + '_ {
-        let unmarked_subgraph = NodeFiltered::from_fn(&self.graph, |node| {
-            match self.graph[node] {
-                IdxNode::Place(p_idx) => marking[p_idx] == 0,
-                IdxNode::Transition(_) => true,
-            }
+        marking: &IdxMarking<u32>,
+    ) -> impl Iterator<Item = TransitionIdx> + '_ {
+        let unmarked_subgraph = NodeFiltered::from_fn(&self.graph, |node| match self.graph[node] {
+            IdxNode::Place(p_idx) => marking[p_idx] == 0,
+            IdxNode::Transition(_) => true,
         });
         tarjan_scc(&unmarked_subgraph)
             .into_iter()
@@ -207,7 +207,8 @@ impl DenseNet {
 
     /// Returns true if the given marking enables no transitions in the net.
     pub fn is_deadlock<T: TokenOps>(&self, marking: &IdxMarking<T>) -> bool {
-        self.transition_indices().all(|t| !self.is_enabled_in(t, marking))
+        self.transition_indices()
+            .all(|t| !self.is_enabled_in(t, marking))
     }
 
     /// Returns the minimum number of tokens in any circuit containing the given place,
@@ -215,7 +216,7 @@ impl DenseNet {
     pub fn minimum_tokens_in_circuit_containing(
         &self,
         p_idx: PlaceIdx,
-        marking: &IdxMarking<u32>
+        marking: &IdxMarking<u32>,
     ) -> Option<u32> {
         self.postset_p[p_idx]
             .iter()
@@ -227,7 +228,7 @@ impl DenseNet {
                     |e| match self.graph[e.target()] {
                         IdxNode::Place(q) => marking[q],
                         IdxNode::Transition(_) => 0,
-                    }
+                    },
                 );
                 dist.get(&self.graph_place_indices[p_idx]).copied()
             })

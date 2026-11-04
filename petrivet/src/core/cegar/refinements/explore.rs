@@ -149,7 +149,12 @@ impl GuidedExplorer {
                 let next_ample_set = Self::compute_ample_set(problem, &marking, &budget);
                 if next_ample_set.is_empty() {
                     // We hit a dead end! Record it if it's one of the best we've seen so far.
-                    Self::record_dead_end(&budget, &marking, &current_trace, &mut closest_dead_ends);
+                    Self::record_dead_end(
+                        &budget,
+                        &marking,
+                        &current_trace,
+                        &mut closest_dead_ends,
+                    );
                     budget.unfire(t_idx);
                     problem.net.unfire(t_idx, &mut marking);
                     current_trace.pop();
@@ -216,7 +221,10 @@ impl GuidedExplorer {
         let mut worklist = TransitionIdxSet::none_of(problem.net.transition_count());
 
         // Initialize with the first enabled active transition
-        let t0: TransitionIdx = active_enabled.iter().next().expect("there should be at least one enabled transition");
+        let t0: TransitionIdx = active_enabled
+            .iter()
+            .next()
+            .expect("there should be at least one enabled transition");
         stubborn_set.add(t0);
         worklist.add(t0);
 
@@ -236,13 +244,17 @@ impl GuidedExplorer {
                 // Rule for disabled transitions: find one insufficiently marked preset place and
                 // add all of its budgeted feeders.
                 for &p_idx in &problem.net.preset_t[t_idx] {
-                    if marking[p_idx] < u32::from(problem.net.incidence_matrix.get_consume(t_idx, p_idx)) {
+                    if marking[p_idx]
+                        < u32::from(problem.net.incidence_matrix.get_consume(t_idx, p_idx))
+                    {
                         // p_idx is insufficiently marked for t_idx.
                         // Add all of its budgeted feeders to the stubborn set.
                         // If no feeder transition has remaining budget, then t_idx is permanently
                         // dead, and we don't need to consider it further.
                         for &t_feeder in &problem.net.preset_p[p_idx] {
-                            if budget.by_transition[t_feeder] > 0 && !stubborn_set.contains(t_feeder) {
+                            if budget.by_transition[t_feeder] > 0
+                                && !stubborn_set.contains(t_feeder)
+                            {
                                 stubborn_set.add(t_feeder);
                                 worklist.add(t_feeder);
                             }
@@ -268,7 +280,13 @@ impl GuidedExplorer {
         // If we haven't reached capacity
         if best_dead_ends.len() < MAX_DEAD_ENDS {
             // Do nothing, we can just add this dead end
-        } else if budget.total < best_dead_ends.last().expect("len >= MAX_DEAD_ENDS").remaining_budget.total {
+        } else if budget.total
+            < best_dead_ends
+                .last()
+                .expect("len >= MAX_DEAD_ENDS")
+                .remaining_budget
+                .total
+        {
             // We have reached capacity, but this dead end is better than the worst we've seen so far.
             best_dead_ends.pop();
         } else {
@@ -310,7 +328,8 @@ fn find_bottleneck_components(
     let mut graph: Graph<IdxNode, ()> = Graph::new();
     let mut node_index: HashMap<IdxNode, petgraph::graph::NodeIndex> = HashMap::new();
 
-    let t0: Vec<TransitionIdx> = problem.net
+    let t0: Vec<TransitionIdx> = problem
+        .net
         .transition_indices()
         .filter(|&t| remaining_budget.by_transition[t] > 0)
         .collect();
@@ -319,9 +338,11 @@ fn find_bottleneck_components(
     for &t in &t0 {
         for &p in &problem.net.preset_t[t] {
             if u32::from(problem.net.incidence_matrix.get_consume(t, p)) > marking[p] {
-                let p_node = *node_index.entry(IdxNode::Place(p))
+                let p_node = *node_index
+                    .entry(IdxNode::Place(p))
                     .or_insert_with(|| graph.add_node(IdxNode::Place(p)));
-                let t_node = *node_index.entry(IdxNode::Transition(t))
+                let t_node = *node_index
+                    .entry(IdxNode::Transition(t))
                     .or_insert_with(|| graph.add_node(IdxNode::Transition(t)));
                 graph.add_edge(p_node, t_node, ());
             }
@@ -333,7 +354,8 @@ fn find_bottleneck_components(
             if let Some(&p_node) = node_index.get(&IdxNode::Place(p))
                 && problem.net.incidence_matrix.get_effect(t, p) > 0
             {
-                let t_node = *node_index.entry(IdxNode::Transition(t))
+                let t_node = *node_index
+                    .entry(IdxNode::Transition(t))
                     .or_insert_with(|| graph.add_node(IdxNode::Transition(t)));
                 graph.add_edge(t_node, p_node, ());
             }
@@ -345,10 +367,14 @@ fn find_bottleneck_components(
     }
 
     let condensation_graph = petgraph::algo::condensation(graph, true);
-    condensation_graph.node_references()
+    condensation_graph
+        .node_references()
         .filter(|(idx, _)| {
             // filter for source SCCs
-            condensation_graph.neighbors_directed(*idx, Direction::Incoming).next().is_none()
+            condensation_graph
+                .neighbors_directed(*idx, Direction::Incoming)
+                .next()
+                .is_none()
         })
         .map(|(_, members)| {
             let mut places = PlaceIdxSet::none_of(problem.net.place_count());
@@ -379,9 +405,11 @@ fn external_consumers(
 ) -> TransitionIdxSet {
     let mut xi = TransitionIdxSet::none_of(problem.net.transition_count());
     for t_idx in component_transitions.complement() {
-        if remaining_budget.by_transition[t_idx] > 0 && component_places.iter().any(|p_idx| {
-            u32::from(problem.net.incidence_matrix.get_consume(t_idx, p_idx)) > marking[p_idx]
-        }) {
+        if remaining_budget.by_transition[t_idx] > 0
+            && component_places.iter().any(|p_idx| {
+                u32::from(problem.net.incidence_matrix.get_consume(t_idx, p_idx)) > marking[p_idx]
+            })
+        {
             xi.add(t_idx);
         }
     }
@@ -497,7 +525,11 @@ impl IncrementRefinement {
                         let t_term = transition_terms[t].clone();
                         lhs_terms.push(solver.mul([weight_term, t_term]));
 
-                        let fired_count = self.firing_sequence.iter().filter(|&&fired_t| fired_t == t).count() as u32;
+                        let fired_count = self
+                            .firing_sequence
+                            .iter()
+                            .filter(|&&fired_t| fired_t == t)
+                            .count() as u32;
                         tokens_already_produced += net_production.cast_unsigned() * fired_count;
                     }
                 }
@@ -598,6 +630,9 @@ mod tests {
             &component_transitions,
             &external_consumers,
         );
-        assert_eq!(n, 1, "self-loops should not be double-counted against the sink's real need");
+        assert_eq!(
+            n, 1,
+            "self-loops should not be double-counted against the sink's real need"
+        );
     }
 }

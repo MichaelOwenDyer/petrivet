@@ -88,14 +88,15 @@ impl IdxIncidenceMatrix {
     /// i.e., the number of tokens produced minus the number of tokens consumed.
     #[must_use]
     pub fn get_effect(&self, transition: TransitionIdx, place: PlaceIdx) -> i16 {
-        i16::from(self.get_produce(transition, place)) - i16::from(self.get_consume(transition, place))
+        i16::from(self.get_produce(transition, place))
+            - i16::from(self.get_consume(transition, place))
     }
 
-    pub fn place_indices(&self) -> impl Iterator<Item=PlaceIdx> + '_ {
+    pub fn place_indices(&self) -> impl Iterator<Item = PlaceIdx> + '_ {
         0..self.places as PlaceIdx
     }
 
-    pub fn transition_indices(&self) -> impl Iterator<Item=TransitionIdx> + '_ {
+    pub fn transition_indices(&self) -> impl Iterator<Item = TransitionIdx> + '_ {
         0..self.transitions as TransitionIdx
     }
 }
